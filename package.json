@@ -8,7 +8,8 @@
     "build": "vite build",
     "tauri": "tauri",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "scheduler:update": "git subtree pull --prefix=vendor/school-scheduler https://github.com/ChristianInfluence/school-scheduler.git main --squash"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.4",
