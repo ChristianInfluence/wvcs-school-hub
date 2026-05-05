@@ -90,3 +90,5 @@ GMAIL_SENDER_EMAIL=
 ```
 
 Meeting requests continue to work locally without these values. Once configured, requests are saved to Supabase and the Gmail Edge Function sends the administrator and teacher a calendar invite email.
+
+See `docs/gmail-oauth.md` for the Google Cloud and Gmail refresh-token walkthrough.
