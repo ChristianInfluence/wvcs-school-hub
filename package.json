@@ -12,6 +12,7 @@
     "scheduler:update": "git subtree pull --prefix=vendor/school-scheduler https://github.com/ChristianInfluence/school-scheduler.git main --squash"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.3",
     "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-fs": "^2.5.0",
@@ -19,6 +20,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "html2pdf.js": "^0.14.0",
     "lucide-react": "^1.11.0",
+    "pdf-lib": "^1.17.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.2.4"
