@@ -26,10 +26,11 @@ function formatTime(value: string) {
 
 function buildMessage({ request, administrator, slot, calendarInvite }: Record<string, any>, senderEmail: string) {
   const boundary = `wvcs-${crypto.randomUUID()}`;
-  const subject = `Meeting request: ${request.teacherName} with ${administrator.name}`;
+  const confirmed = request.status === "confirmed";
+  const subject = `${confirmed ? "Confirmed meeting" : "Meeting request"}: ${request.teacherName} with ${administrator.name}`;
   const when = `${slot.date} ${formatTime(slot.start)}-${formatTime(slot.end)}`;
   const textBody = [
-    `A meeting request has been submitted.`,
+    confirmed ? `This meeting has been confirmed.` : `A meeting request has been submitted.`,
     ``,
     `Administrator: ${administrator.name} (${administrator.role})`,
     `Teacher: ${request.teacherName} <${request.teacherEmail}>`,
@@ -41,8 +42,7 @@ function buildMessage({ request, administrator, slot, calendarInvite }: Record<s
 
   return [
     `From: WVCS School Hub <${senderEmail}>`,
-    `To: ${administrator.email}`,
-    `Cc: ${request.teacherEmail}`,
+    `To: ${administrator.email}, ${request.teacherEmail}`,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -119,4 +119,3 @@ Deno.serve(async (request) => {
     });
   }
 });
-

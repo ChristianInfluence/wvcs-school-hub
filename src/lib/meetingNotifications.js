@@ -34,6 +34,24 @@ export async function saveMeetingRequest(request, administrator, slot) {
   return { saved: true };
 }
 
+export async function updateMeetingRequestStatus(requestId, patch) {
+  if (!isSupabaseConfigured) {
+    return { saved: false, reason: "Supabase is not configured." };
+  }
+
+  const { error } = await supabase
+    .from("meeting_requests")
+    .update({
+      status: patch.status,
+      invite_status: patch.inviteStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", requestId);
+
+  if (error) throw error;
+  return { saved: true };
+}
+
 export async function sendMeetingRequestEmail({ request, administrator, slot, calendarInvite }) {
   if (!isSupabaseConfigured) {
     return { sent: false, reason: "Supabase is not configured." };

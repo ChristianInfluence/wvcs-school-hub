@@ -10,7 +10,11 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { saveMeetingRequest, sendMeetingRequestEmail } from "../../lib/meetingNotifications.js";
+import {
+  saveMeetingRequest,
+  sendMeetingRequestEmail,
+  updateMeetingRequestStatus,
+} from "../../lib/meetingNotifications.js";
 
 const STORE_KEY = "wvcs-meeting-scheduler-v1";
 
@@ -194,7 +198,8 @@ function icsDate(date, time) {
 }
 
 function buildCalendarInvite(request, administrator, slot) {
-  const subject = `Meeting: ${request.teacherName} with ${administrator.name}`;
+  const confirmed = request.status === "confirmed";
+  const subject = `${confirmed ? "Confirmed Meeting" : "Meeting Request"}: ${request.teacherName} with ${administrator.name}`;
   const description = [
     `Requested by: ${request.teacherName} <${request.teacherEmail}>`,
     `Administrator: ${administrator.name}, ${administrator.role}`,
@@ -215,8 +220,9 @@ function buildCalendarInvite(request, administrator, slot) {
     `DTEND:${icsDate(slot.date, slot.end)}`,
     `SUMMARY:${subject}`,
     `DESCRIPTION:${description}`,
-    `ORGANIZER;CN=${request.teacherName}:mailto:${request.teacherEmail}`,
+    `ORGANIZER;CN=${administrator.name}:mailto:${administrator.email}`,
     `ATTENDEE;CN=${administrator.name};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${administrator.email}`,
+    `ATTENDEE;CN=${request.teacherName};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${request.teacherEmail}`,
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");
@@ -370,9 +376,8 @@ export default function MeetingsModule() {
       notes: requester.notes.trim(),
       status: "requested",
       requestedAt: new Date().toISOString(),
-      inviteStatus: "Calendar invite ready to send",
+      inviteStatus: "Awaiting administrator confirmation",
     };
-    const calendarInvite = buildCalendarInvite(request, selectedAdmin, selectedSlot);
 
     updateState((current) => ({
       ...current,
@@ -381,18 +386,9 @@ export default function MeetingsModule() {
 
     try {
       const saveResult = await saveMeetingRequest(request, selectedAdmin, selectedSlot);
-      const sendResult = await sendMeetingRequestEmail({
-        request,
-        administrator: selectedAdmin,
-        slot: selectedSlot,
-        calendarInvite,
-      });
 
-      if (sendResult.sent) {
-        setStatus(`Request created for ${selectedAdmin.name}. Calendar invite email sent.`);
-      } else if (saveResult.saved) {
-        downloadInvite(request, selectedAdmin, selectedSlot);
-        setStatus(`Request saved to Supabase. Calendar invite downloaded because email is not configured yet.`);
+      if (saveResult.saved) {
+        setStatus(`Request sent to ${selectedAdmin.name}. The calendar invite will go to both parties when confirmed.`);
       } else {
         downloadInvite(request, selectedAdmin, selectedSlot);
         setStatus(`Request created locally. Calendar invite downloaded until Supabase email is configured.`);
@@ -817,6 +813,7 @@ function AdminEditor({ administrator, onSave, onCancel }) {
 export function AdminMeetingsModule() {
   const [state, updateState] = useMeetingStore();
   const [editingId, setEditingId] = useState(state.administrators[0]?.id || "");
+  const [confirmingId, setConfirmingId] = useState("");
   const editingAdmin = state.administrators.find((admin) => admin.id === editingId);
 
   function saveAdministrator(nextAdministrator) {
@@ -835,6 +832,58 @@ export function AdminMeetingsModule() {
         request.id === requestId ? { ...request, inviteStatus: "Invite marked sent" } : request
       ),
     }));
+  }
+
+  async function confirmAndSendInvite(request, admin, slot) {
+    if (!admin || !slot || confirmingId) return;
+    setConfirmingId(request.id);
+    const confirmedRequest = {
+      ...request,
+      status: "confirmed",
+      inviteStatus: "Confirmed calendar invite sent to both parties",
+      confirmedAt: new Date().toISOString(),
+    };
+    const calendarInvite = buildCalendarInvite(confirmedRequest, admin, slot);
+
+    try {
+      await updateMeetingRequestStatus(request.id, {
+        status: confirmedRequest.status,
+        inviteStatus: confirmedRequest.inviteStatus,
+      });
+      const sendResult = await sendMeetingRequestEmail({
+        request: confirmedRequest,
+        administrator: admin,
+        slot,
+        calendarInvite,
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the invite.");
+      }
+
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id ? confirmedRequest : item
+        ),
+      }));
+    } catch (error) {
+      downloadInvite(confirmedRequest, admin, slot);
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id
+            ? {
+                ...item,
+                status: "confirmed",
+                inviteStatus: `Confirmed locally. Email automation needs attention: ${error.message}`,
+              }
+            : item
+        ),
+      }));
+    } finally {
+      setConfirmingId("");
+    }
   }
 
   return (
@@ -917,10 +966,28 @@ export function AdminMeetingsModule() {
                             {request.teacherName} with {admin?.name || "Administrator"}
                           </div>
                           <div className="mt-1 text-xs text-slate-500">{slot ? formatSlot(slot) : "Slot unavailable"}</div>
+                          <div className={`mt-2 inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
+                            request.status === "confirmed"
+                              ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                              : "border-amber-400/50 bg-amber-500/15 text-amber-100"
+                          }`}>
+                            {request.status === "confirmed" ? "Confirmed" : "Pending confirmation"}
+                          </div>
                           <div className="mt-2 text-sm text-slate-300">{request.topic}</div>
                           {request.notes && <div className="mt-2 text-xs text-slate-400">{request.notes}</div>}
                         </div>
                         <div className="flex flex-wrap gap-2">
+                          {admin && slot && request.status !== "confirmed" && (
+                            <button
+                              type="button"
+                              disabled={confirmingId === request.id}
+                              onClick={() => confirmAndSendInvite(request, admin, slot)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <CheckCircle2 size={14} />
+                              {confirmingId === request.id ? "Sending..." : "Confirm & Send Invite"}
+                            </button>
+                          )}
                           {admin && slot && (
                             <button
                               type="button"
