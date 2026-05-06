@@ -1,0 +1,14 @@
+{
+  "name": "student-evaluation",
+  "version": "1.0.0",
+  "description": "New Student Probation Log",
+  "main": "index.js",
+  "scripts": {
+    "start": "firebase serve",
+    "deploy": "firebase deploy"
+  },
+  "dependencies": {
+    "firebase": "^9.6.1"
+  },
+  "devDependencies": {}
+}
