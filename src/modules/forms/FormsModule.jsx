@@ -1502,6 +1502,45 @@ function TemplateLibrary({ state, updateState }) {
     }
   }
 
+  if (editingTemplate) {
+    return (
+      <div className="min-h-[680px] rounded-lg border border-sky-500/30 bg-slate-950">
+        <div className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 px-5 py-4 backdrop-blur">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
+                <Settings size={15} />
+                Editing Template
+              </div>
+              <h2 className="mt-2 text-2xl font-bold text-white">{editingTemplate.title}</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Make changes to the full PDF form template, fields, approver, recipients, and staff availability.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingId("")}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+            >
+              <XCircle size={16} />
+              Back to Templates
+            </button>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-[1200px] p-5">
+          <TemplateEditorPanel
+            key={editingId}
+            settings={state.settings}
+            template={editingTemplate}
+            onCancel={() => setEditingId("")}
+            onSave={updateTemplate}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-4 2xl:grid-cols-[520px_minmax(720px,1fr)]">
       <div className="rounded-lg border border-slate-800 bg-slate-900">
@@ -1552,10 +1591,10 @@ function TemplateLibrary({ state, updateState }) {
                 <button
                   type="button"
                   onClick={() => setEditingId(template.id)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-sky-500/60 bg-sky-500/15 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/25"
+                  className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-sky-950/30 transition hover:bg-sky-400"
                 >
                   <Settings size={14} />
-                  Edit
+                  Edit Template
                 </button>
                 <button
                   type="button"
@@ -1573,11 +1612,11 @@ function TemplateLibrary({ state, updateState }) {
 
       <div className="2xl:order-last">
         <TemplateEditorPanel
-          key={editingId || "new-template"}
+          key="new-template"
           settings={state.settings}
-          template={editingTemplate}
+          template={null}
           onCancel={() => setEditingId("")}
-          onSave={editingTemplate ? updateTemplate : addTemplate}
+          onSave={addTemplate}
         />
       </div>
     </div>
