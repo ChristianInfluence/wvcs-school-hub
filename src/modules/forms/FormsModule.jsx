@@ -20,6 +20,8 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
+import { sendFormNotification } from "../../lib/formNotifications.js";
+import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const STORE_KEY = "wvcs-forms-workflow-v1";
 const SIGNATURE_KEY = "wvcs-forms-approval-signature";
@@ -158,6 +160,7 @@ function parseEmailList(value) {
 function hasRequiredAnswer(field, answers) {
   if (!field.required) return true;
   if (field.type === "checkbox") return answers[field.id] === true;
+  if (field.type === "file") return Boolean(answers[field.id]?.dataUrl);
   return Boolean(answers[field.id]);
 }
 
@@ -175,6 +178,31 @@ function formatDate(value) {
 function getPdfFileName(submission) {
   const formName = submission.templateTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   return `${formName}-${submission.id}.pdf`;
+}
+
+function uniqueEmails(values) {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean)));
+}
+
+function dataUrlToAttachment(file) {
+  if (!file?.dataUrl) return null;
+  const [metadata, contentBase64] = file.dataUrl.split(",");
+  const mimeType = metadata?.match(/^data:(.*?);base64$/)?.[1] || file.type || "application/octet-stream";
+  return {
+    filename: file.name || "attachment",
+    mimeType,
+    contentBase64,
+  };
+}
+
+async function blobToBase64(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return String(dataUrl).split(",")[1];
 }
 
 function getSampleSubmission(template) {
@@ -203,6 +231,7 @@ function getSampleSubmission(template) {
           number: "24",
           email: "staff@wvcs.org",
           checkbox: true,
+          file: { name: "receipt.pdf", type: "application/pdf", size: 128000, dataUrl: "" },
           textarea: "A longer staff response will flow into this area of the generated PDF.",
           text: "Sample response",
         };
@@ -292,6 +321,43 @@ function FieldInput({ field, value, onChange }) {
     );
   }
 
+  if (field.type === "file") {
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-950 p-3">
+        <input
+          type="file"
+          accept={field.accept || "application/pdf,image/*"}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) {
+              onChange(null);
+              return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+              onChange({
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                dataUrl: reader.result,
+                uploadedAt: new Date().toISOString(),
+              });
+            };
+            reader.readAsDataURL(file);
+          }}
+          className="w-full text-sm text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+        />
+        {value?.name && (
+          <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+            <span className="font-semibold text-slate-100">{value.name}</span>
+            <span className="ml-2 text-slate-500">{formatFileSize(value.size)}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <input
       type={field.type}
@@ -303,6 +369,37 @@ function FieldInput({ field, value, onChange }) {
   );
 }
 
+function formatFileSize(size) {
+  if (!size) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderAnswerValue(answer) {
+  if (answer && typeof answer === "object" && "name" in answer) {
+    return `${answer.name}${answer.size ? ` (${formatFileSize(answer.size)})` : ""}`;
+  }
+  if (typeof answer === "boolean") return answer ? "Yes" : "No";
+  return answer || "-";
+}
+
+function AttachmentLink({ attachment, label = "View Attachment" }) {
+  if (!attachment?.dataUrl) return null;
+  return (
+    <a
+      href={attachment.dataUrl}
+      target="_blank"
+      rel="noreferrer"
+      download={attachment.name}
+      className="inline-flex items-center gap-2 rounded-lg border border-sky-500/60 bg-sky-500/15 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/25"
+    >
+      <Download size={14} />
+      {label}
+    </a>
+  );
+}
+
 function SubmissionPdf({ submission, template, settings }) {
   const recipients = [
     submission.submitterEmail,
@@ -311,13 +408,20 @@ function SubmissionPdf({ submission, template, settings }) {
   ];
   const fieldRows = template?.fields || [];
   const labelStyle = {
-    fontSize: "10px",
+    fontSize: "8.5px",
     fontWeight: 700,
-    letterSpacing: "1.2px",
+    letterSpacing: "0.8px",
     textTransform: "uppercase",
     color: "#64748b",
   };
   function renderPdfAnswer(field) {
+    if (field.type === "file") {
+      const attachment = submission.answers[field.id];
+      return attachment?.name
+        ? `${attachment.name}${attachment.size ? ` (${formatFileSize(attachment.size)})` : ""}`
+        : "-";
+    }
+
     if (field.type === "checkbox") {
       const checked = Boolean(submission.answers[field.id]);
       return (
@@ -343,56 +447,73 @@ function SubmissionPdf({ submission, template, settings }) {
       );
     }
 
-    return submission.answers[field.id] || "-";
+    return renderAnswerValue(submission.answers[field.id]);
   }
 
   return (
     <div
       style={{
         width: "709px",
-        padding: "28px 34px 44px",
+        padding: "18px 24px 28px",
         background: "#ffffff",
         color: "#020617",
         fontFamily: "Arial, Helvetica, sans-serif",
         boxSizing: "border-box",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
+      <img
+        src={warriorHeadNew}
+        alt=""
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "52%",
+          width: "360px",
+          transform: "translate(-50%, -50%)",
+          opacity: 0.055,
+          zIndex: 0,
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{ position: "relative", zIndex: 1 }}>
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "1fr auto",
           alignItems: "center",
-          gap: "20px",
+          gap: "14px",
           background: "#f8fafc",
           border: "1px solid #cbd5e1",
-          borderBottom: "4px solid #075985",
-          borderRadius: "8px 8px 0 0",
-          padding: "14px 18px",
+          borderBottom: "3px solid #075985",
+          borderRadius: "6px 6px 0 0",
+          padding: "10px 12px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
-          <img src="/wvcs-logo.png" alt="WVCS" style={{ width: "180px", maxHeight: "72px", objectFit: "contain" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <img src="/wvcs-logo.png" alt="WVCS" style={{ width: "128px", maxHeight: "50px", objectFit: "contain" }} />
           <div>
-            <div style={{ ...labelStyle, letterSpacing: "2.2px" }}>
+            <div style={{ ...labelStyle, letterSpacing: "1.6px" }}>
               WVCS Administrative Form
             </div>
-            <h1 style={{ margin: "8px 0 0", fontSize: "24px", fontWeight: 700, color: "#020617" }}>
+            <h1 style={{ margin: "4px 0 0", fontSize: "19px", fontWeight: 700, color: "#020617" }}>
               {submission.templateTitle}
             </h1>
-            <p style={{ margin: "4px 0 0", fontSize: "14px", lineHeight: 1.45, color: "#475569" }}>
+            <p style={{ margin: "2px 0 0", fontSize: "11px", lineHeight: 1.3, color: "#475569" }}>
               {template?.description || "Generated form record"}
             </p>
           </div>
         </div>
         <div
           style={{
-            minWidth: "92px",
+            minWidth: "78px",
             border: "1px solid #94a3b8",
-            borderRadius: "6px",
+            borderRadius: "5px",
             background: "#ffffff",
-            padding: "8px 12px",
+            padding: "6px 8px",
             textAlign: "center",
-            fontSize: "14px",
+            fontSize: "11px",
             fontWeight: 700,
           }}
         >
@@ -403,12 +524,12 @@ function SubmissionPdf({ submission, template, settings }) {
 
       <div
         style={{
-          marginTop: "20px",
+          marginTop: "12px",
           border: "1px solid #cbd5e1",
-          borderRadius: "6px",
+          borderRadius: "5px",
           background: "#f8fafc",
-          padding: "12px",
-          fontSize: "12px",
+          padding: "7px 9px",
+          fontSize: "10px",
           color: "#475569",
         }}
       >
@@ -417,7 +538,7 @@ function SubmissionPdf({ submission, template, settings }) {
         <span style={{ fontWeight: 700, color: "#1e293b" }}>PDF:</span> {getPdfFileName(submission)}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "24px", fontSize: "14px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "9px 14px", marginTop: "14px", fontSize: "11px" }}>
         <div>
           <div style={labelStyle}>Submitted By</div>
           <div>{submission.submitterName}</div>
@@ -437,24 +558,24 @@ function SubmissionPdf({ submission, template, settings }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "28px" }}>
-        <h2 style={{ margin: 0, borderBottom: "1px solid #cbd5e1", paddingBottom: "8px", fontSize: "18px" }}>
+      <div style={{ marginTop: "16px" }}>
+        <h2 style={{ margin: 0, borderBottom: "1px solid #cbd5e1", paddingBottom: "5px", fontSize: "14px" }}>
           Form Responses
         </h2>
-        <div style={{ marginTop: "12px", overflow: "hidden", border: "1px solid #cbd5e1", borderRadius: "6px" }}>
+        <div style={{ marginTop: "7px", overflow: "hidden", border: "1px solid #cbd5e1", borderRadius: "5px" }}>
           {fieldRows.map((field, index) => (
             <div
               key={field.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "220px 1fr",
+                gridTemplateColumns: "180px 1fr",
                 borderBottom: index === fieldRows.length - 1 ? "none" : "1px solid #e2e8f0",
               }}
             >
-              <div style={{ background: "#f1f5f9", padding: "8px 12px", fontSize: "14px", fontWeight: 700 }}>
+              <div style={{ background: "#f1f5f9", padding: "5px 8px", fontSize: "10.5px", fontWeight: 700 }}>
                 {field.label}
               </div>
-              <div style={{ padding: "8px 12px", fontSize: "14px", whiteSpace: "pre-wrap" }}>
+              <div style={{ padding: "5px 8px", fontSize: "10.5px", lineHeight: 1.25, whiteSpace: "pre-wrap" }}>
                 {renderPdfAnswer(field)}
               </div>
             </div>
@@ -462,26 +583,27 @@ function SubmissionPdf({ submission, template, settings }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "28px" }}>
-        <h2 style={{ margin: 0, borderBottom: "1px solid #cbd5e1", paddingBottom: "8px", fontSize: "18px" }}>
+      <div style={{ marginTop: "16px" }}>
+        <h2 style={{ margin: 0, borderBottom: "1px solid #cbd5e1", paddingBottom: "5px", fontSize: "14px" }}>
           Approval Record
         </h2>
         <p
           style={{
-            minHeight: "64px",
-            margin: "8px 0 0",
+            minHeight: "38px",
+            margin: "6px 0 0",
             border: "1px solid #cbd5e1",
-            borderRadius: "6px",
-            padding: "12px",
-            fontSize: "14px",
+            borderRadius: "5px",
+            padding: "7px 8px",
+            fontSize: "10.5px",
+            lineHeight: 1.3,
             whiteSpace: "pre-wrap",
           }}
         >
           {submission.reviewNotes || "No notes entered."}
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "16px" }}>
-          <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "8px", fontSize: "12px", color: "#475569" }}>
-            <div style={{ fontFamily: "Georgia, serif", fontSize: "20px", color: "#020617" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "10px" }}>
+          <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "5px", fontSize: "10px", color: "#475569" }}>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: "15px", color: "#020617" }}>
               {submission.approvalSignature?.value || ""}
             </div>
             <div>Electronic Signature</div>
@@ -489,8 +611,8 @@ function SubmissionPdf({ submission, template, settings }) {
               <div style={{ marginTop: "3px" }}>{submission.approvalSignature.signerRole}</div>
             )}
           </div>
-          <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "8px", fontSize: "12px", color: "#475569" }}>
-            <div style={{ fontSize: "14px", color: "#020617" }}>
+          <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "5px", fontSize: "10px", color: "#475569" }}>
+            <div style={{ fontSize: "11px", color: "#020617" }}>
               {formatDate(submission.approvalSignature?.signedAt || submission.reviewedAt)}
             </div>
             <div>Date Signed</div>
@@ -498,8 +620,9 @@ function SubmissionPdf({ submission, template, settings }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "28px", borderTop: "1px solid #cbd5e1", paddingTop: "16px", fontSize: "12px", color: "#475569" }}>
+      <div style={{ marginTop: "16px", borderTop: "1px solid #cbd5e1", paddingTop: "8px", fontSize: "9.5px", color: "#475569" }}>
         Final copy recipients: {recipients.filter(Boolean).join(", ")}
+      </div>
       </div>
     </div>
   );
@@ -518,23 +641,43 @@ function renderPdfNode(submission, template, settings) {
 }
 
 async function downloadSubmissionPdf(submission, template, settings) {
+  const blob = await generateSubmissionPdfBlob(submission, template, settings);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getPdfFileName(submission);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+async function previewSubmissionPdf(submission, template, settings) {
+  const blob = await generateSubmissionPdfBlob(submission, template, settings);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function generateSubmissionPdfBlob(submission, template, settings) {
   const { host, element } = renderPdfNode(submission, template, settings);
   const root = createRoot(host);
   root.render(element);
 
   await new Promise((resolve) => setTimeout(resolve, 100));
-  await html2pdf()
+  const blob = await html2pdf()
     .set({
-      margin: [32, 40, 48, 40],
+      margin: [22, 30, 28, 30],
       filename: getPdfFileName(submission),
       html2canvas: { scale: 2 },
       jsPDF: { unit: "pt", format: "letter", orientation: "portrait" },
     })
     .from(host.firstElementChild)
-    .save();
+    .outputPdf("blob");
 
   root.unmount();
   host.remove();
+  return blob;
 }
 
 function StaffFormsModule() {
@@ -708,14 +851,24 @@ function StaffFormsModule() {
                           </div>
                           <Badge status={submission.status}>{submission.status}</Badge>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => downloadSubmissionPdf(submission, template, state.settings)}
-                          className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-sky-300 hover:text-sky-200"
-                        >
-                          <Download size={14} />
-                          Download PDF Copy
-                        </button>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => previewSubmissionPdf(submission, template, state.settings)}
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-sky-300 hover:text-sky-200"
+                          >
+                            <Eye size={14} />
+                            Preview PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadSubmissionPdf(submission, template, state.settings)}
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-300 hover:text-slate-200"
+                          >
+                            <Download size={14} />
+                            Download
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1073,6 +1226,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
                 <option value="date">Date</option>
                 <option value="time">Time</option>
                 <option value="checkbox">Checkbox</option>
+                <option value="file">File Upload</option>
                 <option value="number">Number</option>
                 <option value="email">Email</option>
               </select>
@@ -1140,6 +1294,7 @@ function ApprovalQueue({ state, updateState }) {
   const [notes, setNotes] = useState("");
   const [signatureName, setSignatureName] = useState(loadApprovalSignature);
   const [reviewFeedback, setReviewFeedback] = useState("");
+  const [sendingId, setSendingId] = useState("");
 
   function review(status) {
     if (!selected) return;
@@ -1184,14 +1339,82 @@ function ApprovalQueue({ state, updateState }) {
     setNotes("");
   }
 
-  function markSent() {
+  async function sendSelectedEmail() {
     if (!selected) return;
-    updateState((current) => ({
-      ...current,
-      submissions: current.submissions.map((submission) =>
-        submission.id === selected.id ? { ...submission, status: "Sent", emailStatus: "Sent by Gmail API" } : submission
-      ),
-    }));
+    if (!["Approved", "Rejected", "Sent"].includes(selected.status)) {
+      setReviewFeedback("Approve or reject the form before sending an email.");
+      window.setTimeout(() => setReviewFeedback(""), 2600);
+      return;
+    }
+
+    setSendingId(selected.id);
+    try {
+      const approved = selected.status === "Approved" || selected.status === "Sent";
+      const recipients = approved
+        ? uniqueEmails([
+            selected.submitterEmail,
+            ...(template?.recipients || []),
+            ...((template?.finalCopyRecipients?.length ? template.finalCopyRecipients : state.settings.finalCopyRecipients) || []),
+          ])
+        : uniqueEmails([selected.submitterEmail, ...(template?.recipients || [])]);
+
+      const attachments = [];
+      if (approved) {
+        const pdfBlob = await generateSubmissionPdfBlob(selected, template, state.settings);
+        attachments.push({
+          filename: getPdfFileName(selected),
+          mimeType: "application/pdf",
+          contentBase64: await blobToBase64(pdfBlob),
+        });
+
+        (template?.fields || []).forEach((field) => {
+          if (field.type !== "file") return;
+          const attachment = dataUrlToAttachment(selected.answers[field.id]);
+          if (attachment) attachments.push(attachment);
+        });
+      }
+
+      const sendResult = await sendFormNotification({
+        submission: selected,
+        template,
+        status: selected.status,
+        notes: selected.reviewNotes || notes,
+        recipients,
+        attachments,
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the form notification.");
+      }
+
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((submission) =>
+          submission.id === selected.id
+            ? {
+                ...submission,
+                status: approved ? "Sent" : submission.status,
+                emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
+                emailedAt: new Date().toISOString(),
+              }
+            : submission
+        ),
+      }));
+      setReviewFeedback(approved ? "Completed PDF email sent." : "Status email sent.");
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((submission) =>
+          submission.id === selected.id
+            ? { ...submission, emailStatus: `Email failed: ${error.message}` }
+            : submission
+        ),
+      }));
+      setReviewFeedback(`Email failed: ${error.message}`);
+    } finally {
+      setSendingId("");
+      window.setTimeout(() => setReviewFeedback(""), 3600);
+    }
   }
 
   return (
@@ -1277,7 +1500,14 @@ function ApprovalQueue({ state, updateState }) {
                 {(template?.fields || []).map((field) => (
                   <div key={field.id} className="grid gap-0 border-b border-slate-800 last:border-b-0 md:grid-cols-[240px_1fr]">
                     <div className="bg-slate-950 px-4 py-3 text-sm font-semibold text-slate-300">{field.label}</div>
-                    <div className="px-4 py-3 text-sm text-slate-100">{selected.answers[field.id] || "-"}</div>
+                    <div className="px-4 py-3 text-sm text-slate-100">
+                      <div>{renderAnswerValue(selected.answers[field.id])}</div>
+                      {field.type === "file" && (
+                        <div className="mt-2">
+                          <AttachmentLink attachment={selected.answers[field.id]} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1314,11 +1544,19 @@ function ApprovalQueue({ state, updateState }) {
               <div className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-5">
                 <button
                   type="button"
+                  onClick={() => previewSubmissionPdf(selected, template, state.settings)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  <Eye size={16} />
+                  Preview PDF
+                </button>
+                <button
+                  type="button"
                   onClick={() => downloadSubmissionPdf(selected, template, state.settings)}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
                 >
                   <Download size={16} />
-                  PDF Copy
+                  Download PDF
                 </button>
                 <button
                   type="button"
@@ -1342,11 +1580,12 @@ function ApprovalQueue({ state, updateState }) {
                 </button>
                 <button
                   type="button"
-                  onClick={markSent}
+                  disabled={sendingId === selected.id || !["Approved", "Rejected", "Sent"].includes(selected.status)}
+                  onClick={sendSelectedEmail}
                   className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400"
                 >
                   <Mail size={16} />
-                  Mark Sent
+                  {sendingId === selected.id ? "Sending..." : selected.status === "Approved" || selected.status === "Sent" ? "Send PDF Email" : "Send Status Email"}
                 </button>
               </div>
             </div>
@@ -1625,7 +1864,7 @@ function TemplateLibrary({ state, updateState }) {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => downloadSubmissionPdf(getSampleSubmission(template), template, state.settings)}
+                  onClick={() => previewSubmissionPdf(getSampleSubmission(template), template, state.settings)}
                   className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
                 >
                   <Eye size={14} />

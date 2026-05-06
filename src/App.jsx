@@ -14,6 +14,7 @@ import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
+import warriorHeadNew from "./assets/warrior-head-new.png";
 
 const modules = [
   {
@@ -231,7 +232,7 @@ export default function App() {
       <header className="no-print border-b border-slate-800 bg-slate-950">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <img src="/wvcs-logo.png" alt="WVCS" className="h-12 w-12 rounded-lg object-contain" />
+            <img src={warriorHeadNew} alt="WVCS Warrior" className="h-12 w-12 rounded-lg object-contain" />
             <div>
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">WVCS</div>
               <h1 className="text-2xl font-bold text-white">WVCS School Hub</h1>
