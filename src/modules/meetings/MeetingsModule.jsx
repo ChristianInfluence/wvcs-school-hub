@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   saveMeetingRequest,
+  sendMeetingCancellationEmail,
   sendMeetingDeclineEmail,
   sendMeetingRequestEmail,
   updateMeetingRequestStatus,
@@ -174,7 +175,7 @@ function isSlotRequested(requests, adminId, slot) {
       request.date === slot.date &&
       request.start === slot.start &&
       request.end === slot.end &&
-      request.status !== "cancelled"
+      !["cancelled", "declined"].includes(request.status)
   );
 }
 
@@ -200,7 +201,8 @@ function icsDate(date, time) {
 
 function buildCalendarInvite(request, administrator, slot) {
   const confirmed = request.status === "confirmed";
-  const subject = `${confirmed ? "Confirmed Meeting" : "Meeting Request"}: ${request.teacherName} with ${administrator.name}`;
+  const cancelled = request.status === "cancelled" || request.status === "cancelled-held";
+  const subject = `${cancelled ? "Cancelled Meeting" : confirmed ? "Confirmed Meeting" : "Meeting Request"}: ${request.teacherName} with ${administrator.name}`;
   const description = [
     `Requested by: ${request.teacherName} <${request.teacherEmail}>`,
     `Administrator: ${administrator.name}, ${administrator.role}`,
@@ -213,7 +215,7 @@ function buildCalendarInvite(request, administrator, slot) {
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//WVCS//School Hub//EN",
-    "METHOD:REQUEST",
+    `METHOD:${cancelled ? "CANCEL" : "REQUEST"}`,
     "BEGIN:VEVENT",
     `UID:${request.id}@wvcs-school-hub`,
     `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}`,
@@ -221,10 +223,10 @@ function buildCalendarInvite(request, administrator, slot) {
     `DTEND:${icsDate(slot.date, slot.end)}`,
     `SUMMARY:${subject}`,
     `DESCRIPTION:${description}`,
-    "STATUS:CONFIRMED",
-    "SEQUENCE:0",
+    `STATUS:${cancelled ? "CANCELLED" : "CONFIRMED"}`,
+    `SEQUENCE:${cancelled ? "1" : "0"}`,
     "TRANSP:OPAQUE",
-    "ORGANIZER;CN=WVCS School Hub:mailto:schoolhub@wvcs.org",
+    "ORGANIZER;CN=WVCS School Hub:mailto:mconniry@wvcs.org",
     `ATTENDEE;CN=${administrator.name};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${administrator.email}`,
     `ATTENDEE;CN=${request.teacherName};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${request.teacherEmail}`,
     "END:VEVENT",
@@ -820,6 +822,9 @@ export function AdminMeetingsModule() {
   const [confirmingId, setConfirmingId] = useState("");
   const [decliningId, setDecliningId] = useState("");
   const [declineNote, setDeclineNote] = useState("");
+  const [cancellingId, setCancellingId] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
+  const [releaseSlot, setReleaseSlot] = useState(true);
   const editingAdmin = state.administrators.find((admin) => admin.id === editingId);
 
   function saveAdministrator(nextAdministrator) {
@@ -949,6 +954,71 @@ export function AdminMeetingsModule() {
     }
   }
 
+  async function cancelConfirmedMeeting(request, admin, slot) {
+    if (!admin || !slot || !cancelNote.trim()) return;
+    setConfirmingId(request.id);
+    const cancelledRequest = {
+      ...request,
+      status: releaseSlot ? "cancelled" : "cancelled-held",
+      inviteStatus: releaseSlot
+        ? "Cancellation sent and time returned to availability"
+        : "Cancellation sent and time kept unavailable",
+      cancelNote: cancelNote.trim(),
+      releasesSlot: releaseSlot,
+      cancelledAt: new Date().toISOString(),
+    };
+    const calendarInvite = buildCalendarInvite(cancelledRequest, admin, slot);
+
+    try {
+      const sendResult = await sendMeetingCancellationEmail({
+        request: cancelledRequest,
+        administrator: admin,
+        slot,
+        cancelNote: cancelledRequest.cancelNote,
+        releasesSlot: cancelledRequest.releasesSlot,
+        calendarInvite,
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the cancellation notice.");
+      }
+
+      await updateMeetingRequestStatus(request.id, {
+        status: cancelledRequest.status,
+        inviteStatus: cancelledRequest.inviteStatus,
+        cancelNote: cancelledRequest.cancelNote,
+        releasesSlot: cancelledRequest.releasesSlot,
+      });
+
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id ? cancelledRequest : item
+        ),
+      }));
+      setCancellingId("");
+      setCancelNote("");
+      setReleaseSlot(true);
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id
+            ? {
+                ...item,
+                status: releaseSlot ? "cancelled" : "cancelled-held",
+                cancelNote: cancelNote.trim(),
+                releasesSlot: releaseSlot,
+                inviteStatus: `Cancelled locally. Email automation needs attention: ${error.message}`,
+              }
+            : item
+        ),
+      }));
+    } finally {
+      setConfirmingId("");
+    }
+  }
+
   return (
     <Shell>
       <div className="mb-5">
@@ -1032,12 +1102,18 @@ export function AdminMeetingsModule() {
                           <div className={`mt-2 inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
                             request.status === "confirmed"
                               ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                              : request.status === "cancelled" || request.status === "cancelled-held"
+                                ? "border-slate-500/50 bg-slate-500/15 text-slate-100"
                               : request.status === "declined"
                                 ? "border-rose-400/50 bg-rose-500/15 text-rose-100"
                                 : "border-amber-400/50 bg-amber-500/15 text-amber-100"
                           }`}>
                             {request.status === "confirmed"
                               ? "Confirmed and sent"
+                              : request.status === "cancelled"
+                                ? "Cancelled, slot released"
+                                : request.status === "cancelled-held"
+                                  ? "Cancelled, slot held"
                               : request.status === "declined"
                                 ? "Declined"
                                 : "Pending confirmation"}
@@ -1047,6 +1123,11 @@ export function AdminMeetingsModule() {
                           {request.declineNote && (
                             <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-100">
                               {request.declineNote}
+                            </div>
+                          )}
+                          {request.cancelNote && (
+                            <div className="mt-2 rounded-lg border border-slate-600 bg-slate-900 p-2 text-xs text-slate-200">
+                              {request.cancelNote}
                             </div>
                           )}
                         </div>
@@ -1060,6 +1141,19 @@ export function AdminMeetingsModule() {
                             >
                               <CheckCircle2 size={14} />
                               {confirmingId === request.id ? "Sending..." : "Confirm & Send Invite"}
+                            </button>
+                          )}
+                          {admin && slot && request.status === "confirmed" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancellingId(request.id);
+                                setCancelNote("");
+                                setReleaseSlot(true);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-lg border border-slate-500/60 bg-slate-500/15 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-500/25"
+                            >
+                              Cancel Meeting
                             </button>
                           )}
                           {admin && slot && request.status === "requested" && (
@@ -1124,6 +1218,47 @@ export function AdminMeetingsModule() {
                               className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {confirmingId === request.id ? "Sending..." : "Send Decline"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {cancellingId === request.id && (
+                        <div className="mt-4 rounded-lg border border-slate-600 bg-slate-900 p-3">
+                          <label className="space-y-1 text-sm font-medium text-slate-100">
+                            Reason for cancellation
+                            <textarea
+                              value={cancelNote}
+                              onChange={(event) => setCancelNote(event.target.value)}
+                              className="min-h-20 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-300"
+                            />
+                          </label>
+                          <label className="mt-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200">
+                            <input
+                              type="checkbox"
+                              checked={releaseSlot}
+                              onChange={(event) => setReleaseSlot(event.target.checked)}
+                            />
+                            Return this time slot to available scheduling
+                          </label>
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancellingId("");
+                                setCancelNote("");
+                                setReleaseSlot(true);
+                              }}
+                              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            >
+                              Keep Meeting
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!cancelNote.trim() || confirmingId === request.id}
+                              onClick={() => cancelConfirmedMeeting(request, admin, slot)}
+                              className="rounded-lg border border-slate-400 bg-slate-600 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {confirmingId === request.id ? "Sending..." : "Send Cancellation"}
                             </button>
                           </div>
                         </div>

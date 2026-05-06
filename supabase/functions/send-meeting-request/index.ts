@@ -32,15 +32,24 @@ function buildMessage(
   const boundary = `wvcs-${crypto.randomUUID()}`;
   const confirmed = request.status === "confirmed";
   const declined = type === "declined" || request.status === "declined";
-  const subjectPrefix = declined ? "Declined meeting request" : confirmed ? "Confirmed meeting" : "Meeting request";
+  const cancelled = type === "cancelled" || request.status === "cancelled" || request.status === "cancelled-held";
+  const subjectPrefix = cancelled
+    ? "Cancelled meeting"
+    : declined
+      ? "Declined meeting request"
+      : confirmed
+        ? "Confirmed meeting"
+        : "Meeting request";
   const subject = `${subjectPrefix}: ${request.teacherName} with ${administrator.name}`;
   const when = `${slot.date} ${formatTime(slot.start)}-${formatTime(slot.end)}`;
   const textBody = [
     declined
       ? `This meeting request has been declined.`
-      : confirmed
-        ? `This meeting has been confirmed.`
-        : `A meeting request has been submitted.`,
+      : cancelled
+        ? `This meeting has been cancelled.`
+        : confirmed
+          ? `This meeting has been confirmed.`
+          : `A meeting request has been submitted.`,
     ``,
     `Administrator: ${administrator.name} (${administrator.role})`,
     `Teacher: ${request.teacherName} <${request.teacherEmail}>`,
@@ -48,7 +57,9 @@ function buildMessage(
     `Topic: ${request.topic}`,
     ``,
     declined ? `Reason: ${declineNote || request.declineNote || "No reason provided."}` : "",
-    declined ? `` : "",
+    cancelled ? `Reason: ${request.cancelNote || request.cancel_note || "No reason provided."}` : "",
+    cancelled ? `Time slot: ${request.releasesSlot ? "returned to availability" : "kept unavailable"}` : "",
+    declined || cancelled ? `` : "",
     request.notes || "No notes provided.",
   ].join("\r\n");
 

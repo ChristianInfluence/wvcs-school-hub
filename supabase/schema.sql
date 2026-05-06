@@ -13,6 +13,8 @@ create table if not exists public.meeting_requests (
   topic text not null,
   notes text,
   decline_note text,
+  cancel_note text,
+  releases_slot boolean,
   status text not null default 'requested',
   invite_status text not null default 'Calendar invite ready to send',
   requested_at timestamptz not null default now(),

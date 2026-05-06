@@ -40,13 +40,19 @@ export async function updateMeetingRequestStatus(requestId, patch) {
   }
 
   const update = {
-    status: patch.status,
-    invite_status: patch.inviteStatus,
-    updated_at: new Date().toISOString(),
-  };
+      status: patch.status,
+      invite_status: patch.inviteStatus,
+      updated_at: new Date().toISOString(),
+    };
 
   if (patch.declineNote !== undefined) {
     update.decline_note = patch.declineNote;
+  }
+  if (patch.cancelNote !== undefined) {
+    update.cancel_note = patch.cancelNote;
+  }
+  if (patch.releasesSlot !== undefined) {
+    update.releases_slot = patch.releasesSlot;
   }
 
   const { error } = await supabase
@@ -88,6 +94,27 @@ export async function sendMeetingDeclineEmail({ request, administrator, slot, de
       administrator,
       slot,
       declineNote,
+    },
+  });
+
+  if (error) throw error;
+  return data || { sent: true };
+}
+
+export async function sendMeetingCancellationEmail({ request, administrator, slot, cancelNote, releasesSlot, calendarInvite }) {
+  if (!isSupabaseConfigured) {
+    return { sent: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("send-meeting-request", {
+    body: {
+      type: "cancelled",
+      request,
+      administrator,
+      slot,
+      cancelNote,
+      releasesSlot,
+      calendarInvite,
     },
   });
 
