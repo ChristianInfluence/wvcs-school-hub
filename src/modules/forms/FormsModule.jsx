@@ -33,6 +33,7 @@ const defaultTemplates = [
     pdfName: "Field Trip Request.pdf",
     approver: "Principal",
     recipients: ["office@wvcs.org", "principal@wvcs.org"],
+    finalCopyRecipients: ["mconniry@wvcs.org"],
     active: true,
     fields: [
       { id: "destination", label: "Destination", type: "text", required: true },
@@ -49,6 +50,7 @@ const defaultTemplates = [
     pdfName: "Purchase Request.pdf",
     approver: "Business Office",
     recipients: ["businessoffice@wvcs.org"],
+    finalCopyRecipients: ["mconniry@wvcs.org"],
     active: true,
     fields: [
       { id: "vendor", label: "Vendor", type: "text", required: true },
@@ -305,7 +307,7 @@ function SubmissionPdf({ submission, template, settings }) {
   const recipients = [
     submission.submitterEmail,
     ...(template?.recipients || []),
-    ...(settings.finalCopyRecipients || []),
+    ...((template?.finalCopyRecipients?.length ? template.finalCopyRecipients : settings.finalCopyRecipients) || []),
   ];
   const fieldRows = template?.fields || [];
   const labelStyle = {
@@ -739,6 +741,7 @@ function getNewTemplateDraft(settings) {
     pdfName: "",
     approver: settings.approvers[0] || "Administration",
     recipients: settings.defaultRecipients.join(", "),
+    finalCopyRecipients: settings.finalCopyRecipients.join(", "),
     active: true,
     fields: [
       { id: uid("field"), label: "Requested Date", type: "date", required: true },
@@ -801,6 +804,7 @@ async function templateFromFillablePdf(file, settings) {
     pdfName: file.name,
     approver: settings.approvers[0] || "Administration",
     recipients: settings.defaultRecipients,
+    finalCopyRecipients: settings.finalCopyRecipients,
     active: false,
     source: "fillable-pdf",
     fields,
@@ -812,6 +816,10 @@ function getEditableTemplateDraft(template, settings) {
   return {
     ...template,
     recipients: (template.recipients || []).join(", "),
+    finalCopyRecipients: (template.finalCopyRecipients?.length
+      ? template.finalCopyRecipients
+      : settings.finalCopyRecipients || []
+    ).join(", "),
     fields: template.fields.map((field) => ({ ...field })),
   };
 }
@@ -881,6 +889,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
       id: draft.id || uid("template"),
       pdfName: draft.pdfName || "PDF template pending",
       recipients: parseEmailList(draft.recipients),
+      finalCopyRecipients: parseEmailList(draft.finalCopyRecipients),
       active: draft.active,
       fields: draft.fields.map((field) => ({
         ...field,
@@ -962,8 +971,24 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
               onChange={(event) => setDraft({ ...draft, recipients: event.target.value })}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
             />
+            <span className="block text-xs font-normal text-slate-500">
+              Receives submission and approval routing notices.
+            </span>
           </label>
         </div>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Completed PDF Recipients
+          <input
+            value={draft.finalCopyRecipients}
+            onChange={(event) => setDraft({ ...draft, finalCopyRecipients: event.target.value })}
+            placeholder="mconniry@wvcs.org, records@wvcs.org"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          />
+          <span className="block text-xs font-normal text-slate-500">
+            These emails receive the completed approved PDF in addition to the staff member who submitted it.
+          </span>
+        </label>
 
         <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-medium text-slate-200">
           <input
@@ -1455,6 +1480,7 @@ function SettingsPanel({ state, updateState }) {
 function TemplateLibrary({ state, updateState }) {
   const [editingId, setEditingId] = useState("");
   const [importStatus, setImportStatus] = useState("");
+  const [templateToDelete, setTemplateToDelete] = useState(null);
   const editingTemplate = state.templates.find((template) => template.id === editingId);
 
   function addTemplate(template) {
@@ -1484,6 +1510,14 @@ function TemplateLibrary({ state, updateState }) {
         template.id === templateId ? { ...template, active: !template.active } : template
       ),
     }));
+  }
+
+  function deleteTemplate(templateId) {
+    updateState((current) => ({
+      ...current,
+      templates: current.templates.filter((template) => template.id !== templateId),
+    }));
+    setTemplateToDelete(null);
   }
 
   async function importFillablePdf(event) {
@@ -1577,6 +1611,15 @@ function TemplateLibrary({ state, updateState }) {
                   <div>Source: <span className="text-slate-200">Fillable PDF import</span></div>
                 )}
                 <div>Approver: <span className="text-slate-200">{template.approver}</span></div>
+                <div>
+                  Completed PDF recipients:{" "}
+                  <span className="text-slate-200">
+                    {(template.finalCopyRecipients?.length
+                      ? template.finalCopyRecipients
+                      : state.settings.finalCopyRecipients || []
+                    ).join(", ") || "Submitter only"}
+                  </span>
+                </div>
                 <div>Fields: <span className="text-slate-200">{template.fields.length}</span></div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -1604,6 +1647,14 @@ function TemplateLibrary({ state, updateState }) {
                   <RefreshCw size={14} />
                   {template.active ? "Deactivate" : "Activate"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setTemplateToDelete(template)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/25"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
               </div>
             </div>
           ))}
@@ -1619,6 +1670,41 @@ function TemplateLibrary({ state, updateState }) {
           onSave={addTemplate}
         />
       </div>
+
+      {templateToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-lg border border-rose-500/40 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg border border-rose-400/40 bg-rose-500/15 p-2 text-rose-100">
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Delete Template?</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  This will remove <span className="font-semibold text-slate-100">{templateToDelete.title}</span> from the template library.
+                  Existing submissions will remain in the approval history.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTemplateToDelete(null)}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteTemplate(templateToDelete.id)}
+                className="rounded-lg border border-rose-400 bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-400"
+              >
+                Delete Template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
