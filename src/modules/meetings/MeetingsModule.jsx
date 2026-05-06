@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   saveMeetingRequest,
+  sendMeetingDeclineEmail,
   sendMeetingRequestEmail,
   updateMeetingRequestStatus,
 } from "../../lib/meetingNotifications.js";
@@ -220,7 +221,10 @@ function buildCalendarInvite(request, administrator, slot) {
     `DTEND:${icsDate(slot.date, slot.end)}`,
     `SUMMARY:${subject}`,
     `DESCRIPTION:${description}`,
-    `ORGANIZER;CN=${administrator.name}:mailto:${administrator.email}`,
+    "STATUS:CONFIRMED",
+    "SEQUENCE:0",
+    "TRANSP:OPAQUE",
+    "ORGANIZER;CN=WVCS School Hub:mailto:schoolhub@wvcs.org",
     `ATTENDEE;CN=${administrator.name};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${administrator.email}`,
     `ATTENDEE;CN=${request.teacherName};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${request.teacherEmail}`,
     "END:VEVENT",
@@ -814,6 +818,8 @@ export function AdminMeetingsModule() {
   const [state, updateState] = useMeetingStore();
   const [editingId, setEditingId] = useState(state.administrators[0]?.id || "");
   const [confirmingId, setConfirmingId] = useState("");
+  const [decliningId, setDecliningId] = useState("");
+  const [declineNote, setDeclineNote] = useState("");
   const editingAdmin = state.administrators.find((admin) => admin.id === editingId);
 
   function saveAdministrator(nextAdministrator) {
@@ -846,10 +852,6 @@ export function AdminMeetingsModule() {
     const calendarInvite = buildCalendarInvite(confirmedRequest, admin, slot);
 
     try {
-      await updateMeetingRequestStatus(request.id, {
-        status: confirmedRequest.status,
-        inviteStatus: confirmedRequest.inviteStatus,
-      });
       const sendResult = await sendMeetingRequestEmail({
         request: confirmedRequest,
         administrator: admin,
@@ -860,6 +862,11 @@ export function AdminMeetingsModule() {
       if (!sendResult.sent) {
         throw new Error(sendResult.reason || "Email function did not send the invite.");
       }
+
+      await updateMeetingRequestStatus(request.id, {
+        status: confirmedRequest.status,
+        inviteStatus: confirmedRequest.inviteStatus,
+      });
 
       updateState((current) => ({
         ...current,
@@ -877,6 +884,62 @@ export function AdminMeetingsModule() {
                 ...item,
                 status: "confirmed",
                 inviteStatus: `Confirmed locally. Email automation needs attention: ${error.message}`,
+              }
+            : item
+        ),
+      }));
+    } finally {
+      setConfirmingId("");
+    }
+  }
+
+  async function declineRequest(request, admin, slot) {
+    if (!admin || !slot || !declineNote.trim()) return;
+    setConfirmingId(request.id);
+    const declinedRequest = {
+      ...request,
+      status: "declined",
+      inviteStatus: "Decline notice sent to requestor",
+      declineNote: declineNote.trim(),
+      declinedAt: new Date().toISOString(),
+    };
+
+    try {
+      const sendResult = await sendMeetingDeclineEmail({
+        request: declinedRequest,
+        administrator: admin,
+        slot,
+        declineNote: declinedRequest.declineNote,
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the decline notice.");
+      }
+
+      await updateMeetingRequestStatus(request.id, {
+        status: declinedRequest.status,
+        inviteStatus: declinedRequest.inviteStatus,
+        declineNote: declinedRequest.declineNote,
+      });
+
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id ? declinedRequest : item
+        ),
+      }));
+      setDecliningId("");
+      setDeclineNote("");
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.map((item) =>
+          item.id === request.id
+            ? {
+                ...item,
+                status: "declined",
+                declineNote: declineNote.trim(),
+                inviteStatus: `Declined locally. Email automation needs attention: ${error.message}`,
               }
             : item
         ),
@@ -969,15 +1032,26 @@ export function AdminMeetingsModule() {
                           <div className={`mt-2 inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
                             request.status === "confirmed"
                               ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
-                              : "border-amber-400/50 bg-amber-500/15 text-amber-100"
+                              : request.status === "declined"
+                                ? "border-rose-400/50 bg-rose-500/15 text-rose-100"
+                                : "border-amber-400/50 bg-amber-500/15 text-amber-100"
                           }`}>
-                            {request.status === "confirmed" ? "Confirmed" : "Pending confirmation"}
+                            {request.status === "confirmed"
+                              ? "Confirmed and sent"
+                              : request.status === "declined"
+                                ? "Declined"
+                                : "Pending confirmation"}
                           </div>
                           <div className="mt-2 text-sm text-slate-300">{request.topic}</div>
                           {request.notes && <div className="mt-2 text-xs text-slate-400">{request.notes}</div>}
+                          {request.declineNote && (
+                            <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-100">
+                              {request.declineNote}
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {admin && slot && request.status !== "confirmed" && (
+                          {admin && slot && request.status === "requested" && (
                             <button
                               type="button"
                               disabled={confirmingId === request.id}
@@ -986,6 +1060,18 @@ export function AdminMeetingsModule() {
                             >
                               <CheckCircle2 size={14} />
                               {confirmingId === request.id ? "Sending..." : "Confirm & Send Invite"}
+                            </button>
+                          )}
+                          {admin && slot && request.status === "requested" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDecliningId(request.id);
+                                setDeclineNote("");
+                              }}
+                              className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/25"
+                            >
+                              Decline
                             </button>
                           )}
                           {admin && slot && (
@@ -998,16 +1084,50 @@ export function AdminMeetingsModule() {
                               Invite
                             </button>
                           )}
-                          <button
+                          {request.status !== "confirmed" && (
+                            <button
                             type="button"
                             onClick={() => markInviteSent(request.id)}
                             className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
-                          >
-                            <CheckCircle2 size={14} />
-                            Mark Sent
-                          </button>
+                            >
+                              <CheckCircle2 size={14} />
+                              Mark Sent
+                            </button>
+                          )}
                         </div>
                       </div>
+                      {decliningId === request.id && (
+                        <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3">
+                          <label className="space-y-1 text-sm font-medium text-rose-50">
+                            Reason for declining
+                            <textarea
+                              value={declineNote}
+                              onChange={(event) => setDeclineNote(event.target.value)}
+                              className="min-h-20 w-full rounded-lg border border-rose-500/40 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-rose-300"
+                            />
+                          </label>
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDecliningId("");
+                                setDeclineNote("");
+                              }}
+                              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!declineNote.trim() || confirmingId === request.id}
+                              onClick={() => declineRequest(request, admin, slot)}
+                              className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {confirmingId === request.id ? "Sending..." : "Send Decline"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-3 text-xs font-semibold text-slate-500">{request.inviteStatus}</div>
                     </div>
                   );

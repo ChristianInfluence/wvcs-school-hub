@@ -12,6 +12,7 @@ create table if not exists public.meeting_requests (
   teacher_email text not null,
   topic text not null,
   notes text,
+  decline_note text,
   status text not null default 'requested',
   invite_status text not null default 'Calendar invite ready to send',
   requested_at timestamptz not null default now(),

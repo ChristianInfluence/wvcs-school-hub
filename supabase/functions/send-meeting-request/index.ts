@@ -24,25 +24,37 @@ function formatTime(value: string) {
   });
 }
 
-function buildMessage({ request, administrator, slot, calendarInvite }: Record<string, any>, senderEmail: string) {
+function buildMessage(
+  { request, administrator, slot, calendarInvite, declineNote, type }: Record<string, any>,
+  senderEmail: string,
+  recipientEmail: string,
+) {
   const boundary = `wvcs-${crypto.randomUUID()}`;
   const confirmed = request.status === "confirmed";
-  const subject = `${confirmed ? "Confirmed meeting" : "Meeting request"}: ${request.teacherName} with ${administrator.name}`;
+  const declined = type === "declined" || request.status === "declined";
+  const subjectPrefix = declined ? "Declined meeting request" : confirmed ? "Confirmed meeting" : "Meeting request";
+  const subject = `${subjectPrefix}: ${request.teacherName} with ${administrator.name}`;
   const when = `${slot.date} ${formatTime(slot.start)}-${formatTime(slot.end)}`;
   const textBody = [
-    confirmed ? `This meeting has been confirmed.` : `A meeting request has been submitted.`,
+    declined
+      ? `This meeting request has been declined.`
+      : confirmed
+        ? `This meeting has been confirmed.`
+        : `A meeting request has been submitted.`,
     ``,
     `Administrator: ${administrator.name} (${administrator.role})`,
     `Teacher: ${request.teacherName} <${request.teacherEmail}>`,
     `When: ${when}`,
     `Topic: ${request.topic}`,
     ``,
+    declined ? `Reason: ${declineNote || request.declineNote || "No reason provided."}` : "",
+    declined ? `` : "",
     request.notes || "No notes provided.",
   ].join("\r\n");
 
-  return [
+  const parts = [
     `From: WVCS School Hub <${senderEmail}>`,
-    `To: ${administrator.email}, ${request.teacherEmail}`,
+    `To: ${recipientEmail}`,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -52,16 +64,22 @@ function buildMessage({ request, administrator, slot, calendarInvite }: Record<s
     "Content-Transfer-Encoding: 7bit",
     "",
     textBody,
-    "",
-    `--${boundary}`,
-    "Content-Type: text/calendar; charset=UTF-8; method=REQUEST; name=meeting.ics",
-    "Content-Transfer-Encoding: 7bit",
-    "Content-Disposition: attachment; filename=meeting.ics",
-    "",
-    calendarInvite,
-    "",
-    `--${boundary}--`,
-  ].join("\r\n");
+  ];
+
+  if (calendarInvite && !declined) {
+    parts.push(
+      "",
+      `--${boundary}`,
+      "Content-Type: text/calendar; charset=UTF-8; method=REQUEST; name=meeting.ics",
+      "Content-Transfer-Encoding: 7bit",
+      "Content-Disposition: attachment; filename=meeting.ics",
+      "",
+      calendarInvite,
+    );
+  }
+
+  parts.push("", `--${boundary}--`);
+  return parts.join("\r\n");
 }
 
 async function getAccessToken() {
@@ -93,23 +111,32 @@ Deno.serve(async (request) => {
     const payload = await request.json();
     const senderEmail = requiredEnv("GMAIL_SENDER_EMAIL");
     const accessToken = await getAccessToken();
-    const raw = encodeBase64Url(buildMessage(payload, senderEmail));
+    const recipients = Array.from(new Set([
+      payload.administrator?.email,
+      payload.request?.teacherEmail,
+    ].filter(Boolean)));
+    const sentMessages = [];
 
-    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ raw }),
-    });
+    for (const recipient of recipients) {
+      const raw = encodeBase64Url(buildMessage(payload, senderEmail, recipient));
+      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ raw }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Gmail send failed: ${await response.text()}`);
+      if (!response.ok) {
+        throw new Error(`Gmail send failed: ${await response.text()}`);
+      }
+
+      const data = await response.json();
+      sentMessages.push({ recipient, gmailMessageId: data.id });
     }
 
-    const data = await response.json();
-    return new Response(JSON.stringify({ sent: true, gmailMessageId: data.id }), {
+    return new Response(JSON.stringify({ sent: true, messages: sentMessages }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

@@ -39,13 +39,19 @@ export async function updateMeetingRequestStatus(requestId, patch) {
     return { saved: false, reason: "Supabase is not configured." };
   }
 
+  const update = {
+    status: patch.status,
+    invite_status: patch.inviteStatus,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (patch.declineNote !== undefined) {
+    update.decline_note = patch.declineNote;
+  }
+
   const { error } = await supabase
     .from("meeting_requests")
-    .update({
-      status: patch.status,
-      invite_status: patch.inviteStatus,
-      updated_at: new Date().toISOString(),
-    })
+    .update(update)
     .eq("id", requestId);
 
   if (error) throw error;
@@ -63,6 +69,25 @@ export async function sendMeetingRequestEmail({ request, administrator, slot, ca
       administrator,
       slot,
       calendarInvite,
+    },
+  });
+
+  if (error) throw error;
+  return data || { sent: true };
+}
+
+export async function sendMeetingDeclineEmail({ request, administrator, slot, declineNote }) {
+  if (!isSupabaseConfigured) {
+    return { sent: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("send-meeting-request", {
+    body: {
+      type: "declined",
+      request,
+      administrator,
+      slot,
+      declineNote,
     },
   });
 
