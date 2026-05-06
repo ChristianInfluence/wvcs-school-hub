@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   CalendarClock,
+  ClipboardCheck,
   Files,
   FileText,
   LayoutDashboard,
@@ -14,6 +15,7 @@ import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
+import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import warriorHeadNew from "./assets/warrior-head-new.png";
 
 const modules = [
@@ -64,6 +66,14 @@ const modules = [
     callout: "Staff resources",
   },
   {
+    id: "student-evaluation",
+    label: "Student Evaluation",
+    icon: ClipboardCheck,
+    description: "Evaluate new students during the 6 week probation window.",
+    color: "cyan",
+    callout: "Probation reviews",
+  },
+  {
     id: "admin",
     label: "Admin",
     icon: Settings,
@@ -109,6 +119,12 @@ const moduleStyles = {
     icon: "border-teal-300/40 bg-teal-400/20 text-teal-100",
     bar: "bg-teal-400",
     text: "text-teal-200",
+  },
+  cyan: {
+    card: "border-cyan-400/40 bg-cyan-500/10 hover:border-cyan-300",
+    icon: "border-cyan-300/40 bg-cyan-400/20 text-cyan-100",
+    bar: "bg-cyan-400",
+    text: "text-cyan-200",
   },
 };
 
@@ -288,6 +304,10 @@ export default function App() {
 
       {activeModule === "documents" && (
         <ImportantDocumentsModule />
+      )}
+
+      {activeModule === "student-evaluation" && (
+        <StudentEvaluationModule />
       )}
 
       {activeModule === "admin" && (

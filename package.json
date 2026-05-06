@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "gmail:token": "node scripts/google-oauth-refresh-token.mjs",
-    "scheduler:update": "git subtree pull --prefix=vendor/school-scheduler https://github.com/ChristianInfluence/school-scheduler.git main --squash"
+    "scheduler:update": "git subtree pull --prefix=vendor/school-scheduler https://github.com/ChristianInfluence/school-scheduler.git main --squash",
+    "student-evaluation:update": "git subtree pull --prefix=vendor/student-evaluation https://github.com/ChristianInfluence/student-evaluation.git main --squash"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.3",
