@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  ExternalLink,
   Mail,
   Pencil,
   Plus,
@@ -27,6 +28,7 @@ const defaultAdministrators = [
     role: "Principal",
     email: "mconniry@wvcs.org",
     active: true,
+    bookingUrl: "",
     recurringSlots: [
       { id: "mc-mon-0830", weekday: 1, start: "08:30", end: "09:00", active: true },
       { id: "mc-wed-1400", weekday: 3, start: "14:00", end: "14:30", active: true },
@@ -39,6 +41,7 @@ const defaultAdministrators = [
     role: "Dean of Students",
     email: "ccota@wvcs.org",
     active: true,
+    bookingUrl: "",
     recurringSlots: [
       { id: "cc-tue-1015", weekday: 2, start: "10:15", end: "10:45", active: true },
       { id: "cc-thu-1315", weekday: 4, start: "13:15", end: "13:45", active: true },
@@ -51,6 +54,7 @@ const defaultAdministrators = [
     role: "Instructional Coach",
     email: "lmarks@wvcs.org",
     active: true,
+    bookingUrl: "",
     recurringSlots: [
       { id: "lm-mon-1115", weekday: 1, start: "11:15", end: "11:45", active: true },
       { id: "lm-fri-0900", weekday: 5, start: "09:00", end: "09:30", active: true },
@@ -65,6 +69,7 @@ function normalizeAdministrator(admin) {
   if (admin.recurringSlots) {
     return {
       ...admin,
+      bookingUrl: admin.bookingUrl || "",
       recurringSlots: admin.recurringSlots,
       blockedSlots: admin.blockedSlots || [],
       slots: admin.slots || [],
@@ -73,6 +78,7 @@ function normalizeAdministrator(admin) {
 
   return {
     ...admin,
+    bookingUrl: admin.bookingUrl || "",
     recurringSlots: (admin.slots || []).map((slot) => ({
       id: slot.id,
       weekday: new Date(`${slot.date}T12:00:00`).getDay(),
@@ -256,14 +262,18 @@ function Shell({ children }) {
 }
 
 function AdministratorChoice({ administrator, selected, availableCount, onSelect }) {
+  const usesGoogleBooking = Boolean(administrator.bookingUrl);
+
   return (
     <button
       type="button"
-      onClick={() => onSelect(administrator.id)}
+      onClick={() => usesGoogleBooking ? window.open(administrator.bookingUrl, "_blank", "noopener,noreferrer") : onSelect(administrator.id)}
       className={`rounded-lg border p-4 text-left transition ${
         selected
           ? "border-violet-300 bg-violet-500/20"
-          : "border-slate-800 bg-slate-950 hover:border-violet-400"
+          : usesGoogleBooking
+            ? "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-300"
+            : "border-slate-800 bg-slate-950 hover:border-violet-400"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -271,10 +281,20 @@ function AdministratorChoice({ administrator, selected, availableCount, onSelect
           <div className="text-sm font-semibold text-white">{administrator.name}</div>
           <div className="mt-1 text-xs text-slate-500">{administrator.role}</div>
         </div>
-        <UserRound size={18} className="text-violet-300" />
+        {usesGoogleBooking ? (
+          <ExternalLink size={18} className="text-emerald-300" />
+        ) : (
+          <UserRound size={18} className="text-violet-300" />
+        )}
       </div>
-      <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-100">
-        {availableCount} available slot{availableCount === 1 ? "" : "s"}
+      <div className={`mt-4 rounded-lg border px-3 py-2 text-sm font-semibold ${
+        usesGoogleBooking
+          ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-100"
+          : "border-slate-800 bg-slate-900 text-slate-100"
+      }`}>
+        {usesGoogleBooking
+          ? "Open Google Booking"
+          : `${availableCount} available slot${availableCount === 1 ? "" : "s"}`}
       </div>
     </button>
   );
@@ -357,6 +377,7 @@ export default function MeetingsModule() {
         })),
     [state.administrators, state.requests]
   );
+  const hasGoogleBookingLinks = activeAdministrators.some((admin) => admin.bookingUrl);
   const selectedAdmin = state.administrators.find((admin) => admin.id === selection.adminId);
   const selectedCalendarDays = useMemo(
     () => buildAvailableCalendar(selectedAdmin, state.requests, calendarStart),
@@ -416,7 +437,7 @@ export default function MeetingsModule() {
         <div className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-300">Meeting Requests</div>
         <h1 className="mt-2 text-2xl font-bold text-white">Schedule an Administrator Meeting</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-400">
-          Select an available meeting slot with an administrator. The request creates a calendar invite for the administrator.
+          Select an administrator to book a meeting. Google Booking handles the calendar invite, availability, rescheduling, and cancellation.
         </p>
       </div>
 
@@ -440,11 +461,18 @@ export default function MeetingsModule() {
             ))}
           </div>
 
+          {hasGoogleBookingLinks && (
+            <div className="border-t border-slate-800 bg-emerald-500/5 p-4 text-sm leading-6 text-emerald-100">
+              Google Booking opens in a new tab and sends the calendar invite directly through Google Calendar.
+            </div>
+          )}
+
+          {selectedAdmin && selectedAdmin.bookingUrl ? null : (
           <div className="border-t border-slate-800 p-4">
             <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Clock size={16} className="text-violet-300" />
-                Calendar Availability
+                Manual Availability
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -484,12 +512,14 @@ export default function MeetingsModule() {
               )
             ) : (
               <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-6 text-sm text-slate-400">
-                Select Matt, Chris, or Lynne to see available times.
+                Select an administrator without a Google Booking link to use the manual request fallback.
               </div>
             )}
           </div>
+          )}
         </main>
 
+        {selectedAdmin && !selectedAdmin.bookingUrl ? (
         <aside className="rounded-lg border border-slate-800 bg-slate-900">
           <div className="border-b border-slate-800 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -548,6 +578,29 @@ export default function MeetingsModule() {
             </button>
           </div>
         </aside>
+        ) : (
+          <aside className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <CalendarClock size={16} className="text-emerald-300" />
+              Google Booking
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              Add each administrator&apos;s Google Booking page link in Admin. Once added, staff book directly through Google Calendar instead of the manual request workflow.
+            </p>
+            {activeAdministrators.filter((admin) => admin.bookingUrl).map((admin) => (
+              <a
+                key={admin.id}
+                href={admin.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+              >
+                {admin.name}
+                <ExternalLink size={15} />
+              </a>
+            ))}
+          </aside>
+        )}
       </div>
     </Shell>
   );
@@ -658,6 +711,20 @@ function AdminEditor({ administrator, onSave, onCancel }) {
             />
           </label>
         </div>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Google Booking Page Link
+          <input
+            type="url"
+            value={draft.bookingUrl || ""}
+            placeholder="https://calendar.google.com/calendar/u/0/appointments/..."
+            onChange={(event) => setDraft({ ...draft, bookingUrl: event.target.value })}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-violet-400"
+          />
+          <span className="block text-xs font-normal text-slate-500">
+            If this is set, staff will book through Google instead of the manual scheduler.
+          </span>
+        </label>
 
         <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-medium text-slate-200">
           <input
