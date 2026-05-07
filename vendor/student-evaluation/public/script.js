@@ -6,7 +6,7 @@ let teacherEmail = "";
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDCNiTePPQhs4vj2-JDABiJDaLd-Rs4IPc",
+  apiKey: "REPLACE_WITH_FIREBASE_API_KEY",
   authDomain: "student-probation.firebaseapp.com",
   projectId: "student-probation",
   storageBucket: "student-probation.firebasestorage.app",
