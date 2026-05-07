@@ -20,6 +20,7 @@ import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
+import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
@@ -93,8 +94,7 @@ const modules = [
     icon: Lightbulb,
     description: "A staff suggestion box for ideas, process improvements, and school needs.",
     color: "lime",
-    callout: "Coming soon",
-    comingSoon: true,
+    callout: "Staff voice",
   },
   {
     id: "meeting-notes",
@@ -285,6 +285,7 @@ function AdminModule() {
           ["meetings", "Meetings Admin", Users],
           ["forms", "Forms Admin", FileText],
           ["documents", "Documents Admin", Files],
+          ["suggestions", "Suggestions", Lightbulb],
           ["look-of-the-week", "Look of the Week", Sparkles],
         ].map(([id, label, Icon]) => (
           <button
@@ -306,6 +307,7 @@ function AdminModule() {
       {adminView === "meetings" && <AdminMeetingsModule />}
       {adminView === "forms" && <AdminFormsModule />}
       {adminView === "documents" && <AdminDocumentsModule />}
+      {adminView === "suggestions" && <AdminSuggestionsModule />}
       {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}
     </section>
   );
@@ -579,6 +581,10 @@ export default function App() {
 
       {activeModule === "documents" && (
         <ImportantDocumentsModule />
+      )}
+
+      {activeModule === "suggestions" && (
+        <SuggestionsModule currentUserEmail={user.email} />
       )}
 
       {activeModule === "look-of-the-week" && (
