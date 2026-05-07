@@ -21,6 +21,17 @@ import {
   XCircle,
 } from "lucide-react";
 import { sendFormNotification } from "../../lib/formNotifications.js";
+import {
+  deleteFormTemplate,
+  createStoredFileUrl,
+  fetchFormSubmissions,
+  fetchFormTemplates,
+  saveFormSubmission,
+  saveFormTemplate,
+  storedFileToAttachment,
+  uploadFormAnswerFile,
+  uploadFormPdfBlob,
+} from "../../lib/formsData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const STORE_KEY = "wvcs-forms-workflow-v1";
@@ -134,6 +145,57 @@ function saveFormsState(nextState) {
 
 function useFormsStore() {
   const [state, setState] = useState(loadFormsState);
+  const [syncStatus, setSyncStatus] = useState("Connecting to shared templates...");
+
+  async function loadSharedFormsData() {
+    try {
+      const [templatesResult, submissionsResult] = await Promise.all([
+        fetchFormTemplates(),
+        fetchFormSubmissions(),
+      ]);
+
+      if (!templatesResult.loaded && !submissionsResult.loaded) {
+        setSyncStatus("Using local forms until Supabase is configured.");
+        return;
+      }
+
+      setState((current) => {
+        const localTemplates = current.templates?.length ? current.templates : defaultTemplates;
+        const localSubmissions = current.submissions || [];
+        const nextTemplates = templatesResult.templates?.length ? templatesResult.templates : localTemplates;
+        const nextSubmissions = submissionsResult.submissions?.length ? submissionsResult.submissions : localSubmissions;
+
+        if (templatesResult.loaded && !templatesResult.templates.length && localTemplates.length) {
+          Promise.all(localTemplates.map((template) => saveFormTemplate(template)))
+            .then(() => setSyncStatus("Shared forms connected."))
+            .catch((error) => setSyncStatus(`Local templates loaded. Shared seed failed: ${error.message}`));
+        }
+        if (submissionsResult.loaded && !submissionsResult.submissions.length && localSubmissions.length) {
+          Promise.all(localSubmissions.map((submission) => saveFormSubmission(submission)))
+            .then(() => setSyncStatus("Shared forms connected."))
+            .catch((error) => setSyncStatus(`Local submissions loaded. Shared seed failed: ${error.message}`));
+        }
+
+        if (
+          (!templatesResult.loaded || templatesResult.templates.length || !localTemplates.length) &&
+          (!submissionsResult.loaded || submissionsResult.submissions.length || !localSubmissions.length)
+        ) {
+          setSyncStatus("Shared forms connected.");
+        }
+
+        const next = { ...current, templates: nextTemplates, submissions: nextSubmissions };
+        saveFormsState(next);
+        return next;
+      });
+    } catch (error) {
+      setSyncStatus(`Using local forms. Supabase sync failed: ${error.message}`);
+    }
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(loadSharedFormsData, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   function updateState(updater) {
     setState((current) => {
@@ -143,7 +205,7 @@ function useFormsStore() {
     });
   }
 
-  return [state, updateState];
+  return [state, updateState, syncStatus, setSyncStatus];
 }
 
 function uid(prefix) {
@@ -160,7 +222,7 @@ function parseEmailList(value) {
 function hasRequiredAnswer(field, answers) {
   if (!field.required) return true;
   if (field.type === "checkbox") return answers[field.id] === true;
-  if (field.type === "file") return Boolean(answers[field.id]?.dataUrl);
+  if (field.type === "file") return Boolean(answers[field.id]?.dataUrl || answers[field.id]?.storagePath);
   return Boolean(answers[field.id]);
 }
 
@@ -193,6 +255,13 @@ function dataUrlToAttachment(file) {
     mimeType,
     contentBase64,
   };
+}
+
+async function fileAnswerToAttachment(file) {
+  if (!file) return null;
+  if (file.dataUrl) return dataUrlToAttachment(file);
+  if (file.storagePath) return storedFileToAttachment(file);
+  return null;
 }
 
 async function blobToBase64(blob) {
@@ -385,10 +454,36 @@ function renderAnswerValue(answer) {
 }
 
 function AttachmentLink({ attachment, label = "View Attachment" }) {
-  if (!attachment?.dataUrl) return null;
+  const storageKey = attachment?.storagePath || "";
+  const [signedFile, setSignedFile] = useState({ key: "", href: "", error: "" });
+
+  useEffect(() => {
+    let active = true;
+    if (!attachment?.storagePath) return undefined;
+
+    createStoredFileUrl(attachment)
+      .then((url) => {
+        if (active) setSignedFile({ key: attachment.storagePath, href: url, error: "" });
+      })
+      .catch((downloadError) => {
+        if (active) setSignedFile({ key: attachment.storagePath, href: "", error: downloadError.message });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [attachment]);
+
+  const href = attachment?.dataUrl || (signedFile.key === storageKey ? signedFile.href : "");
+  const error = signedFile.key === storageKey ? signedFile.error : "";
+
+  if (error) {
+    return <span className="text-xs text-rose-300">Attachment unavailable: {error}</span>;
+  }
+  if (!href) return null;
   return (
     <a
-      href={attachment.dataUrl}
+      href={href}
       target="_blank"
       rel="noreferrer"
       download={attachment.name}
@@ -681,7 +776,7 @@ async function generateSubmissionPdfBlob(submission, template, settings) {
 }
 
 function StaffFormsModule() {
-  const [state, updateState] = useFormsStore();
+  const [state, updateState, syncStatus, setSyncStatus] = useFormsStore();
   const activeTemplates = state.templates.filter((template) => template.active);
   const [selectedId, setSelectedId] = useState(activeTemplates[0]?.id || "");
   const selectedTemplate = activeTemplates.find((template) => template.id === selectedId) || activeTemplates[0];
@@ -691,13 +786,37 @@ function StaffFormsModule() {
     (submission) => submission.submitterEmail && submission.submitterEmail === submitter.email
   );
 
-  function submitForm() {
+  async function uploadSubmissionFiles(submissionId) {
+    const nextAnswers = { ...answers };
+    const fileFields = selectedTemplate.fields.filter((field) => field.type === "file" && nextAnswers[field.id]?.dataUrl);
+    for (const field of fileFields) {
+      const result = await uploadFormAnswerFile({
+        submissionId,
+        fieldId: field.id,
+        file: nextAnswers[field.id],
+      });
+      if (result.uploaded) {
+        nextAnswers[field.id] = result.file;
+      }
+    }
+    return nextAnswers;
+  }
+
+  async function submitForm() {
     if (!selectedTemplate || !submitter.name.trim() || !submitter.email.trim()) return;
     const missing = selectedTemplate.fields.some((field) => !hasRequiredAnswer(field, answers));
     if (missing) return;
 
+    const submissionId = uid("sub");
+    let submissionAnswers = answers;
+    try {
+      submissionAnswers = await uploadSubmissionFiles(submissionId);
+    } catch (error) {
+      setSyncStatus(`File upload failed, keeping local attachment data: ${error.message}`);
+    }
+
     const submission = {
-      id: uid("sub"),
+      id: submissionId,
       templateId: selectedTemplate.id,
       templateTitle: selectedTemplate.title,
       submitterName: submitter.name.trim(),
@@ -707,7 +826,7 @@ function StaffFormsModule() {
       reviewer: "",
       reviewedAt: "",
       reviewNotes: "",
-      answers,
+      answers: submissionAnswers,
       emailStatus: "Pending approval",
     };
 
@@ -715,6 +834,11 @@ function StaffFormsModule() {
       ...current,
       submissions: [submission, ...current.submissions],
     }));
+    saveFormSubmission(submission)
+      .then((result) => {
+        if (result.saved) setSyncStatus("Shared forms connected.");
+      })
+      .catch((error) => setSyncStatus(`Submission saved locally. Shared sync failed: ${error.message}`));
     setAnswers({});
   }
 
@@ -733,6 +857,9 @@ function StaffFormsModule() {
             <p className="mt-2 text-sm text-slate-400">
               Complete a school form and send it to administration for approval.
             </p>
+            <div className="mt-3 inline-flex rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+              {syncStatus}
+            </div>
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -1287,7 +1414,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
   );
 }
 
-function ApprovalQueue({ state, updateState }) {
+function ApprovalQueue({ state, updateState, setSyncStatus }) {
   const [selectedId, setSelectedId] = useState(state.submissions[0]?.id || "");
   const selected = state.submissions.find((submission) => submission.id === selectedId) || state.submissions[0];
   const template = state.templates.find((item) => item.id === selected?.templateId);
@@ -1296,7 +1423,7 @@ function ApprovalQueue({ state, updateState }) {
   const [reviewFeedback, setReviewFeedback] = useState("");
   const [sendingId, setSendingId] = useState("");
 
-  function review(status) {
+  async function review(status) {
     if (!selected) return;
     const signedAt = new Date().toISOString();
     const trimmedSignature = signatureName.trim();
@@ -1308,32 +1435,62 @@ function ApprovalQueue({ state, updateState }) {
     if (trimmedSignature) {
       localStorage.setItem(SIGNATURE_KEY, trimmedSignature);
     }
+    const reviewPatch = {
+      status,
+      reviewer: template?.approver || "Administration",
+      reviewedAt: signedAt,
+      reviewNotes: notes,
+      emailStatus: status === "Approved" ? "PDF generated, ready for Gmail delivery" : "Ready for status email",
+      generatedPdfName: status === "Approved" ? getPdfFileName(selected) : selected.generatedPdfName,
+      generatedPdfAt: status === "Approved" ? signedAt : selected.generatedPdfAt,
+      approvalSignature:
+        status === "Approved"
+          ? {
+              type: "typed",
+              value: trimmedSignature,
+              signedAt,
+              signerRole: template?.approver || "Administration",
+            }
+          : selected.approvalSignature,
+    };
+    let storedPdfPatch = {};
+    if (status === "Approved") {
+      try {
+        const reviewedSubmission = { ...selected, ...reviewPatch };
+        const pdfBlob = await generateSubmissionPdfBlob(reviewedSubmission, template, state.settings);
+        const uploadResult = await uploadFormPdfBlob({
+          submissionId: selected.id,
+          filename: getPdfFileName(reviewedSubmission),
+          blob: pdfBlob,
+        });
+        if (uploadResult.uploaded) {
+          storedPdfPatch = {
+            generatedPdfStorageBucket: uploadResult.bucket,
+            generatedPdfStoragePath: uploadResult.path,
+          };
+        }
+      } catch (error) {
+        setSyncStatus(`Approved PDF generated locally. Storage upload failed: ${error.message}`);
+      }
+    }
+
+    const nextPatch = { ...reviewPatch, ...storedPdfPatch };
     updateState((current) => ({
       ...current,
       submissions: current.submissions.map((submission) =>
         submission.id === selected.id
           ? {
               ...submission,
-              status,
-              reviewer: template?.approver || "Administration",
-              reviewedAt: signedAt,
-              reviewNotes: notes,
-              emailStatus: status === "Approved" ? "PDF generated, ready for Gmail delivery" : "Ready for status email",
-              generatedPdfName: status === "Approved" ? getPdfFileName(submission) : submission.generatedPdfName,
-              generatedPdfAt: status === "Approved" ? signedAt : submission.generatedPdfAt,
-              approvalSignature:
-                status === "Approved"
-                  ? {
-                      type: "typed",
-                      value: trimmedSignature,
-                      signedAt,
-                      signerRole: template?.approver || "Administration",
-                    }
-                  : submission.approvalSignature,
+              ...nextPatch,
             }
           : submission
       ),
     }));
+    saveFormSubmission({ ...selected, ...nextPatch })
+      .then((result) => {
+        if (result.saved) setSyncStatus("Shared forms connected.");
+      })
+      .catch((error) => setSyncStatus(`Review saved locally. Shared sync failed: ${error.message}`));
     setReviewFeedback(status === "Approved" ? "Approved. PDF is ready for delivery." : "Rejected. Status email is ready.");
     window.setTimeout(() => setReviewFeedback(""), 2600);
     setNotes("");
@@ -1369,10 +1526,13 @@ function ApprovalQueue({ state, updateState }) {
 
         (template?.fields || []).forEach((field) => {
           if (field.type !== "file") return;
-          const attachment = dataUrlToAttachment(selected.answers[field.id]);
-          if (attachment) attachments.push(attachment);
+          attachments.push(
+            fileAnswerToAttachment(selected.answers[field.id])
+          );
         });
       }
+
+      const resolvedAttachments = (await Promise.all(attachments)).filter(Boolean);
 
       const sendResult = await sendFormNotification({
         submission: selected,
@@ -1380,36 +1540,47 @@ function ApprovalQueue({ state, updateState }) {
         status: selected.status,
         notes: selected.reviewNotes || notes,
         recipients,
-        attachments,
+        attachments: resolvedAttachments,
       });
 
       if (!sendResult.sent) {
         throw new Error(sendResult.reason || "Email function did not send the form notification.");
       }
 
+      const sentPatch = {
+        status: approved ? "Sent" : selected.status,
+        emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
+        emailedAt: new Date().toISOString(),
+      };
       updateState((current) => ({
         ...current,
         submissions: current.submissions.map((submission) =>
           submission.id === selected.id
-            ? {
-                ...submission,
-                status: approved ? "Sent" : submission.status,
-                emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
-                emailedAt: new Date().toISOString(),
-              }
+            ? { ...submission, ...sentPatch }
             : submission
         ),
       }));
+      saveFormSubmission({ ...selected, ...sentPatch })
+        .then((result) => {
+          if (result.saved) setSyncStatus("Shared forms connected.");
+        })
+        .catch((error) => setSyncStatus(`Email status saved locally. Shared sync failed: ${error.message}`));
       setReviewFeedback(approved ? "Completed PDF email sent." : "Status email sent.");
     } catch (error) {
+      const errorPatch = { emailStatus: `Email failed: ${error.message}` };
       updateState((current) => ({
         ...current,
         submissions: current.submissions.map((submission) =>
           submission.id === selected.id
-            ? { ...submission, emailStatus: `Email failed: ${error.message}` }
+            ? { ...submission, ...errorPatch }
             : submission
         ),
       }));
+      saveFormSubmission({ ...selected, ...errorPatch })
+        .then((result) => {
+          if (result.saved) setSyncStatus("Shared forms connected.");
+        })
+        .catch((syncError) => setSyncStatus(`Email failure saved locally. Shared sync failed: ${syncError.message}`));
       setReviewFeedback(`Email failed: ${error.message}`);
     } finally {
       setSendingId("");
@@ -1716,7 +1887,7 @@ function SettingsPanel({ state, updateState }) {
   );
 }
 
-function TemplateLibrary({ state, updateState }) {
+function TemplateLibrary({ state, updateState, setSyncStatus }) {
   const [editingId, setEditingId] = useState("");
   const [importStatus, setImportStatus] = useState("");
   const [templateToDelete, setTemplateToDelete] = useState(null);
@@ -1727,6 +1898,11 @@ function TemplateLibrary({ state, updateState }) {
       ...current,
       templates: [template, ...current.templates],
     }));
+    saveFormTemplate(template)
+      .then((result) => {
+        if (result.saved) setSyncStatus("Shared form templates connected.");
+      })
+      .catch((error) => setSyncStatus(`Template saved locally. Shared sync failed: ${error.message}`));
   }
 
   function updateTemplate(nextTemplate) {
@@ -1739,16 +1915,30 @@ function TemplateLibrary({ state, updateState }) {
           : submission
       ),
     }));
+    saveFormTemplate(nextTemplate)
+      .then((result) => {
+        if (result.saved) setSyncStatus("Shared form templates connected.");
+      })
+      .catch((error) => setSyncStatus(`Template saved locally. Shared sync failed: ${error.message}`));
     setEditingId("");
   }
 
   function toggleTemplate(templateId) {
+    const nextTemplate = state.templates.find((template) => template.id === templateId);
+    const patchedTemplate = nextTemplate ? { ...nextTemplate, active: !nextTemplate.active } : null;
     updateState((current) => ({
       ...current,
       templates: current.templates.map((template) =>
         template.id === templateId ? { ...template, active: !template.active } : template
       ),
     }));
+    if (patchedTemplate) {
+      saveFormTemplate(patchedTemplate)
+        .then((result) => {
+          if (result.saved) setSyncStatus("Shared form templates connected.");
+        })
+        .catch((error) => setSyncStatus(`Template updated locally. Shared sync failed: ${error.message}`));
+    }
   }
 
   function deleteTemplate(templateId) {
@@ -1756,6 +1946,11 @@ function TemplateLibrary({ state, updateState }) {
       ...current,
       templates: current.templates.filter((template) => template.id !== templateId),
     }));
+    deleteFormTemplate(templateId)
+      .then((result) => {
+        if (result.saved) setSyncStatus("Shared form templates connected.");
+      })
+      .catch((error) => setSyncStatus(`Template deleted locally. Shared sync failed: ${error.message}`));
     setTemplateToDelete(null);
   }
 
@@ -1949,7 +2144,7 @@ function TemplateLibrary({ state, updateState }) {
 }
 
 function AdminFormsModule() {
-  const [state, updateState] = useFormsStore();
+  const [state, updateState, syncStatus, setSyncStatus] = useFormsStore();
   const [view, setView] = useState("queue");
   const submitted = state.submissions.filter((item) => item.status === "Submitted").length;
   const approved = state.submissions.filter((item) => item.status === "Approved" || item.status === "Sent").length;
@@ -1964,6 +2159,9 @@ function AdminFormsModule() {
           <p className="mt-2 max-w-3xl text-sm text-slate-400">
             Manage staff-facing form templates, approval routing, and final copy delivery rules.
           </p>
+          <div className="mt-3 inline-flex rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+            {syncStatus}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {[
@@ -1995,8 +2193,10 @@ function AdminFormsModule() {
         <Stat icon={XCircle} label="Rejected" value={rejected} tone="rose" />
       </div>
 
-      {view === "queue" && <ApprovalQueue state={state} updateState={updateState} />}
-      {view === "templates" && <TemplateLibrary state={state} updateState={updateState} />}
+      {view === "queue" && <ApprovalQueue state={state} updateState={updateState} setSyncStatus={setSyncStatus} />}
+      {view === "templates" && (
+        <TemplateLibrary state={state} updateState={updateState} setSyncStatus={setSyncStatus} />
+      )}
       {view === "settings" && <SettingsPanel state={state} updateState={updateState} />}
     </Shell>
   );

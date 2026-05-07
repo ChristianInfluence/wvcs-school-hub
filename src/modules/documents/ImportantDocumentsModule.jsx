@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Download,
   Eye,
@@ -8,6 +8,11 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import {
+  deleteImportantDocument,
+  fetchImportantDocuments,
+  uploadImportantDocument,
+} from "../../lib/documentsData.js";
 
 const STORE_KEY = "wvcs-important-documents-v1";
 
@@ -151,6 +156,26 @@ function DocumentList({ documents, selectedId, onSelect }) {
 
 function useDocumentStore() {
   const [documents, setDocuments] = useState(loadDocuments);
+  const [syncStatus, setSyncStatus] = useState("Loading shared documents...");
+
+  async function loadSharedDocuments() {
+    try {
+      const result = await fetchImportantDocuments();
+      if (!result.loaded) {
+        setSyncStatus(result.reason);
+        return;
+      }
+      setDocuments(result.documents);
+      setSyncStatus("Shared documents loaded.");
+    } catch (error) {
+      setSyncStatus(`Unable to load shared documents: ${error.message}`);
+    }
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(loadSharedDocuments, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   function updateDocuments(updater) {
     setDocuments((current) => {
@@ -160,7 +185,7 @@ function useDocumentStore() {
     });
   }
 
-  return [documents, updateDocuments];
+  return [documents, updateDocuments, syncStatus, loadSharedDocuments];
 }
 
 export default function ImportantDocumentsModule() {
@@ -221,7 +246,7 @@ export default function ImportantDocumentsModule() {
 }
 
 export function AdminDocumentsModule() {
-  const [documents, updateDocuments] = useDocumentStore();
+  const [documents, updateDocuments, syncStatus, loadSharedDocuments] = useDocumentStore();
   const [draft, setDraft] = useState({
     title: "",
     category: "",
@@ -233,7 +258,22 @@ export function AdminDocumentsModule() {
   async function uploadDocument() {
     if (!draft.file || !draft.title.trim()) return;
     try {
-      setStatus("Preparing document...");
+      setStatus("Uploading document...");
+      const uploadResult = await uploadImportantDocument({
+        title: draft.title.trim(),
+        category: draft.category.trim() || "General",
+        description: draft.description.trim(),
+        file: draft.file,
+      });
+
+      if (uploadResult.saved) {
+        updateDocuments((current) => [uploadResult.document, ...current]);
+        setDraft({ title: "", category: "", description: "", file: null });
+        setStatus("Document uploaded to shared storage and available to staff.");
+        await loadSharedDocuments();
+        return;
+      }
+
       const dataUrl = await readFileAsDataUrl(draft.file);
       const document = {
         id: crypto.randomUUID(),
@@ -248,14 +288,20 @@ export function AdminDocumentsModule() {
       };
       updateDocuments((current) => [document, ...current.filter((item) => item.dataUrl)]);
       setDraft({ title: "", category: "", description: "", file: null });
-      setStatus("Document uploaded and available to staff.");
-    } catch {
-      setStatus("Unable to upload this document.");
+      setStatus(`Document saved locally. ${uploadResult.reason}`);
+    } catch (error) {
+      setStatus(`Unable to upload this document: ${error.message}`);
     }
   }
 
-  function removeDocument(documentId) {
-    updateDocuments((current) => current.filter((document) => document.id !== documentId));
+  async function removeDocument(document) {
+    try {
+      const deleteResult = await deleteImportantDocument(document);
+      updateDocuments((current) => current.filter((item) => item.id !== document.id));
+      setStatus(deleteResult.saved ? "Document removed from shared storage." : `Document removed locally. ${deleteResult.reason}`);
+    } catch (error) {
+      setStatus(`Unable to remove document: ${error.message}`);
+    }
   }
 
   return (
@@ -327,7 +373,7 @@ export function AdminDocumentsModule() {
                 Add Document
               </button>
               <p className="text-xs leading-5 text-slate-500">
-                Local preview storage is best for small PDFs and common staff files. Supabase Storage should be added before using this for many or large documents.
+                {syncStatus}
               </p>
             </div>
           </aside>
@@ -376,7 +422,7 @@ export function AdminDocumentsModule() {
                     </a>
                     <button
                       type="button"
-                      onClick={() => removeDocument(document.id)}
+                      onClick={() => removeDocument(document)}
                       className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-rose-400 hover:text-rose-200"
                     >
                       <Trash2 size={14} />

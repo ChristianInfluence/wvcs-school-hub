@@ -1,15 +1,59 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
+  Download,
   History,
+  Loader2,
   Plus,
+  RefreshCw,
   Trash2,
   Users,
 } from "lucide-react";
+import html2pdf from "html2pdf.js";
+import {
+  deleteRecessEntry,
+  fetchRecessAttendance,
+  fetchRecessEntries,
+  saveRecessAttendanceRecord,
+  saveRecessEntry,
+  updateRecessEntryStatus,
+} from "../../lib/recessData.js";
 
 const STORE_KEY = "wvcs-structured-recess-v1";
+const ATTENDANCE_STORE_KEY = "wvcs-recess-attendance-v1";
+const ROSTER_SHEET_ID = "1E47sLmoHmz7Cc68DDaYP1YEgBrg2QJAwOB_w-Pas1nI";
+const ROSTER_CSV_URL = `https://docs.google.com/spreadsheets/d/${ROSTER_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
+const ROSTER_URLS = [
+  ROSTER_CSV_URL,
+  `https://api.allorigins.win/raw?url=${encodeURIComponent(ROSTER_CSV_URL)}`,
+  `https://docs.google.com/spreadsheets/d/${ROSTER_SHEET_ID}/export?format=csv&gid=0`,
+];
+
+const attendanceRecesses = {
+  early: {
+    label: "Early Recess",
+    accent: "sky",
+    slots: [
+      { id: "early-k1", label: "K/1", description: "Kindergarten and Grade 1", grades: ["Kindergarten", "Grade 1"] },
+      { id: "early-23", label: "2/3", description: "Grades 2 and 3", grades: ["Grade 2", "Grade 3"] },
+      { id: "early-45", label: "4/5", description: "Grades 4 and 5", grades: ["Grade 4", "Grade 5"] },
+    ],
+  },
+  lunch: {
+    label: "Lunch Recess",
+    accent: "amber",
+    slots: [
+      { id: "lunch-k12", label: "K/1/2", description: "Kindergarten, Grade 1, and Grade 2", grades: ["Kindergarten", "Grade 1", "Grade 2"] },
+      { id: "lunch-345", label: "3/4/5", description: "Grades 3, 4, and 5", grades: ["Grade 3", "Grade 4", "Grade 5"] },
+      { id: "lunch-ms", label: "Middle School", description: "Grades 6, 7, and 8", grades: ["Grade 6", "Grade 7", "Grade 8"] },
+    ],
+  },
+};
 
 const recessOptions = {
   early: {
@@ -69,8 +113,350 @@ function saveEntries(entries) {
   localStorage.setItem(STORE_KEY, JSON.stringify(entries));
 }
 
+function loadAttendance() {
+  try {
+    const saved = localStorage.getItem(ATTENDANCE_STORE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAttendance(attendance) {
+  localStorage.setItem(ATTENDANCE_STORE_KEY, JSON.stringify(attendance));
+}
+
 function formatDuration(duration) {
   return duration === "ALL" ? "ALL" : `${duration} minutes`;
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const nextChar = text[index + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  row.push(cell);
+  rows.push(row);
+  return rows.filter((cells) => cells.some((value) => value.trim()));
+}
+
+function buildRosterFromCsv(csvText) {
+  if (/sign in to your google account|<!doctype html|<html/i.test(csvText)) {
+    throw new Error("Google is requiring sign-in for the roster sheet.");
+  }
+
+  const rows = parseCsv(csvText);
+  const headers = rows[0]?.map((header, index) => header.trim() || `Grade ${index}`).filter(Boolean) || [];
+  if (headers.length < 6) throw new Error("The roster sheet needs grade headers starting in A1.");
+
+  return headers.map((grade, columnIndex) => ({
+    grade,
+    students: rows
+      .slice(1)
+      .map((row) => row[columnIndex]?.trim())
+      .filter(Boolean),
+  }));
+}
+
+async function fetchRosterFromSheet() {
+  const errors = [];
+
+  for (const url of ROSTER_URLS) {
+    try {
+      const response = await fetch(url);
+      const text = await response.text();
+      if (!response.ok) throw new Error(`Google returned ${response.status}`);
+      return buildRosterFromCsv(text);
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+
+  throw new Error([...new Set(errors)].join(" "));
+}
+
+function getAttendanceKey(recessId, slotId, grade, studentName) {
+  return `${recessId}::${slotId}::${grade}::${studentName}`;
+}
+
+function getLegacyAttendanceKey(grade, studentName) {
+  return `${grade}::${studentName}`;
+}
+
+function getAttendanceRecord(attendance, date, recessId, slotId, grade, studentName) {
+  const dateRecords = attendance[date] || {};
+  return (
+    dateRecords[getAttendanceKey(recessId, slotId, grade, studentName)] ||
+    dateRecords[getLegacyAttendanceKey(grade, studentName)] ||
+    { status: "", note: "" }
+  );
+}
+
+function flattenAttendanceRecords(attendance) {
+  return Object.entries(attendance).flatMap(([date, dateRecords]) =>
+    Object.values(dateRecords).map((record) => ({
+      date,
+      recessId: record.recessId,
+      slotId: record.slotId,
+      grade: record.grade,
+      studentName: record.studentName,
+      status: record.status || "",
+      note: record.note || "",
+    }))
+  ).filter((record) => record.recessId && record.slotId && record.grade && record.studentName);
+}
+
+function getAttendanceDates(attendance, today) {
+  return [...new Set([today, ...Object.keys(attendance)])].sort().reverse();
+}
+
+function getSlotGroups(roster, slot) {
+  return slot.grades
+    .map((grade) => roster.find((group) => group.grade === grade))
+    .filter(Boolean);
+}
+
+function getAttendanceSummary(groups, attendance, date, recessId, slotId) {
+  return groups.reduce(
+    (summary, group) => {
+      group.students.forEach((studentName) => {
+        const record = getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName);
+        summary.students += 1;
+        if (record.status === "present") summary.present += 1;
+        if (record.status === "absent") summary.absent += 1;
+      });
+      return summary;
+    },
+    { students: 0, present: 0, absent: 0 }
+  );
+}
+
+function getRecessAttendanceSummary(roster, attendance, date, recessId) {
+  return attendanceRecesses[recessId].slots.reduce(
+    (summary, slot) => {
+      const slotSummary = getAttendanceSummary(getSlotGroups(roster, slot), attendance, date, recessId, slot.id);
+      summary.students += slotSummary.students;
+      summary.present += slotSummary.present;
+      summary.absent += slotSummary.absent;
+      return summary;
+    },
+    { students: 0, present: 0, absent: 0 }
+  );
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getAttendancePdfFileName(date, recessId) {
+  return `recess-attendance-${recessId}-${date}.pdf`;
+}
+
+function buildAttendancePdfHtml(roster, attendance, date, recessId) {
+  const recess = attendanceRecesses[recessId];
+  const summary = getRecessAttendanceSummary(roster, attendance, date, recessId);
+  const slotSections = recess.slots
+    .map((slot) => {
+      const gradeSections = getSlotGroups(roster, slot)
+        .map((group) => {
+          const rows = group.students
+            .map((studentName) => {
+              const record = getAttendanceRecord(attendance, date, recessId, slot.id, group.grade, studentName);
+              const status = record.status === "present" ? "P" : record.status === "absent" ? "A" : "";
+              return `
+                <tr>
+                  <td>${escapeHtml(studentName)}</td>
+                  <td class="status">${escapeHtml(status)}</td>
+                  <td>${escapeHtml(record.note)}</td>
+                </tr>
+              `;
+            })
+            .join("");
+
+          return `
+            <section class="grade">
+              <h3>${escapeHtml(group.grade)}</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Status</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </section>
+          `;
+        })
+        .join("");
+
+      return `
+        <section class="slot">
+          <h2>${escapeHtml(slot.label)} <span>${escapeHtml(slot.description)}</span></h2>
+          ${gradeSections}
+        </section>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="attendance-pdf">
+      <style>
+        .attendance-pdf {
+          box-sizing: border-box;
+          width: 7.5in;
+          min-height: 9.8in;
+          background: #ffffff;
+          color: #111827;
+          font-family: Arial, sans-serif;
+          padding: 0;
+        }
+        .attendance-pdf header {
+          border-bottom: 2px solid #0f172a;
+          margin-bottom: 14px;
+          padding-bottom: 10px;
+        }
+        .attendance-pdf h1 {
+          font-size: 20px;
+          margin: 0 0 5px;
+        }
+        .attendance-pdf .meta {
+          color: #475569;
+          font-size: 11px;
+        }
+        .attendance-pdf .summary {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
+          margin: 12px 0 14px;
+        }
+        .attendance-pdf .summary div {
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+          padding: 7px;
+          font-size: 10px;
+        }
+        .attendance-pdf .summary strong {
+          display: block;
+          color: #0f172a;
+          font-size: 15px;
+        }
+        .attendance-pdf .slot {
+          break-inside: avoid;
+          margin-bottom: 14px;
+        }
+        .attendance-pdf h2 {
+          background: #0f172a;
+          border-radius: 6px;
+          color: #ffffff;
+          font-size: 13px;
+          margin: 0;
+          padding: 7px 9px;
+        }
+        .attendance-pdf h2 span {
+          color: #cbd5e1;
+          font-size: 10px;
+          font-weight: 400;
+          margin-left: 6px;
+        }
+        .attendance-pdf h3 {
+          background: #e2e8f0;
+          border: 1px solid #cbd5e1;
+          border-radius: 6px 6px 0 0;
+          color: #0f172a;
+          font-size: 12px;
+          margin: 8px 0 0;
+          padding: 5px 8px;
+        }
+        .attendance-pdf table {
+          border-collapse: collapse;
+          width: 100%;
+        }
+        .attendance-pdf th,
+        .attendance-pdf td {
+          border: 1px solid #cbd5e1;
+          font-size: 10px;
+          padding: 5px 6px;
+          text-align: left;
+          vertical-align: top;
+        }
+        .attendance-pdf th {
+          background: #f8fafc;
+          color: #334155;
+          font-size: 9px;
+          text-transform: uppercase;
+        }
+        .attendance-pdf .status {
+          font-weight: 700;
+          text-align: center;
+          width: 46px;
+        }
+      </style>
+      <header>
+        <h1>Recess Attendance Log</h1>
+        <div class="meta">${escapeHtml(recess.label)} • ${escapeHtml(formatDate(date))}</div>
+      </header>
+      <div class="summary">
+        <div><strong>${summary.students}</strong>Students</div>
+        <div><strong>${summary.present}</strong>Present</div>
+        <div><strong>${summary.absent}</strong>Absent</div>
+        <div><strong>${summary.students - summary.present - summary.absent}</strong>Unmarked</div>
+      </div>
+      ${slotSections}
+    </div>
+  `;
+}
+
+async function exportAttendancePdf(roster, attendance, date, recessId) {
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.background = "#ffffff";
+  host.innerHTML = buildAttendancePdfHtml(roster, attendance, date, recessId);
+  document.body.appendChild(host);
+
+  await html2pdf()
+    .set({
+      margin: [28, 36, 28, 36],
+      filename: getAttendancePdfFileName(date, recessId),
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: "pt", format: "letter", orientation: "portrait" },
+    })
+    .from(host.firstElementChild)
+    .save();
+
+  host.remove();
 }
 
 function EmptyState({ children }) {
@@ -257,14 +643,361 @@ function AideCompactView({ entries, stagedCompleteIds, onStageChange, onConfirmC
   );
 }
 
-export default function StructuredRecessModule({ initialView = "full" }) {
+function AttendanceStatusButton({ active, tone, children, onClick }) {
+  const toneClass =
+    tone === "present"
+      ? active
+        ? "border-emerald-300 bg-emerald-500 text-white"
+        : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+      : active
+        ? "border-rose-300 bg-rose-500 text-white"
+        : "border-rose-400/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-8 w-8 rounded-md border text-xs font-black transition ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AttendanceStudentRow({ date, recessId, slotId, grade, studentName, record, onUpdate }) {
+  return (
+    <div className="grid gap-2 border-b border-slate-800 px-3 py-2 last:border-b-0 md:grid-cols-[1fr_76px_minmax(120px,190px)] md:items-center">
+      <div className="text-sm font-semibold text-white">{studentName}</div>
+      <div className="flex gap-2">
+        <AttendanceStatusButton
+          active={record.status === "present"}
+          tone="present"
+          onClick={() =>
+            onUpdate(date, recessId, slotId, grade, studentName, {
+              status: record.status === "present" ? "" : "present",
+            })
+          }
+        >
+          P
+        </AttendanceStatusButton>
+        <AttendanceStatusButton
+          active={record.status === "absent"}
+          tone="absent"
+          onClick={() =>
+            onUpdate(date, recessId, slotId, grade, studentName, {
+              status: record.status === "absent" ? "" : "absent",
+            })
+          }
+        >
+          A
+        </AttendanceStatusButton>
+      </div>
+      <input
+        value={record.note || ""}
+        onChange={(event) => onUpdate(date, recessId, slotId, grade, studentName, { note: event.target.value })}
+        placeholder="Note"
+        className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-white outline-none transition placeholder:text-slate-600 focus:border-sky-400"
+      />
+    </div>
+  );
+}
+
+function AttendanceGradeCard({ date, recessId, slotId, group, attendance, collapsed, onToggleCollapsed, onUpdate }) {
+  const presentCount = group.students.filter(
+    (studentName) => getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName).status === "present"
+  ).length;
+  const absentCount = group.students.filter(
+    (studentName) => getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName).status === "absent"
+  ).length;
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+      <div className="border-b border-slate-800 bg-slate-950 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => onToggleCollapsed(group.grade)}
+            className="flex min-w-0 items-center gap-2 text-left text-base font-bold text-white"
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <ChevronRight size={17} className="text-slate-400" /> : <ChevronDown size={17} className="text-slate-400" />}
+            <span>{group.grade}</span>
+          </button>
+          <div className="flex shrink-0 gap-2 text-xs font-semibold">
+            <span className="rounded-full border border-slate-600 bg-slate-900 px-2 py-1 text-slate-300">
+              {group.students.length}
+            </span>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-emerald-100">
+              P {presentCount}
+            </span>
+            <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-rose-100">
+              A {absentCount}
+            </span>
+          </div>
+        </div>
+      </div>
+      {collapsed ? (
+        <div className="p-3 text-xs text-slate-500">
+          {presentCount} present, {absentCount} absent, {group.students.length - presentCount - absentCount} unmarked.
+        </div>
+      ) : group.students.length ? (
+        group.students.map((studentName) => (
+          <AttendanceStudentRow
+            key={`${group.grade}-${studentName}`}
+            date={date}
+            recessId={recessId}
+            slotId={slotId}
+            grade={group.grade}
+            studentName={studentName}
+            record={getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName)}
+            onUpdate={onUpdate}
+          />
+        ))
+      ) : (
+        <div className="p-4 text-sm text-slate-500">No students listed for this grade.</div>
+      )}
+    </section>
+  );
+}
+
+function RecessAttendanceBoard({
+  date,
+  selectedRecessId,
+  roster,
+  attendance,
+  attendanceDates,
+  collapsedGrades,
+  expandedSlots,
+  isLoading,
+  error,
+  onDateChange,
+  onRecessChange,
+  onRefreshRoster,
+  onToggleSlot,
+  onToggleGrade,
+  onUpdateAttendance,
+}) {
+  const recess = attendanceRecesses[selectedRecessId];
+  const totals = getRecessAttendanceSummary(roster, attendance, date, selectedRecessId);
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900">
+      <div className="flex flex-col gap-3 border-b border-slate-800 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Users size={16} className="text-sky-300" />
+            Recess Attendance
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Choose a recess, then work through each time slot in order for {formatDate(date)}.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-100">
+            <CalendarDays size={14} className="text-sky-300" />
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => onDateChange(event.target.value)}
+              className="bg-transparent text-xs text-white outline-none"
+            />
+          </label>
+          <select
+            value={date}
+            onChange={(event) => onDateChange(event.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-100 outline-none"
+            aria-label="Saved attendance logs"
+          >
+            {attendanceDates.map((savedDate) => (
+              <option key={savedDate} value={savedDate}>
+                {formatDate(savedDate)}
+              </option>
+            ))}
+          </select>
+          <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
+            {recess.label}
+          </span>
+          <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
+            {totals.students} students
+          </span>
+          <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+            P {totals.present}
+          </span>
+          <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-100">
+            A {totals.absent}
+          </span>
+          <button
+            type="button"
+            onClick={onRefreshRoster}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Refresh Roster
+          </button>
+          <button
+            type="button"
+            onClick={() => exportAttendancePdf(roster, attendance, date, selectedRecessId)}
+            disabled={!roster.length}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download size={14} />
+            Export PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-2 border-b border-slate-800 p-4 sm:grid-cols-2">
+        {Object.entries(attendanceRecesses).map(([id, option]) => {
+          const selected = selectedRecessId === id;
+          const optionSummary = getRecessAttendanceSummary(roster, attendance, date, id);
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onRecessChange(id)}
+              className={`rounded-lg border px-4 py-3 text-left transition ${
+                selected
+                  ? "border-sky-300 bg-sky-500/20 text-white"
+                  : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-bold">{option.label}</div>
+                <div className="text-xs font-semibold text-slate-400">
+                  P {optionSummary.present} / A {optionSummary.absent}
+                </div>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {option.slots.map((slot) => slot.label).join(" • ")}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {error && (
+        <div className="m-4 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <AlertCircle size={17} className="mt-0.5 shrink-0" />
+          <div>
+            The attendance roster could not be loaded from Google Sheets.
+            <div className="mt-1 text-xs text-amber-200/80">
+              Share the sheet so anyone with the link can view it, or publish it to the web, then refresh the roster.
+            </div>
+            <div className="mt-1 text-xs text-amber-200/70">{error}</div>
+          </div>
+        </div>
+      )}
+
+      {isLoading && !roster.length ? (
+        <div className="p-4">
+          <EmptyState>Loading the K-5 attendance roster...</EmptyState>
+        </div>
+      ) : roster.length ? (
+        <div className="space-y-4 p-4">
+          {recess.slots.map((slot, slotIndex) => {
+            const slotKey = `${selectedRecessId}-${slot.id}`;
+            const expanded = Boolean(expandedSlots[slotKey]);
+            const slotGroups = getSlotGroups(roster, slot);
+            const slotSummary = getAttendanceSummary(slotGroups, attendance, date, selectedRecessId, slot.id);
+            return (
+              <section key={slot.id} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+                <div
+                  className={`flex flex-col gap-2 border-b border-slate-800 px-4 py-3 md:flex-row md:items-center md:justify-between ${
+                    recess.accent === "amber" ? "bg-amber-500/10" : "bg-sky-500/10"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onToggleSlot(slotKey)}
+                    className="flex min-w-0 items-start gap-3 text-left"
+                    aria-expanded={expanded}
+                  >
+                    <span className="mt-6 text-slate-400">
+                      {expanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    </span>
+                    <span>
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Time Slot {slotIndex + 1}
+                      </span>
+                      <span className="mt-1 block text-xl font-bold text-white">{slot.label}</span>
+                      <span className="mt-1 block text-sm text-slate-400">{slot.description}</span>
+                    </span>
+                  </button>
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">
+                      {slotSummary.students} students
+                    </span>
+                    <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-emerald-100">
+                      P {slotSummary.present}
+                    </span>
+                    <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-rose-100">
+                      A {slotSummary.absent}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSlot(slotKey)}
+                      className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 transition hover:bg-slate-800"
+                    >
+                      {expanded ? "Minimize" : "Expand"}
+                    </button>
+                  </div>
+                </div>
+                {expanded ? (
+                  <div className="grid gap-4 p-4 xl:grid-cols-2 2xl:grid-cols-3">
+                    {slotGroups.map((group) => {
+                      const collapseKey = `${selectedRecessId}-${slot.id}-${group.grade}`;
+                      return (
+                        <AttendanceGradeCard
+                          key={collapseKey}
+                          date={date}
+                          recessId={selectedRecessId}
+                          slotId={slot.id}
+                          group={group}
+                          attendance={attendance}
+                          collapsed={Boolean(collapsedGrades[collapseKey])}
+                          onToggleCollapsed={() => onToggleGrade(collapseKey)}
+                          onUpdate={onUpdateAttendance}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="border-t border-slate-800 px-4 py-3 text-sm text-slate-400">
+                    {slotSummary.present} present, {slotSummary.absent} absent,{" "}
+                    {slotSummary.students - slotSummary.present - slotSummary.absent} unmarked.
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-4">
+          <EmptyState>No attendance roster loaded yet.</EmptyState>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function StructuredRecessModule({ initialView = "full", currentUserEmail = "" }) {
   const [entries, setEntries] = useState(loadEntries);
+  const [attendance, setAttendance] = useState(loadAttendance);
+  const [roster, setRoster] = useState([]);
+  const [rosterError, setRosterError] = useState("");
+  const [isLoadingRoster, setIsLoadingRoster] = useState(false);
+  const [sharedDataStatus, setSharedDataStatus] = useState("Connecting to shared database...");
+  const [attendanceDate, setAttendanceDate] = useState(getTodayKey());
+  const [selectedAttendanceRecess, setSelectedAttendanceRecess] = useState("early");
+  const [collapsedGrades, setCollapsedGrades] = useState({});
+  const [expandedAttendanceSlots, setExpandedAttendanceSlots] = useState({});
   const [historyDate, setHistoryDate] = useState(getTodayKey());
   const [stagedCompleteIds, setStagedCompleteIds] = useState([]);
   const [viewMode, setViewMode] = useState(initialView);
   const [draft, setDraft] = useState({
     studentName: "",
-    teacherName: "",
+    teacherName: currentUserEmail,
     recessType: "early",
     duration: 10,
     notes: "",
@@ -283,11 +1016,120 @@ export default function StructuredRecessModule({ initialView = "full" }) {
   const bothEntries = todayEntries.filter((entry) => entry.recessType === "both");
   const lunchEntries = todayEntries.filter((entry) => entry.recessType === "lunch");
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
+  const attendanceDates = getAttendanceDates(attendance, today);
   const durationOptions = recessOptions[draft.recessType].durations;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(refreshRoster, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(loadSharedRecessData, 0);
+    return () => window.clearTimeout(timeoutId);
+    // Load once on mount so any existing local records can seed the shared database safely.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadSharedRecessData() {
+    try {
+      const [entriesResult, attendanceResult] = await Promise.all([
+        fetchRecessEntries(),
+        fetchRecessAttendance(),
+      ]);
+
+      if (entriesResult.loaded) {
+        const localEntriesToSync = entries.filter((entry) => entry.id !== "sr-demo-1");
+        const nextEntries = entriesResult.entries.length ? entriesResult.entries : localEntriesToSync;
+        if (!entriesResult.entries.length && localEntriesToSync.length) {
+          await Promise.all(localEntriesToSync.map((entry) => saveRecessEntry(entry)));
+        }
+        setEntries(nextEntries);
+        saveEntries(nextEntries);
+      }
+      if (attendanceResult.loaded) {
+        const localAttendanceRecords = flattenAttendanceRecords(attendance);
+        const hasSharedAttendance = Object.keys(attendanceResult.attendance).length > 0;
+        const nextAttendance = hasSharedAttendance ? attendanceResult.attendance : attendance;
+        if (!hasSharedAttendance && localAttendanceRecords.length) {
+          await Promise.all(localAttendanceRecords.map((record) => saveRecessAttendanceRecord(record)));
+        }
+        setAttendance(nextAttendance);
+        saveAttendance(nextAttendance);
+      }
+
+      setSharedDataStatus(entriesResult.loaded || attendanceResult.loaded
+        ? "Shared database connected."
+        : "Using local browser storage until Supabase is configured.");
+    } catch (error) {
+      setSharedDataStatus(`Using local browser storage. Supabase sync failed: ${error.message}`);
+    }
+  }
 
   function persist(nextEntries) {
     setEntries(nextEntries);
     saveEntries(nextEntries);
+  }
+
+  function noteSharedSaveError(error) {
+    setSharedDataStatus(`Saved locally, but shared database sync failed: ${error.message}`);
+  }
+
+  async function refreshRoster() {
+    setIsLoadingRoster(true);
+    setRosterError("");
+    try {
+      const nextRoster = await fetchRosterFromSheet();
+      setRoster(nextRoster);
+    } catch (error) {
+      setRosterError(error.message || "Unable to load the roster.");
+    } finally {
+      setIsLoadingRoster(false);
+    }
+  }
+
+  function updateAttendance(date, recessId, slotId, grade, studentName, patch) {
+    const key = getAttendanceKey(recessId, slotId, grade, studentName);
+    const dateRecords = attendance[date] || {};
+    const record = dateRecords[key] || { recessId, slotId, grade, studentName, status: "", note: "" };
+    const nextAttendance = {
+      ...attendance,
+      [date]: {
+        ...dateRecords,
+        [key]: {
+          ...record,
+          ...patch,
+          recessId,
+          slotId,
+          grade,
+          studentName,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    setAttendance(nextAttendance);
+    saveAttendance(nextAttendance);
+    saveRecessAttendanceRecord({
+      date,
+      recessId,
+      slotId,
+      grade,
+      studentName,
+      status: nextAttendance[date][key].status,
+      note: nextAttendance[date][key].note,
+    })
+      .then((result) => {
+        if (result.saved) setSharedDataStatus("Shared database connected.");
+      })
+      .catch(noteSharedSaveError);
+  }
+
+  function toggleGradeCollapsed(grade) {
+    setCollapsedGrades((current) => ({ ...current, [grade]: !current[grade] }));
+  }
+
+  function toggleAttendanceSlot(slotKey) {
+    setExpandedAttendanceSlots((current) => ({ ...current, [slotKey]: !current[slotKey] }));
   }
 
   function addEntry() {
@@ -304,12 +1146,22 @@ export default function StructuredRecessModule({ initialView = "full" }) {
       createdAt: new Date().toISOString(),
     };
     persist([entry, ...entries]);
+    saveRecessEntry(entry)
+      .then((result) => {
+        if (result.saved) setSharedDataStatus("Shared database connected.");
+      })
+      .catch(noteSharedSaveError);
     setHistoryDate(today);
     setDraft((current) => ({ ...current, studentName: "", notes: "" }));
   }
 
   function updateStatus(entryId, status) {
     persist(entries.map((entry) => (entry.id === entryId ? { ...entry, status } : entry)));
+    updateRecessEntryStatus(entryId, status)
+      .then((result) => {
+        if (result.saved) setSharedDataStatus("Shared database connected.");
+      })
+      .catch(noteSharedSaveError);
     if (status === "complete") {
       setStagedCompleteIds((current) => current.filter((id) => id !== entryId));
     }
@@ -328,11 +1180,19 @@ export default function StructuredRecessModule({ initialView = "full" }) {
         stagedCompleteIds.includes(entry.id) ? { ...entry, status: "complete" } : entry
       )
     );
+    Promise.all(stagedCompleteIds.map((entryId) => updateRecessEntryStatus(entryId, "complete")))
+      .then(() => setSharedDataStatus("Shared database connected."))
+      .catch(noteSharedSaveError);
     setStagedCompleteIds([]);
   }
 
   function removeEntry(entryId) {
     persist(entries.filter((entry) => entry.id !== entryId));
+    deleteRecessEntry(entryId)
+      .then((result) => {
+        if (result.saved) setSharedDataStatus("Shared database connected.");
+      })
+      .catch(noteSharedSaveError);
   }
 
   function setRecessType(recessType) {
@@ -358,6 +1218,9 @@ export default function StructuredRecessModule({ initialView = "full" }) {
             <p className="mt-2 max-w-3xl text-sm text-slate-400">
               Teachers can add students for today. Recess aides can see who needs structured recess, which recess, and for how long.
             </p>
+            <div className="mt-3 inline-flex rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+              {sharedDataStatus}
+            </div>
           </div>
 
           <div className="flex flex-col gap-3">
@@ -390,12 +1253,31 @@ export default function StructuredRecessModule({ initialView = "full" }) {
         </div>
 
         {viewMode === "aide" ? (
-          <AideCompactView
-            entries={todayEntries}
-            stagedCompleteIds={stagedCompleteIds}
-            onStageChange={stageCompletion}
-            onConfirmComplete={confirmStagedComplete}
-          />
+          <div className="space-y-5">
+            <AideCompactView
+              entries={todayEntries}
+              stagedCompleteIds={stagedCompleteIds}
+              onStageChange={stageCompletion}
+              onConfirmComplete={confirmStagedComplete}
+            />
+            <RecessAttendanceBoard
+              date={attendanceDate}
+              selectedRecessId={selectedAttendanceRecess}
+              roster={roster}
+              attendance={attendance}
+              attendanceDates={attendanceDates}
+              collapsedGrades={collapsedGrades}
+              expandedSlots={expandedAttendanceSlots}
+              isLoading={isLoadingRoster}
+              error={rosterError}
+              onDateChange={setAttendanceDate}
+              onRecessChange={setSelectedAttendanceRecess}
+              onRefreshRoster={refreshRoster}
+              onToggleSlot={toggleAttendanceSlot}
+              onToggleGrade={toggleGradeCollapsed}
+              onUpdateAttendance={updateAttendance}
+            />
+          </div>
         ) : (
         <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
           <aside className="space-y-4">

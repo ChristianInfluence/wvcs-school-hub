@@ -1,22 +1,36 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   ClipboardCheck,
   Files,
   FileText,
   LayoutDashboard,
+  Lightbulb,
+  Lock,
+  LogOut,
+  NotebookPen,
   ShieldAlert,
   Settings,
+  Sparkles,
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
 import StaffFormsModule, { AdminFormsModule } from "./modules/forms/FormsModule.jsx";
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
+import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
+import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
 import warriorHeadNew from "./assets/warrior-head-new.png";
+
+const WVCS_DOMAIN = "wvcs.org";
+const defaultAccess = {
+  canUseHub: true,
+  canUseAdmin: false,
+  canUseScheduler: false,
+};
 
 const modules = [
   {
@@ -74,6 +88,32 @@ const modules = [
     callout: "Probation reviews",
   },
   {
+    id: "suggestions",
+    label: "Suggestions",
+    icon: Lightbulb,
+    description: "A staff suggestion box for ideas, process improvements, and school needs.",
+    color: "lime",
+    callout: "Coming soon",
+    comingSoon: true,
+  },
+  {
+    id: "meeting-notes",
+    label: "Meeting Notes",
+    icon: NotebookPen,
+    description: "Shared notes, action items, and follow-up records from school meetings.",
+    color: "indigo",
+    callout: "Coming soon",
+    comingSoon: true,
+  },
+  {
+    id: "look-of-the-week",
+    label: "Look of the Week",
+    icon: Sparkles,
+    description: "A weekly glance at upcoming events, reminders, and items staff should know.",
+    color: "orange",
+    callout: "Weekly brief",
+  },
+  {
     id: "admin",
     label: "Admin",
     icon: Settings,
@@ -126,11 +166,35 @@ const moduleStyles = {
     bar: "bg-cyan-400",
     text: "text-cyan-200",
   },
+  lime: {
+    card: "border-lime-400/35 bg-lime-500/10 hover:border-lime-300",
+    icon: "border-lime-300/40 bg-lime-400/20 text-lime-100",
+    bar: "bg-lime-400",
+    text: "text-lime-200",
+  },
+  indigo: {
+    card: "border-indigo-400/40 bg-indigo-500/10 hover:border-indigo-300",
+    icon: "border-indigo-300/40 bg-indigo-400/20 text-indigo-100",
+    bar: "bg-indigo-400",
+    text: "text-indigo-200",
+  },
+  orange: {
+    card: "border-orange-400/40 bg-orange-500/10 hover:border-orange-300",
+    icon: "border-orange-300/40 bg-orange-400/20 text-orange-100",
+    bar: "bg-orange-400",
+    text: "text-orange-200",
+  },
 };
 
-function DashboardModule({ onSelectModule, onOpenAideView }) {
+function DashboardModule({ access, onSelectModule, onOpenAideView }) {
   const launchModules = modules.filter((module) => module.id !== "dashboard");
   const featured = launchModules.find((module) => module.id === "structured-recess");
+
+  function isLocked(module) {
+    if (module.id === "admin") return !access.canUseAdmin;
+    if (module.id === "scheduler") return !access.canUseScheduler;
+    return false;
+  }
 
   return (
     <section className="min-h-[560px] bg-slate-950 text-slate-100">
@@ -159,27 +223,48 @@ function DashboardModule({ onSelectModule, onOpenAideView }) {
           {launchModules.map((module, index) => {
             const Icon = module.icon;
             const styles = moduleStyles[module.color];
+            const locked = isLocked(module);
             return (
               <button
                 key={module.id}
                 type="button"
+                disabled={module.comingSoon || locked}
                 onClick={() => onSelectModule(module.id)}
-                className={`group relative min-h-56 overflow-hidden rounded-lg border p-4 text-left transition hover:-translate-y-1 hover:shadow-2xl ${styles.card}`}
+                className={`group relative flex min-h-64 flex-col overflow-hidden rounded-lg border p-4 text-left transition ${
+                  module.comingSoon || locked
+                    ? `${styles.card} cursor-default opacity-85`
+                    : `${styles.card} hover:-translate-y-1 hover:shadow-2xl`
+                }`}
               >
                 <div className={`absolute left-0 top-0 h-1.5 w-full ${styles.bar}`} />
-                <div className="flex items-start justify-between gap-3">
-                  <div className={`rounded-lg border p-3 ${styles.icon}`}>
-                    <Icon size={24} />
+                <div className="relative h-14">
+                  <div className={`absolute left-0 top-0 flex h-12 w-12 items-center justify-center rounded-lg border ${styles.icon}`}>
+                    {locked ? <Lock size={24} /> : <Icon size={24} />}
                   </div>
-                  <div className={`text-4xl font-black text-white/5 transition group-hover:text-white/10`}>
+                  <div className="absolute right-0 top-0 text-4xl font-black leading-none text-white/5 transition group-hover:text-white/10">
                     {String(index + 1).padStart(2, "0")}
                   </div>
                 </div>
-                <div className={`mt-5 text-xs font-semibold uppercase tracking-[0.16em] ${styles.text}`}>
-                  {module.callout}
+                <div className="flex flex-1 flex-col">
+                  <div className={`mt-4 min-h-4 text-xs font-semibold uppercase tracking-[0.16em] ${styles.text}`}>
+                    {module.callout}
+                  </div>
+                  <h2 className="mt-2 min-h-14 text-xl font-bold leading-7 text-white">{module.label}</h2>
+                  <p className="text-sm leading-6 text-slate-300">{module.description}</p>
+                  <div className="mt-auto pt-5">
+                    {locked && (
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-300">
+                        <Lock size={12} />
+                        Access restricted
+                      </div>
+                    )}
+                    {module.comingSoon && (
+                      <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                        Planned feature
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <h2 className="mt-2 text-xl font-bold text-white">{module.label}</h2>
-                <p className="mt-3 text-sm leading-6 text-slate-300">{module.description}</p>
               </button>
             );
           })}
@@ -200,6 +285,7 @@ function AdminModule() {
           ["meetings", "Meetings Admin", Users],
           ["forms", "Forms Admin", FileText],
           ["documents", "Documents Admin", Files],
+          ["look-of-the-week", "Look of the Week", Sparkles],
         ].map(([id, label, Icon]) => (
           <button
             key={id}
@@ -220,8 +306,177 @@ function AdminModule() {
       {adminView === "meetings" && <AdminMeetingsModule />}
       {adminView === "forms" && <AdminFormsModule />}
       {adminView === "documents" && <AdminDocumentsModule />}
+      {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}
     </section>
   );
+}
+
+function AuthGate({ children }) {
+  const [authState, setAuthState] = useState(() =>
+    isSupabaseConfigured
+      ? {
+          loading: true,
+          user: null,
+          access: defaultAccess,
+          error: "",
+        }
+      : {
+          loading: false,
+          user: null,
+          access: defaultAccess,
+          error: "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable sign-in.",
+        }
+  );
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function handleSession(session) {
+      const user = session?.user || null;
+      const email = user?.email || "";
+      const domain = email.split("@")[1]?.toLowerCase();
+
+      if (!user) {
+        if (active) {
+          setAuthState({ loading: false, user: null, access: defaultAccess, error: "" });
+        }
+        return;
+      }
+
+      if (user && domain !== WVCS_DOMAIN) {
+        await supabase.auth.signOut();
+        if (active) {
+          setAuthState({
+            loading: false,
+            user: null,
+            access: defaultAccess,
+            error: "Please sign in with your WVCS Google account.",
+          });
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("staff_access")
+        .select("can_use_hub, can_use_admin, can_use_scheduler")
+        .eq("email", email.toLowerCase())
+        .maybeSingle();
+
+      if (error) {
+        if (active) {
+          setAuthState({
+            loading: false,
+            user,
+            access: defaultAccess,
+            error: `Signed in, but access lookup failed: ${error.message}`,
+          });
+        }
+        return;
+      }
+
+      const access = {
+        canUseHub: data?.can_use_hub ?? true,
+        canUseAdmin: data?.can_use_admin ?? false,
+        canUseScheduler: data?.can_use_scheduler ?? false,
+      };
+
+      if (!access.canUseHub) {
+        await supabase.auth.signOut();
+        if (active) {
+          setAuthState({
+            loading: false,
+            user: null,
+            access: defaultAccess,
+            error: "Your WVCS account is not enabled for School Hub access.",
+          });
+        }
+        return;
+      }
+
+      if (active) {
+        setAuthState({ loading: false, user, access, error: "" });
+      }
+    }
+
+    supabase.auth.getSession().then(({ data }) => handleSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      handleSession(session);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function signInWithGoogle() {
+    setAuthState((current) => ({ ...current, error: "" }));
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: {
+          hd: WVCS_DOMAIN,
+        },
+      },
+    });
+    if (error) {
+      setAuthState((current) => ({ ...current, error: error.message }));
+    }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+  }
+
+  if (authState.loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
+          Checking WVCS sign-in...
+        </div>
+      </div>
+    );
+  }
+
+  if (!authState.user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
+        <div className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+          <div className="flex items-center gap-3">
+            <img src={warriorHeadNew} alt="WVCS Warrior" className="h-12 w-12 rounded-lg object-contain" />
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Willamette Valley Christian School</div>
+              <h1 className="text-2xl font-bold text-white">School Hub Sign In</h1>
+            </div>
+          </div>
+          <p className="mt-5 text-sm leading-6 text-slate-400">
+            Sign in with your WVCS Google account to access the dashboard.
+          </p>
+          {authState.error && (
+            <div className="mt-4 rounded-lg border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+              {authState.error}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={signInWithGoogle}
+            disabled={!isSupabaseConfigured}
+            className="mt-5 w-full rounded-lg border border-sky-400 bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Sign in with Google
+          </button>
+          <div className="mt-3 text-xs text-slate-500">Only @{WVCS_DOMAIN} accounts are allowed.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return children({ user: authState.user, access: authState.access, signOut });
 }
 
 export default function App() {
@@ -244,19 +499,23 @@ export default function App() {
   }
 
   return (
+    <AuthGate>
+      {({ user, access, signOut }) => (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="no-print border-b border-slate-800 bg-slate-950">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <img src={warriorHeadNew} alt="WVCS Warrior" className="h-12 w-12 rounded-lg object-contain" />
             <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">WVCS</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Willamette Valley Christian School</div>
               <h1 className="text-2xl font-bold text-white">WVCS School Hub</h1>
             </div>
           </div>
 
-          <nav className="flex flex-wrap gap-2">
-            {modules.map((module) => {
+          <nav className="flex flex-wrap items-center gap-2">
+            {modules
+              .filter((module) => module.id === "dashboard" || (module.id === "admin" && access.canUseAdmin))
+              .map((module) => {
               const Icon = module.icon;
               const selected = module.id === activeModule;
               return (
@@ -275,6 +534,18 @@ export default function App() {
                 </button>
               );
             })}
+            <div className="hidden h-8 w-px bg-slate-800 sm:block" />
+            <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300">
+              {user.email}
+            </div>
+            <button
+              type="button"
+              onClick={signOut}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+            >
+              <LogOut size={16} />
+              Sign Out
+            </button>
           </nav>
         </div>
 
@@ -285,17 +556,21 @@ export default function App() {
       </header>
 
       {activeModule === "dashboard" && (
-        <DashboardModule onSelectModule={openModule} onOpenAideView={openStructuredRecessAideView} />
+        <DashboardModule access={access} onSelectModule={openModule} onOpenAideView={openStructuredRecessAideView} />
       )}
 
-      {activeModule === "scheduler" && <SchedulerModule />}
+      {activeModule === "scheduler" && access.canUseScheduler && <SchedulerModule />}
 
       {activeModule === "meetings" && (
         <MeetingsModule />
       )}
 
       {activeModule === "structured-recess" && (
-        <StructuredRecessModule key={structuredRecessView} initialView={structuredRecessView} />
+        <StructuredRecessModule
+          key={structuredRecessView}
+          initialView={structuredRecessView}
+          currentUserEmail={user.email}
+        />
       )}
 
       {activeModule === "forms" && (
@@ -306,13 +581,19 @@ export default function App() {
         <ImportantDocumentsModule />
       )}
 
+      {activeModule === "look-of-the-week" && (
+        <LookOfWeekModule />
+      )}
+
       {activeModule === "student-evaluation" && (
         <StudentEvaluationModule />
       )}
 
-      {activeModule === "admin" && (
+      {activeModule === "admin" && access.canUseAdmin && (
         <AdminModule />
       )}
     </div>
+      )}
+    </AuthGate>
   );
 }

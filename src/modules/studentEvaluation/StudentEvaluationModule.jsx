@@ -15,6 +15,8 @@ const STUDENT_FETCH_URL =
 const SUBMIT_DATA_URL =
   "https://script.google.com/macros/s/AKfycbyXpsGjiDzqSGtnwDFXC4ROKG1lMN03DFJiOTZmMYoRTZwSxnZXFv6ZIfnoNobNFN26eA/exec";
 const RECENT_STORE_KEY = "wvcs-student-evaluation-recent-v1";
+const FETCH_ENDPOINTS = [STUDENT_FETCH_URL, `${CORS_PROXY}${STUDENT_FETCH_URL}`];
+const SUBMIT_ENDPOINTS = [SUBMIT_DATA_URL, `${CORS_PROXY}${SUBMIT_DATA_URL}`];
 
 const ratingFields = [
   {
@@ -62,6 +64,22 @@ function loadRecentSubmissions() {
 
 function saveRecentSubmissions(submissions) {
   localStorage.setItem(RECENT_STORE_KEY, JSON.stringify(submissions.slice(0, 8)));
+}
+
+async function fetchFromAvailableEndpoint(endpoints, options) {
+  const errors = [];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, options);
+      if (response.ok) return response;
+      errors.push(`${endpoint} returned ${response.status}`);
+    } catch (error) {
+      errors.push(`${endpoint}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join(" | "));
 }
 
 function RatingSlider({ field, value, onChange }) {
@@ -139,8 +157,7 @@ export default function StudentEvaluationModule() {
     setIsLoadingStudents(true);
     setStudentError("");
     try {
-      const response = await fetch(`${CORS_PROXY}${STUDENT_FETCH_URL}`);
-      if (!response.ok) throw new Error(`Student list returned ${response.status}`);
+      const response = await fetchFromAvailableEndpoint(FETCH_ENDPOINTS);
       const text = await response.text();
       const data = JSON.parse(text);
       if (!Array.isArray(data)) throw new Error("Student list was not in the expected format.");
@@ -200,7 +217,7 @@ export default function StudentEvaluationModule() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch(`${CORS_PROXY}${SUBMIT_DATA_URL}`, {
+      const response = await fetchFromAvailableEndpoint(SUBMIT_ENDPOINTS, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   CheckCircle2,
@@ -18,50 +18,15 @@ import {
   sendMeetingRequestEmail,
   updateMeetingRequestStatus,
 } from "../../lib/meetingNotifications.js";
+import {
+  DEFAULT_MEETING_ADMINISTRATORS,
+  fetchMeetingState,
+  saveMeetingAdministrator,
+} from "../../lib/meetingSchedulesData.js";
 
 const STORE_KEY = "wvcs-meeting-scheduler-v1";
 
-const defaultAdministrators = [
-  {
-    id: "matt-conniry",
-    name: "Matt Conniry",
-    role: "Principal",
-    email: "mconniry@wvcs.org",
-    active: true,
-    bookingUrl: "",
-    recurringSlots: [
-      { id: "mc-mon-0830", weekday: 1, start: "08:30", end: "09:00", active: true },
-      { id: "mc-wed-1400", weekday: 3, start: "14:00", end: "14:30", active: true },
-    ],
-    blockedSlots: [],
-  },
-  {
-    id: "chris-cota",
-    name: "Chris Cota",
-    role: "Dean of Students",
-    email: "ccota@wvcs.org",
-    active: true,
-    bookingUrl: "",
-    recurringSlots: [
-      { id: "cc-tue-1015", weekday: 2, start: "10:15", end: "10:45", active: true },
-      { id: "cc-thu-1315", weekday: 4, start: "13:15", end: "13:45", active: true },
-    ],
-    blockedSlots: [],
-  },
-  {
-    id: "lynne-marks",
-    name: "Lynne Marks",
-    role: "Instructional Coach",
-    email: "lmarks@wvcs.org",
-    active: true,
-    bookingUrl: "",
-    recurringSlots: [
-      { id: "lm-mon-1115", weekday: 1, start: "11:15", end: "11:45", active: true },
-      { id: "lm-fri-0900", weekday: 5, start: "09:00", end: "09:30", active: true },
-    ],
-    blockedSlots: [],
-  },
-];
+const defaultAdministrators = DEFAULT_MEETING_ADMINISTRATORS;
 
 const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -113,6 +78,27 @@ function saveMeetingState(state) {
 
 function useMeetingStore() {
   const [state, setState] = useState(loadMeetingState);
+  const [syncStatus, setSyncStatus] = useState("Loading shared meeting schedules...");
+
+  async function loadSharedMeetingState() {
+    try {
+      const result = await fetchMeetingState();
+      if (!result.loaded) {
+        setSyncStatus(result.reason);
+        return;
+      }
+      setState(result.state);
+      saveMeetingState(result.state);
+      setSyncStatus("Shared meeting schedules loaded.");
+    } catch (error) {
+      setSyncStatus(`Unable to load shared meeting schedules: ${error.message}`);
+    }
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(loadSharedMeetingState, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   function updateState(updater) {
     setState((current) => {
@@ -122,7 +108,7 @@ function useMeetingStore() {
     });
   }
 
-  return [state, updateState];
+  return [state, updateState, syncStatus, loadSharedMeetingState];
 }
 
 function formatDate(dateValue) {
@@ -884,7 +870,8 @@ function AdminEditor({ administrator, onSave, onCancel }) {
 }
 
 export function AdminMeetingsModule() {
-  const [state, updateState] = useMeetingStore();
+  const [state, updateState, syncStatus, loadSharedMeetingState] = useMeetingStore();
+  const [scheduleStatus, setScheduleStatus] = useState("");
   const [editingId, setEditingId] = useState(state.administrators[0]?.id || "");
   const [confirmingId, setConfirmingId] = useState("");
   const [decliningId, setDecliningId] = useState("");
@@ -894,13 +881,25 @@ export function AdminMeetingsModule() {
   const [releaseSlot, setReleaseSlot] = useState(true);
   const editingAdmin = state.administrators.find((admin) => admin.id === editingId);
 
-  function saveAdministrator(nextAdministrator) {
+  async function saveAdministrator(nextAdministrator) {
     updateState((current) => ({
       ...current,
       administrators: current.administrators.map((admin) =>
         admin.id === nextAdministrator.id ? nextAdministrator : admin
       ),
     }));
+
+    try {
+      const result = await saveMeetingAdministrator(nextAdministrator);
+      if (result.saved) {
+        setScheduleStatus(`${nextAdministrator.name}'s schedule saved to shared storage.`);
+        await loadSharedMeetingState();
+      } else {
+        setScheduleStatus(`Schedule saved locally. ${result.reason}`);
+      }
+    } catch (error) {
+      setScheduleStatus(`Schedule saved locally, but shared storage failed: ${error.message}`);
+    }
   }
 
   function markInviteSent(requestId) {
@@ -1094,6 +1093,9 @@ export function AdminMeetingsModule() {
         <p className="mt-2 max-w-3xl text-sm text-slate-400">
           Add and edit administrator availability for teacher meeting requests.
         </p>
+        <div className="mt-3 inline-flex rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+          {scheduleStatus || syncStatus}
+        </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
@@ -1130,7 +1132,7 @@ export function AdminMeetingsModule() {
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
             <div className="mb-2 text-sm font-semibold text-white">Meeting Requests</div>
             <div className="text-2xl font-bold text-white">{state.requests.length}</div>
-            <div className="mt-1 text-xs text-slate-500">Requests created locally</div>
+            <div className="mt-1 text-xs text-slate-500">Shared requests visible to administrators</div>
           </div>
         </aside>
 
