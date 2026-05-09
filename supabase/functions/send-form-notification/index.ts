@@ -24,11 +24,14 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
   const boundary = `wvcs-form-${crypto.randomUUID()}`;
   const { submission, template, status, notes, attachments = [] } = payload;
   const approved = status === "Approved" || status === "Sent";
-  const subject = `${approved ? "Approved form" : "Form status"}: ${submission.templateTitle}`;
+  const submitted = status === "Submitted";
+  const subject = `${submitted ? "Form submitted for approval" : approved ? "Approved form" : "Form status"}: ${submission.templateTitle}`;
   const textBody = [
-    approved
-      ? "A form has been approved. The completed PDF is attached."
-      : "A form has been reviewed. See the status and notes below.",
+    submitted
+      ? "A form has been submitted and is ready for administrative review."
+      : approved
+        ? "A form has been approved. The completed PDF is attached."
+        : "A form has been reviewed. See the status and notes below.",
     "",
     `Form: ${submission.templateTitle}`,
     `Submitter: ${submission.submitterName} <${submission.submitterEmail}>`,
@@ -129,4 +132,3 @@ Deno.serve(async (request) => {
     });
   }
 });
-

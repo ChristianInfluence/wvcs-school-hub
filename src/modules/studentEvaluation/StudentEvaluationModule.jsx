@@ -152,6 +152,7 @@ export default function StudentEvaluationModule() {
     () => (selectedStudent === "__manual" ? manualStudent.trim() : selectedStudent),
     [manualStudent, selectedStudent]
   );
+  const canSubmitEvaluation = teacherEmail.trim() && teacherEmail.includes("@") && studentName && feedback.trim();
 
   async function fetchStudents() {
     setIsLoadingStudents(true);
@@ -325,14 +326,19 @@ export default function StudentEvaluationModule() {
             </div>
 
             <label className="mt-5 block">
-              <span className="text-sm font-semibold text-slate-200">Teacher feedback</span>
+              <span className="text-sm font-semibold text-slate-200">
+                Teacher feedback <span className="text-rose-300">*</span>
+              </span>
               <textarea
+                required
                 value={feedback}
                 onChange={(event) => setFeedback(event.target.value)}
                 placeholder="Add details that will help administration understand the student's probation progress."
                 rows={6}
-                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-400"
+                aria-invalid={!feedback.trim()}
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-400 invalid:border-rose-400"
               />
+              <span className="mt-1 block text-xs text-slate-500">Required before submitting.</span>
             </label>
 
             {submitMessage && (
@@ -351,7 +357,7 @@ export default function StudentEvaluationModule() {
             <div className="mt-5 flex justify-end">
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !canSubmitEvaluation}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

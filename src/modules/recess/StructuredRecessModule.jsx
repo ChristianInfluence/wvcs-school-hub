@@ -81,6 +81,7 @@ const defaultEntries = [
     teacherName: "Mrs. Teacher",
     recessType: "early",
     duration: 10,
+    reason: "Extra support with recess expectations.",
     notes: "Stay with aide near benches.",
     status: "active",
     createdAt: new Date().toISOString(),
@@ -498,9 +499,18 @@ function EntryCard({ entry, onComplete, onDelete }) {
         </div>
       </div>
 
-      {entry.notes && (
+      {(entry.reason || entry.notes) && (
         <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300">
-          {entry.notes}
+          {entry.reason && (
+            <div>
+              <span className="font-semibold text-slate-100">Reason:</span> {entry.reason}
+            </div>
+          )}
+          {entry.notes && (
+            <div className={entry.reason ? "mt-1" : ""}>
+              <span className="font-semibold text-slate-100">Aide notes:</span> {entry.notes}
+            </div>
+          )}
         </div>
       )}
 
@@ -546,6 +556,7 @@ function AideCompactRow({ entry, staged, onStageChange }) {
         <div className={`font-semibold ${staged ? "text-emerald-100" : "text-white"}`}>{entry.studentName}</div>
         <div className="text-xs text-slate-500">
           {entry.teacherName}
+          {entry.reason ? ` • Reason: ${entry.reason}` : ""}
           {entry.notes ? ` • ${entry.notes}` : ""}
         </div>
       </div>
@@ -1000,6 +1011,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     teacherName: currentUserEmail,
     recessType: "early",
     duration: 10,
+    reason: "",
     notes: "",
   });
 
@@ -1141,6 +1153,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       teacherName: draft.teacherName.trim(),
       recessType: draft.recessType,
       duration: draft.duration === "ALL" ? "ALL" : Number(draft.duration),
+      reason: draft.reason.trim(),
       notes: draft.notes.trim(),
       status: "active",
       createdAt: new Date().toISOString(),
@@ -1152,7 +1165,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       })
       .catch(noteSharedSaveError);
     setHistoryDate(today);
-    setDraft((current) => ({ ...current, studentName: "", notes: "" }));
+    setDraft((current) => ({ ...current, studentName: "", reason: "", notes: "" }));
   }
 
   function updateStatus(entryId, status) {
@@ -1345,6 +1358,16 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       </option>
                     ))}
                   </select>
+                </label>
+
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  Reason <span className="text-xs font-normal text-slate-500">(optional)</span>
+                  <input
+                    value={draft.reason}
+                    onChange={(event) => setDraft({ ...draft, reason: event.target.value })}
+                    placeholder="Example: needs support with safe play expectations"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none placeholder:text-slate-600 focus:border-sky-400"
+                  />
                 </label>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">

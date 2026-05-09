@@ -5,6 +5,7 @@ create table if not exists public.structured_recess_entries (
   teacher_name text not null,
   recess_type text not null,
   duration text not null,
+  reason text,
   notes text,
   status text not null default 'active',
   created_at timestamptz not null default now(),

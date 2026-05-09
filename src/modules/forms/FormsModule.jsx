@@ -775,15 +775,19 @@ async function generateSubmissionPdfBlob(submission, template, settings) {
   return blob;
 }
 
-function StaffFormsModule() {
+function StaffFormsModule({ currentUserEmail = "" }) {
   const [state, updateState, syncStatus, setSyncStatus] = useFormsStore();
   const activeTemplates = state.templates.filter((template) => template.active);
   const [selectedId, setSelectedId] = useState(activeTemplates[0]?.id || "");
   const selectedTemplate = activeTemplates.find((template) => template.id === selectedId) || activeTemplates[0];
   const [submitter, setSubmitter] = useState({ name: "", email: "" });
+  const loggedInEmail = currentUserEmail.trim().toLowerCase();
+  const submitterEmail = loggedInEmail || submitter.email.trim().toLowerCase();
   const [answers, setAnswers] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionFeedback, setSubmissionFeedback] = useState(null);
   const mySubmissions = state.submissions.filter(
-    (submission) => submission.submitterEmail && submission.submitterEmail === submitter.email
+    (submission) => submission.submitterEmail?.toLowerCase() === submitterEmail
   );
 
   async function uploadSubmissionFiles(submissionId) {
@@ -803,9 +807,16 @@ function StaffFormsModule() {
   }
 
   async function submitForm() {
-    if (!selectedTemplate || !submitter.name.trim() || !submitter.email.trim()) return;
+    if (!selectedTemplate || !submitter.name.trim() || !submitterEmail) return;
     const missing = selectedTemplate.fields.some((field) => !hasRequiredAnswer(field, answers));
     if (missing) return;
+
+    setIsSubmitting(true);
+    setSubmissionFeedback({
+      tone: "info",
+      title: "Submitting form...",
+      message: "Saving the form and notifying administration.",
+    });
 
     const submissionId = uid("sub");
     let submissionAnswers = answers;
@@ -820,7 +831,7 @@ function StaffFormsModule() {
       templateId: selectedTemplate.id,
       templateTitle: selectedTemplate.title,
       submitterName: submitter.name.trim(),
-      submitterEmail: submitter.email.trim(),
+      submitterEmail,
       submittedAt: new Date().toISOString(),
       status: "Submitted",
       reviewer: "",
@@ -834,18 +845,72 @@ function StaffFormsModule() {
       ...current,
       submissions: [submission, ...current.submissions],
     }));
-    saveFormSubmission(submission)
-      .then((result) => {
-        if (result.saved) setSyncStatus("Shared forms connected.");
-      })
-      .catch((error) => setSyncStatus(`Submission saved locally. Shared sync failed: ${error.message}`));
-    setAnswers({});
+    try {
+      const saveResult = await saveFormSubmission(submission);
+      if (saveResult.saved) setSyncStatus("Shared forms connected.");
+    } catch (error) {
+      setSyncStatus(`Submission saved locally. Shared sync failed: ${error.message}`);
+    }
+
+    const recipients = uniqueEmails([...(selectedTemplate.recipients || []), ...(state.settings.defaultRecipients || [])]);
+    try {
+      const sendResult = await sendFormNotification({
+        submission,
+        template: selectedTemplate,
+        status: "Submitted",
+        notes: "A new form was submitted for approval.",
+        recipients,
+        attachments: [],
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the submission notice.");
+      }
+
+      const emailPatch = {
+        emailStatus: "Submission notice emailed to administration",
+        emailedAt: new Date().toISOString(),
+      };
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((item) =>
+          item.id === submission.id ? { ...item, ...emailPatch } : item
+        ),
+      }));
+      saveFormSubmission({ ...submission, ...emailPatch }).catch((error) =>
+        setSyncStatus(`Email status saved locally. Shared sync failed: ${error.message}`)
+      );
+      setSubmissionFeedback({
+        tone: "success",
+        title: "Form sent for approval",
+        message: "Administration has been notified, and your submission is now in the approval queue.",
+      });
+    } catch (error) {
+      const emailPatch = { emailStatus: `Submission saved; email failed: ${error.message}` };
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((item) =>
+          item.id === submission.id ? { ...item, ...emailPatch } : item
+        ),
+      }));
+      saveFormSubmission({ ...submission, ...emailPatch }).catch((syncError) =>
+        setSyncStatus(`Email failure saved locally. Shared sync failed: ${syncError.message}`)
+      );
+      setSubmissionFeedback({
+        tone: "warning",
+        title: "Form saved, but email did not send",
+        message: error.message,
+      });
+    } finally {
+      setAnswers({});
+      setIsSubmitting(false);
+    }
   }
 
   const canSubmit =
     selectedTemplate &&
     submitter.name.trim() &&
-    submitter.email.trim() &&
+    submitterEmail &&
     selectedTemplate.fields.every((field) => hasRequiredAnswer(field, answers));
 
   return (
@@ -923,12 +988,44 @@ function StaffFormsModule() {
                       Your Email
                       <input
                         type="email"
-                        value={submitter.email}
+                        value={submitterEmail}
                         onChange={(event) => setSubmitter({ ...submitter, email: event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                        readOnly={Boolean(loggedInEmail)}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 read-only:cursor-not-allowed read-only:border-slate-800 read-only:bg-slate-900 read-only:text-slate-300"
                       />
+                      {loggedInEmail && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          Pulled from your signed-in WVCS account.
+                        </span>
+                      )}
                     </label>
                   </div>
+
+                  {submissionFeedback && (
+                    <div
+                      className={`rounded-lg border px-4 py-3 ${
+                        submissionFeedback.tone === "success"
+                          ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-100"
+                          : submissionFeedback.tone === "warning"
+                            ? "border-amber-400/60 bg-amber-500/15 text-amber-100"
+                            : "border-sky-400/60 bg-sky-500/15 text-sky-100"
+                      }`}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <div className="flex items-start gap-3">
+                        {submissionFeedback.tone === "warning" ? (
+                          <AlertCircle size={20} className="mt-0.5 shrink-0" />
+                        ) : (
+                          <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+                        )}
+                        <div>
+                          <div className="text-sm font-bold">{submissionFeedback.title}</div>
+                          <div className="mt-1 text-sm opacity-90">{submissionFeedback.message}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid gap-4">
                     {selectedTemplate.fields.map((field) => (
@@ -947,12 +1044,12 @@ function StaffFormsModule() {
                   <div className="flex justify-end border-t border-slate-800 pt-5">
                     <button
                       type="button"
-                      disabled={!canSubmit}
+                      disabled={!canSubmit || isSubmitting}
                       onClick={submitForm}
-                      className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-950/30 transition hover:-translate-y-0.5 hover:bg-sky-400 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <Send size={16} />
-                      Submit for Approval
+                      {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
+                      {isSubmitting ? "Submitting..." : "Submit for Approval"}
                     </button>
                   </div>
                 </div>
@@ -1423,6 +1520,103 @@ function ApprovalQueue({ state, updateState, setSyncStatus }) {
   const [reviewFeedback, setReviewFeedback] = useState("");
   const [sendingId, setSendingId] = useState("");
 
+  async function sendSubmissionEmail(submissionToSend, options = {}) {
+    if (!submissionToSend) return;
+    if (!["Approved", "Rejected", "Sent"].includes(submissionToSend.status)) {
+      setReviewFeedback("Approve or reject the form before sending an email.");
+      window.setTimeout(() => setReviewFeedback(""), 2600);
+      return;
+    }
+
+    const localTemplate = state.templates.find((item) => item.id === submissionToSend.templateId);
+    setSendingId(submissionToSend.id);
+    if (options.auto) {
+      setReviewFeedback(
+        submissionToSend.status === "Approved"
+          ? "Approved. Sending the completed PDF email now..."
+          : "Rejected. Sending the status email now..."
+      );
+    }
+
+    try {
+      const approved = submissionToSend.status === "Approved" || submissionToSend.status === "Sent";
+      const recipients = approved
+        ? uniqueEmails([
+            submissionToSend.submitterEmail,
+            ...(localTemplate?.recipients || []),
+            ...((localTemplate?.finalCopyRecipients?.length
+              ? localTemplate.finalCopyRecipients
+              : state.settings.finalCopyRecipients) || []),
+          ])
+        : uniqueEmails([submissionToSend.submitterEmail, ...(localTemplate?.recipients || [])]);
+
+      const attachments = [];
+      if (approved) {
+        const pdfBlob = await generateSubmissionPdfBlob(submissionToSend, localTemplate, state.settings);
+        attachments.push({
+          filename: getPdfFileName(submissionToSend),
+          mimeType: "application/pdf",
+          contentBase64: await blobToBase64(pdfBlob),
+        });
+
+        (localTemplate?.fields || []).forEach((field) => {
+          if (field.type !== "file") return;
+          attachments.push(fileAnswerToAttachment(submissionToSend.answers[field.id]));
+        });
+      }
+
+      const resolvedAttachments = (await Promise.all(attachments)).filter(Boolean);
+
+      const sendResult = await sendFormNotification({
+        submission: submissionToSend,
+        template: localTemplate,
+        status: submissionToSend.status,
+        notes: submissionToSend.reviewNotes || notes,
+        recipients,
+        attachments: resolvedAttachments,
+      });
+
+      if (!sendResult.sent) {
+        throw new Error(sendResult.reason || "Email function did not send the form notification.");
+      }
+
+      const sentPatch = {
+        status: approved ? "Sent" : submissionToSend.status,
+        emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
+        emailedAt: new Date().toISOString(),
+      };
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((submission) =>
+          submission.id === submissionToSend.id ? { ...submission, ...sentPatch } : submission
+        ),
+      }));
+      saveFormSubmission({ ...submissionToSend, ...sentPatch })
+        .then((result) => {
+          if (result.saved) setSyncStatus("Shared forms connected.");
+        })
+        .catch((error) => setSyncStatus(`Email status saved locally. Shared sync failed: ${error.message}`));
+      setReviewFeedback(approved ? "Approved and emailed. The completed PDF was sent." : "Rejected and emailed.");
+    } catch (error) {
+      const errorPatch = { emailStatus: `Email failed: ${error.message}` };
+      updateState((current) => ({
+        ...current,
+        submissions: current.submissions.map((submission) =>
+          submission.id === submissionToSend.id ? { ...submission, ...errorPatch } : submission
+        ),
+      }));
+      saveFormSubmission({ ...submissionToSend, ...errorPatch })
+        .then((result) => {
+          if (result.saved) setSyncStatus("Shared forms connected.");
+        })
+        .catch((syncError) => setSyncStatus(`Email failure saved locally. Shared sync failed: ${syncError.message}`));
+      setReviewFeedback(`Email failed: ${error.message}`);
+    } finally {
+      setSendingId("");
+      window.setTimeout(() => setReviewFeedback(""), 4200);
+    }
+  }
+
   async function review(status) {
     if (!selected) return;
     const signedAt = new Date().toISOString();
@@ -1475,6 +1669,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus }) {
     }
 
     const nextPatch = { ...reviewPatch, ...storedPdfPatch };
+    const reviewedSubmission = { ...selected, ...nextPatch };
     updateState((current) => ({
       ...current,
       submissions: current.submissions.map((submission) =>
@@ -1486,106 +1681,17 @@ function ApprovalQueue({ state, updateState, setSyncStatus }) {
           : submission
       ),
     }));
-    saveFormSubmission({ ...selected, ...nextPatch })
+    saveFormSubmission(reviewedSubmission)
       .then((result) => {
         if (result.saved) setSyncStatus("Shared forms connected.");
       })
       .catch((error) => setSyncStatus(`Review saved locally. Shared sync failed: ${error.message}`));
-    setReviewFeedback(status === "Approved" ? "Approved. PDF is ready for delivery." : "Rejected. Status email is ready.");
-    window.setTimeout(() => setReviewFeedback(""), 2600);
     setNotes("");
+    await sendSubmissionEmail(reviewedSubmission, { auto: true });
   }
 
   async function sendSelectedEmail() {
-    if (!selected) return;
-    if (!["Approved", "Rejected", "Sent"].includes(selected.status)) {
-      setReviewFeedback("Approve or reject the form before sending an email.");
-      window.setTimeout(() => setReviewFeedback(""), 2600);
-      return;
-    }
-
-    setSendingId(selected.id);
-    try {
-      const approved = selected.status === "Approved" || selected.status === "Sent";
-      const recipients = approved
-        ? uniqueEmails([
-            selected.submitterEmail,
-            ...(template?.recipients || []),
-            ...((template?.finalCopyRecipients?.length ? template.finalCopyRecipients : state.settings.finalCopyRecipients) || []),
-          ])
-        : uniqueEmails([selected.submitterEmail, ...(template?.recipients || [])]);
-
-      const attachments = [];
-      if (approved) {
-        const pdfBlob = await generateSubmissionPdfBlob(selected, template, state.settings);
-        attachments.push({
-          filename: getPdfFileName(selected),
-          mimeType: "application/pdf",
-          contentBase64: await blobToBase64(pdfBlob),
-        });
-
-        (template?.fields || []).forEach((field) => {
-          if (field.type !== "file") return;
-          attachments.push(
-            fileAnswerToAttachment(selected.answers[field.id])
-          );
-        });
-      }
-
-      const resolvedAttachments = (await Promise.all(attachments)).filter(Boolean);
-
-      const sendResult = await sendFormNotification({
-        submission: selected,
-        template,
-        status: selected.status,
-        notes: selected.reviewNotes || notes,
-        recipients,
-        attachments: resolvedAttachments,
-      });
-
-      if (!sendResult.sent) {
-        throw new Error(sendResult.reason || "Email function did not send the form notification.");
-      }
-
-      const sentPatch = {
-        status: approved ? "Sent" : selected.status,
-        emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
-        emailedAt: new Date().toISOString(),
-      };
-      updateState((current) => ({
-        ...current,
-        submissions: current.submissions.map((submission) =>
-          submission.id === selected.id
-            ? { ...submission, ...sentPatch }
-            : submission
-        ),
-      }));
-      saveFormSubmission({ ...selected, ...sentPatch })
-        .then((result) => {
-          if (result.saved) setSyncStatus("Shared forms connected.");
-        })
-        .catch((error) => setSyncStatus(`Email status saved locally. Shared sync failed: ${error.message}`));
-      setReviewFeedback(approved ? "Completed PDF email sent." : "Status email sent.");
-    } catch (error) {
-      const errorPatch = { emailStatus: `Email failed: ${error.message}` };
-      updateState((current) => ({
-        ...current,
-        submissions: current.submissions.map((submission) =>
-          submission.id === selected.id
-            ? { ...submission, ...errorPatch }
-            : submission
-        ),
-      }));
-      saveFormSubmission({ ...selected, ...errorPatch })
-        .then((result) => {
-          if (result.saved) setSyncStatus("Shared forms connected.");
-        })
-        .catch((syncError) => setSyncStatus(`Email failure saved locally. Shared sync failed: ${syncError.message}`));
-      setReviewFeedback(`Email failed: ${error.message}`);
-    } finally {
-      setSendingId("");
-      window.setTimeout(() => setReviewFeedback(""), 3600);
-    }
+    await sendSubmissionEmail(selected);
   }
 
   return (

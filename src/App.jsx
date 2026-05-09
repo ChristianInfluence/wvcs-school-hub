@@ -381,7 +381,7 @@ function AuthGate({ children }) {
       }
 
       const access = {
-        canUseHub: data?.can_use_hub ?? true,
+        canUseHub: data?.can_use_hub ?? false,
         canUseAdmin: data?.can_use_admin ?? false,
         canUseScheduler: data?.can_use_scheduler ?? false,
       };
@@ -576,7 +576,7 @@ export default function App() {
       )}
 
       {activeModule === "forms" && (
-        <StaffFormsModule />
+        <StaffFormsModule currentUserEmail={user.email} />
       )}
 
       {activeModule === "documents" && (

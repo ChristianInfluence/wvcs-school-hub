@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Download,
+  Edit3,
   Eye,
   FileText,
   FolderOpen,
   Plus,
+  Search,
+  Save,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import {
   deleteImportantDocument,
   fetchImportantDocuments,
+  reorderImportantDocuments,
+  updateImportantDocument,
   uploadImportantDocument,
 } from "../../lib/documentsData.js";
 
@@ -26,21 +34,37 @@ const defaultDocuments = [
     fileType: "application/pdf",
     fileSize: 0,
     dataUrl: "",
+    displayOrder: 0,
     uploadedAt: new Date().toISOString(),
   },
 ];
 
+function normalizeDocuments(documents) {
+  return documents
+    .map((document, index) => ({
+      ...document,
+      displayOrder: document.displayOrder ?? index,
+    }))
+    .sort(compareDocuments);
+}
+
 function loadDocuments() {
   try {
     const saved = localStorage.getItem(STORE_KEY);
-    return saved ? JSON.parse(saved) : defaultDocuments;
+    return normalizeDocuments(saved ? JSON.parse(saved) : defaultDocuments);
   } catch {
-    return defaultDocuments;
+    return normalizeDocuments(defaultDocuments);
   }
 }
 
 function saveDocuments(documents) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(documents));
+  localStorage.setItem(STORE_KEY, JSON.stringify(normalizeDocuments(documents)));
+}
+
+function compareDocuments(a, b) {
+  const orderCompare = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+  if (orderCompare !== 0) return orderCompare;
+  return new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0);
 }
 
 function formatDate(value) {
@@ -113,13 +137,29 @@ function DocumentPreview({ document }) {
   );
 }
 
-function DocumentList({ documents, selectedId, onSelect }) {
+function DocumentList({ documents, selectedId, onSelect, query, onQueryChange, totalCount }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900">
       <div className="border-b border-slate-800 p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <FolderOpen size={16} className="text-sky-300" />
-          Document Library
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <FolderOpen size={16} className="text-sky-300" />
+              Document Library
+            </div>
+            <div className="text-xs font-semibold text-slate-500">
+              {documents.length} of {totalCount}
+            </div>
+          </div>
+          <label className="relative block">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Search documents..."
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2 pl-9 pr-3 text-sm text-white outline-none focus:border-sky-400"
+            />
+          </label>
         </div>
       </div>
       <div className="max-h-[720px] overflow-auto p-2">
@@ -149,6 +189,11 @@ function DocumentList({ documents, selectedId, onSelect }) {
             </div>
           </button>
         ))}
+        {!documents.length && (
+          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-center text-sm text-slate-400">
+            No documents match your search.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -165,7 +210,7 @@ function useDocumentStore() {
         setSyncStatus(result.reason);
         return;
       }
-      setDocuments(result.documents);
+      setDocuments(normalizeDocuments(result.documents));
       setSyncStatus("Shared documents loaded.");
     } catch (error) {
       setSyncStatus(`Unable to load shared documents: ${error.message}`);
@@ -180,8 +225,9 @@ function useDocumentStore() {
   function updateDocuments(updater) {
     setDocuments((current) => {
       const next = updater(current);
-      saveDocuments(next);
-      return next;
+      const normalizedNext = normalizeDocuments(next);
+      saveDocuments(normalizedNext);
+      return normalizedNext;
     });
   }
 
@@ -190,11 +236,27 @@ function useDocumentStore() {
 
 export default function ImportantDocumentsModule() {
   const [documents] = useDocumentStore();
-  const visibleDocuments = documents.filter((document) => document.dataUrl);
+  const [query, setQuery] = useState("");
+  const visibleDocuments = normalizeDocuments(documents.filter((document) => document.dataUrl));
+  const filteredDocuments = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return visibleDocuments;
+    return visibleDocuments.filter((document) =>
+      [
+        document.title,
+        document.category,
+        document.description,
+        document.fileName,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [query, visibleDocuments]);
   const [selectedId, setSelectedId] = useState(visibleDocuments[0]?.id || "");
   const selectedDocument = useMemo(
-    () => visibleDocuments.find((document) => document.id === selectedId) || visibleDocuments[0],
-    [visibleDocuments, selectedId]
+    () => filteredDocuments.find((document) => document.id === selectedId) || filteredDocuments[0],
+    [filteredDocuments, selectedId]
   );
 
   return (
@@ -210,28 +272,41 @@ export default function ImportantDocumentsModule() {
 
         {visibleDocuments.length ? (
           <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-            <DocumentList documents={visibleDocuments} selectedId={selectedDocument?.id} onSelect={setSelectedId} />
-            <main className="space-y-4">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="text-xl font-bold text-white">{selectedDocument.title}</div>
-                    <p className="mt-1 text-sm text-slate-400">{selectedDocument.description}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <a
-                      href={selectedDocument.dataUrl}
-                      download={selectedDocument.fileName}
-                      className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400"
-                    >
-                      <Download size={16} />
-                      Download
-                    </a>
+            <DocumentList
+              documents={filteredDocuments}
+              selectedId={selectedDocument?.id}
+              onSelect={setSelectedId}
+              query={query}
+              onQueryChange={setQuery}
+              totalCount={visibleDocuments.length}
+            />
+            {selectedDocument ? (
+              <main className="space-y-4">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="text-xl font-bold text-white">{selectedDocument.title}</div>
+                      <p className="mt-1 text-sm text-slate-400">{selectedDocument.description}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <a
+                        href={selectedDocument.dataUrl}
+                        download={selectedDocument.fileName}
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400"
+                      >
+                        <Download size={16} />
+                        Download
+                      </a>
+                    </div>
                   </div>
                 </div>
+                <DocumentPreview document={selectedDocument} />
+              </main>
+            ) : (
+              <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-400">
+                Try a different search term to preview a document.
               </div>
-              <DocumentPreview document={selectedDocument} />
-            </main>
+            )}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center">
@@ -253,17 +328,34 @@ export function AdminDocumentsModule() {
     description: "",
     file: null,
   });
+  const [editingId, setEditingId] = useState("");
+  const [editDraft, setEditDraft] = useState({ title: "", category: "", description: "" });
   const [status, setStatus] = useState("");
+  const visibleDocuments = normalizeDocuments(documents.filter((document) => document.dataUrl));
+
+  function startEditing(document) {
+    setEditingId(document.id);
+    setEditDraft({
+      title: document.title,
+      category: document.category || "General",
+      description: document.description || "",
+    });
+    setStatus("");
+  }
 
   async function uploadDocument() {
     if (!draft.file || !draft.title.trim()) return;
     try {
       setStatus("Uploading document...");
+      const nextDisplayOrder = visibleDocuments.length
+        ? Math.min(...visibleDocuments.map((document) => document.displayOrder ?? 0)) - 1
+        : 0;
       const uploadResult = await uploadImportantDocument({
         title: draft.title.trim(),
         category: draft.category.trim() || "General",
         description: draft.description.trim(),
         file: draft.file,
+        displayOrder: nextDisplayOrder,
       });
 
       if (uploadResult.saved) {
@@ -284,6 +376,7 @@ export function AdminDocumentsModule() {
         fileType: draft.file.type || "application/octet-stream",
         fileSize: draft.file.size,
         dataUrl,
+        displayOrder: nextDisplayOrder,
         uploadedAt: new Date().toISOString(),
       };
       updateDocuments((current) => [document, ...current.filter((item) => item.dataUrl)]);
@@ -291,6 +384,54 @@ export function AdminDocumentsModule() {
       setStatus(`Document saved locally. ${uploadResult.reason}`);
     } catch (error) {
       setStatus(`Unable to upload this document: ${error.message}`);
+    }
+  }
+
+  async function saveDocumentEdits(document) {
+    const updatedDocument = {
+      ...document,
+      title: editDraft.title.trim(),
+      category: editDraft.category.trim() || "General",
+      description: editDraft.description.trim(),
+    };
+    if (!updatedDocument.title) return;
+
+    try {
+      setStatus("Saving document changes...");
+      const result = await updateImportantDocument(updatedDocument);
+      updateDocuments((current) =>
+        current.map((item) => (item.id === document.id ? (result.saved ? result.document : updatedDocument) : item))
+      );
+      setEditingId("");
+      setStatus(result.saved ? "Document details updated." : `Document details saved locally. ${result.reason}`);
+    } catch (error) {
+      setStatus(`Unable to save document changes: ${error.message}`);
+    }
+  }
+
+  async function moveDocument(document, direction) {
+    const currentIndex = visibleDocuments.findIndex((item) => item.id === document.id);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= visibleDocuments.length) return;
+
+    const reordered = [...visibleDocuments];
+    const [movedDocument] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, movedDocument);
+    const orderedDocuments = reordered.map((item, index) => ({ ...item, displayOrder: index }));
+
+    updateDocuments((current) =>
+      current.map((item) => {
+        const orderedDocument = orderedDocuments.find((orderedItem) => orderedItem.id === item.id);
+        return orderedDocument || item;
+      })
+    );
+
+    try {
+      setStatus("Saving document order...");
+      const result = await reorderImportantDocuments(orderedDocuments);
+      setStatus(result.saved ? "Document order updated." : `Document order saved locally. ${result.reason}`);
+    } catch (error) {
+      setStatus(`Document order changed locally. Shared sync failed: ${error.message}`);
     }
   }
 
@@ -320,7 +461,7 @@ export function AdminDocumentsModule() {
             <div className="border-b border-slate-800 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Upload size={16} className="text-sky-300" />
-                Upload Document
+                Add Document
               </div>
             </div>
             <div className="space-y-4 p-4">
@@ -386,21 +527,109 @@ export function AdminDocumentsModule() {
               </div>
             </div>
             <div className="grid gap-3 p-4 md:grid-cols-2">
-              {documents.filter((document) => document.dataUrl).map((document) => (
+              {visibleDocuments.map((document, index) => {
+                const isEditing = editingId === document.id;
+                return (
                 <div key={document.id} className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-white">{document.title}</div>
-                      <div className="mt-1 text-xs text-slate-500">{document.category}</div>
+                  {isEditing ? (
+                    <div className="space-y-3">
+                      <label className="space-y-1 text-xs font-semibold text-slate-300">
+                        Title
+                        <input
+                          value={editDraft.title}
+                          onChange={(event) => setEditDraft({ ...editDraft, title: event.target.value })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs font-semibold text-slate-300">
+                        Category
+                        <input
+                          value={editDraft.category}
+                          onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs font-semibold text-slate-300">
+                        Description
+                        <textarea
+                          value={editDraft.description}
+                          onChange={(event) => setEditDraft({ ...editDraft, description: event.target.value })}
+                          className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        />
+                      </label>
                     </div>
-                    <FileText size={18} className="text-slate-500" />
-                  </div>
-                  <p className="mt-3 min-h-10 text-sm text-slate-400">{document.description || "No description"}</p>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white">{document.title}</div>
+                          <div className="mt-1 text-xs text-slate-500">{document.category}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-400">
+                            #{index + 1}
+                          </span>
+                          <FileText size={18} className="text-slate-500" />
+                        </div>
+                      </div>
+                      <p className="mt-3 min-h-10 text-sm text-slate-400">{document.description || "No description"}</p>
+                    </>
+                  )}
                   <div className="mt-3 grid gap-1 text-xs text-slate-500">
                     <div>{document.fileName}</div>
                     <div>{formatSize(document.fileSize)} • Uploaded {formatDate(document.uploadedAt)}</div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {isEditing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => saveDocumentEdits(document)}
+                          disabled={!editDraft.title.trim()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Save size={14} />
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId("")}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                        >
+                          <X size={14} />
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => moveDocument(document, -1)}
+                          disabled={index === 0}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowUp size={14} />
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveDocument(document, 1)}
+                          disabled={index === visibleDocuments.length - 1}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowDown size={14} />
+                          Down
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startEditing(document)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-amber-500/60 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/25"
+                        >
+                          <Edit3 size={14} />
+                          Edit
+                        </button>
+                      </>
+                    )}
                     {canPreview(document) && (
                       <a
                         href={document.dataUrl}
@@ -423,6 +652,7 @@ export function AdminDocumentsModule() {
                     <button
                       type="button"
                       onClick={() => removeDocument(document)}
+                      disabled={isEditing}
                       className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-rose-400 hover:text-rose-200"
                     >
                       <Trash2 size={14} />
@@ -430,8 +660,9 @@ export function AdminDocumentsModule() {
                     </button>
                   </div>
                 </div>
-              ))}
-              {!documents.some((document) => document.dataUrl) && (
+              );
+              })}
+              {!visibleDocuments.length && (
                 <div className="md:col-span-2 rounded-lg border border-dashed border-slate-700 bg-slate-950 p-6 text-center text-sm text-slate-400">
                   No documents uploaded yet.
                 </div>

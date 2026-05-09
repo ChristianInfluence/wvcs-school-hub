@@ -30,6 +30,7 @@ async function mapDocumentFromDatabase(row) {
     fileSize: row.file_size || 0,
     dataUrl: await getSignedDocumentUrl(row.storage_path),
     storagePath: row.storage_path,
+    displayOrder: row.display_order ?? 0,
     uploadedAt: row.uploaded_at || row.created_at,
   };
 }
@@ -42,6 +43,7 @@ export async function fetchImportantDocuments() {
   const { data, error } = await supabase
     .from("important_documents")
     .select("*")
+    .order("display_order", { ascending: true })
     .order("uploaded_at", { ascending: false });
 
   if (error) throw error;
@@ -49,7 +51,7 @@ export async function fetchImportantDocuments() {
   return { loaded: true, documents };
 }
 
-export async function uploadImportantDocument({ title, category, description, file }) {
+export async function uploadImportantDocument({ title, category, description, file, displayOrder = 0 }) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
 
   const id = crypto.randomUUID();
@@ -74,6 +76,7 @@ export async function uploadImportantDocument({ title, category, description, fi
     file_type: file.type || "application/octet-stream",
     file_size: file.size,
     storage_path: storagePath,
+    display_order: displayOrder,
     uploaded_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -86,6 +89,45 @@ export async function uploadImportantDocument({ title, category, description, fi
 
   if (error) throw error;
   return { saved: true, document: await mapDocumentFromDatabase(data) };
+}
+
+export async function updateImportantDocument(document) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("important_documents")
+    .update({
+      title: document.title,
+      category: document.category || "General",
+      description: document.description || "",
+      display_order: document.displayOrder ?? 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", document.id)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return { saved: true, document: await mapDocumentFromDatabase(data) };
+}
+
+export async function reorderImportantDocuments(documents) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const updates = documents.map((document, index) =>
+    supabase
+      .from("important_documents")
+      .update({
+        display_order: index,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", document.id)
+  );
+
+  const results = await Promise.all(updates);
+  const failed = results.find((result) => result.error);
+  if (failed?.error) throw failed.error;
+  return { saved: true };
 }
 
 export async function deleteImportantDocument(document) {

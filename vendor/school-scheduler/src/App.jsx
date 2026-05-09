@@ -65,27 +65,71 @@ function CardContent({ children, className = "" }) {
 }
 
 function MenuButton({ label, children }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function closeFromOutsideClick(event) {
+      if (!menuRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+
+    function closeFromEscape(event) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeFromOutsideClick);
+    document.addEventListener("keydown", closeFromEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutsideClick);
+      document.removeEventListener("keydown", closeFromEscape);
+    };
+  }, [open]);
+
   return (
-    <details className="relative" onMouseLeave={(event) => event.currentTarget.removeAttribute("open")}>
-      <summary className="list-none cursor-pointer rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 shadow-sm transition hover:bg-slate-700">
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 shadow-sm transition hover:bg-slate-700"
+      >
         {label}
-      </summary>
-      <div className="absolute right-0 z-50 mt-2 min-w-44 rounded-xl border border-slate-700 bg-slate-950 p-1 shadow-2xl">
-        {children}
-      </div>
-    </details>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-1 min-w-56 rounded-xl border border-slate-700 bg-slate-950 p-1 shadow-2xl"
+        >
+          {React.Children.map(children, (child) =>
+            React.isValidElement(child)
+              ? React.cloneElement(child, { onCloseMenu: () => setOpen(false) })
+              : child
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
-function MenuItem({ icon: Icon, children, onClick }) {
+function MenuItem({ icon: Icon, children, onClick, onCloseMenu }) {
   return (
     <button
       type="button"
       onClick={(event) => {
-        event.currentTarget.closest("details")?.removeAttribute("open");
+        event.stopPropagation();
+        onCloseMenu?.();
         onClick?.();
       }}
       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-slate-800"
+      role="menuitem"
     >
       {Icon && <Icon size={15} />}
       {children}

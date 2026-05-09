@@ -75,6 +75,7 @@ create table if not exists public.structured_recess_entries (
   teacher_name text not null,
   recess_type text not null,
   duration text not null,
+  reason text,
   notes text,
   status text not null default 'active',
   created_at timestamptz not null default now(),
@@ -341,10 +342,14 @@ create table if not exists public.important_documents (
   file_type text not null default 'application/octet-stream',
   file_size bigint not null default 0,
   storage_path text not null,
+  display_order integer not null default 0,
   uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create index if not exists important_documents_display_order_idx
+  on public.important_documents (display_order asc, uploaded_at desc);
 
 create index if not exists important_documents_uploaded_at_idx
   on public.important_documents (uploaded_at desc);

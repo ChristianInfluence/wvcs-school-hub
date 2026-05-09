@@ -17,7 +17,7 @@ const requiredSecrets = [
 
 function StaffAccessManager() {
   const [staff, setStaff] = useState([]);
-  const [draft, setDraft] = useState({ email: "", canUseAdmin: true, canUseScheduler: true });
+  const [draft, setDraft] = useState({ email: "", canUseHub: true, canUseAdmin: false, canUseScheduler: false });
   const [status, setStatus] = useState("Loading authorized users...");
   const [pendingDelete, setPendingDelete] = useState(null);
 
@@ -50,11 +50,11 @@ function StaffAccessManager() {
     try {
       await saveStaffAccess({
         email,
-        canUseHub: true,
+        canUseHub: draft.canUseHub,
         canUseAdmin: draft.canUseAdmin,
         canUseScheduler: draft.canUseScheduler,
       });
-      setDraft({ email: "", canUseAdmin: true, canUseScheduler: true });
+      setDraft({ email: "", canUseHub: true, canUseAdmin: false, canUseScheduler: false });
       setStatus(`${email} added.`);
       await loadStaff();
     } catch (error) {
@@ -79,10 +79,11 @@ function StaffAccessManager() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <ShieldCheck size={16} className="text-sky-300" />
-            Authorized Admin Users
+            Authorized Hub Users
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Manage who can access Admin and the Master Scheduler. {SUPERUSER_EMAIL} is the protected superuser.
+            Add the WVCS accounts that can sign in to the hub, then optionally grant Admin or Master Scheduler access.
+            {SUPERUSER_EMAIL} is the protected superuser.
           </p>
         </div>
         <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
@@ -90,7 +91,7 @@ function StaffAccessManager() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_150px_170px_auto] lg:items-end">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_140px_120px_140px_auto] lg:items-end">
         <label className="space-y-1 text-sm font-medium text-slate-200">
           WVCS Email
           <input
@@ -100,6 +101,15 @@ function StaffAccessManager() {
             placeholder="staff@wvcs.org"
             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
           />
+        </label>
+        <label className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+          <input
+            type="checkbox"
+            checked={draft.canUseHub}
+            onChange={(event) => setDraft({ ...draft, canUseHub: event.target.checked })}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+          />
+          Hub Access
         </label>
         <label className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
           <input
@@ -133,12 +143,13 @@ function StaffAccessManager() {
         {staff.map((user) => (
           <div
             key={user.email}
-            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 md:grid-cols-[1fr_120px_140px_140px] md:items-center"
+            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 md:grid-cols-[1fr_110px_120px_140px_140px] md:items-center"
           >
             <div>
               <div className="font-semibold text-white">{user.email}</div>
               {user.superuser && <div className="mt-1 text-xs font-semibold text-sky-300">Superuser</div>}
             </div>
+            <div className="text-sm font-semibold text-slate-300">{user.canUseHub ? "Hub" : "No Hub"}</div>
             <div className="text-sm font-semibold text-slate-300">{user.canUseAdmin ? "Admin" : "No Admin"}</div>
             <div className="text-sm font-semibold text-slate-300">
               {user.canUseScheduler ? "Scheduler" : "No Scheduler"}
