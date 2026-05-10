@@ -219,9 +219,25 @@ function parseEmailList(value) {
     .filter(Boolean);
 }
 
+function parseChoiceOptions(value) {
+  return String(value || "")
+    .split(/[,\n;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getChoiceOptions(field) {
+  const options = Array.isArray(field.options) ? field.options : parseChoiceOptions(field.options);
+  return options.length ? options : ["Yes", "No"];
+}
+
 function hasRequiredAnswer(field, answers) {
   if (!field.required) return true;
   if (field.type === "checkbox") return answers[field.id] === true;
+  if (field.type === "choice") {
+    const answer = answers[field.id];
+    return Array.isArray(answer) ? answer.length > 0 : Boolean(answer);
+  }
   if (field.type === "file") return Boolean(answers[field.id]?.dataUrl || answers[field.id]?.storagePath);
   return Boolean(answers[field.id]);
 }
@@ -300,6 +316,7 @@ function getSampleSubmission(template) {
           number: "24",
           email: "staff@wvcs.org",
           checkbox: true,
+          choice: getChoiceOptions(field)[0],
           file: { name: "receipt.pdf", type: "application/pdf", size: 128000, dataUrl: "" },
           textarea: "A longer staff response will flow into this area of the generated PDF.",
           text: "Sample response",
@@ -379,6 +396,48 @@ function FieldInput({ field, value, onChange }) {
     );
   }
 
+  if (field.type === "choice") {
+    const options = getChoiceOptions(field);
+    const multiple = field.choiceMode === "multiple";
+    const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
+
+    return (
+      <div className="grid gap-2 rounded-lg border border-slate-700 bg-slate-950 p-3">
+        {options.map((option) => {
+          const selected = selectedValues.includes(option);
+          return (
+            <label
+              key={option}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition ${
+                selected
+                  ? "border-sky-400 bg-sky-500/15 text-white"
+                  : "border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-600"
+              }`}
+            >
+              <input
+                type={multiple ? "checkbox" : "radio"}
+                name={field.id}
+                checked={selected}
+                onChange={(event) => {
+                  if (!multiple) {
+                    onChange(option);
+                    return;
+                  }
+                  const nextValues = event.target.checked
+                    ? [...selectedValues, option]
+                    : selectedValues.filter((item) => item !== option);
+                  onChange(nextValues);
+                }}
+                className="h-4 w-4 border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-400"
+              />
+              <span>{option}</span>
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (field.type === "textarea") {
     return (
       <textarea
@@ -449,6 +508,7 @@ function renderAnswerValue(answer) {
   if (answer && typeof answer === "object" && "name" in answer) {
     return `${answer.name}${answer.size ? ` (${formatFileSize(answer.size)})` : ""}`;
   }
+  if (Array.isArray(answer)) return answer.length ? answer.join(", ") : "-";
   if (typeof answer === "boolean") return answer ? "Yes" : "No";
   return answer || "-";
 }
@@ -538,6 +598,39 @@ function SubmissionPdf({ submission, template, settings }) {
             {checked ? "X" : ""}
           </span>
           <span>{checked ? "Yes" : "No"}</span>
+        </div>
+      );
+    }
+
+    if (field.type === "choice") {
+      const answer = submission.answers[field.id];
+      const selectedValues = Array.isArray(answer) ? answer : answer ? [answer] : [];
+      return (
+        <div style={{ display: "grid", gap: "4px" }}>
+          {getChoiceOptions(field).map((option) => {
+            const checked = selectedValues.includes(option);
+            return (
+              <div key={option} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "13px",
+                    height: "13px",
+                    border: "1.4px solid #334155",
+                    borderRadius: field.choiceMode === "multiple" ? "3px" : "999px",
+                    fontSize: "9px",
+                    lineHeight: 1,
+                    fontWeight: 700,
+                  }}
+                >
+                  {checked ? "X" : ""}
+                </span>
+                <span>{option}</span>
+              </div>
+            );
+          })}
         </div>
       );
     }
@@ -1228,6 +1321,15 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
     }));
   }
 
+  function updateFieldType(field, nextType) {
+    const patch = { type: nextType };
+    if (nextType === "choice") {
+      patch.choiceMode = field.choiceMode || "single";
+      patch.options = getChoiceOptions(field);
+    }
+    updateField(field.id, patch);
+  }
+
   function addField() {
     const fieldId = uid("field");
     setDraft((current) => ({
@@ -1271,6 +1373,8 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
       fields: draft.fields.map((field) => ({
         ...field,
         id: field.id || uid("field"),
+        options: field.type === "choice" ? getChoiceOptions(field) : field.options,
+        choiceMode: field.type === "choice" ? field.choiceMode || "single" : field.choiceMode,
       })),
     });
     if (!isEditing) setDraft(getNewTemplateDraft(settings));
@@ -1442,7 +1546,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
               </div>
               <select
                 value={field.type}
-                onChange={(event) => updateField(field.id, { type: event.target.value })}
+                onChange={(event) => updateFieldType(field, event.target.value)}
                 className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-400"
               >
                 <option value="text">Text</option>
@@ -1450,6 +1554,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
                 <option value="date">Date</option>
                 <option value="time">Time</option>
                 <option value="checkbox">Checkbox</option>
+                <option value="choice">Choice Group</option>
                 <option value="file">File Upload</option>
                 <option value="number">Number</option>
                 <option value="email">Email</option>
@@ -1469,6 +1574,35 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
               >
                 <Trash2 size={15} />
               </button>
+              {field.type === "choice" && (
+                <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:col-span-5">
+                  <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+                    <label className="space-y-1 text-sm font-medium text-slate-200">
+                      Choice Behavior
+                      <select
+                        value={field.choiceMode || "single"}
+                        onChange={(event) => updateField(field.id, { choiceMode: event.target.value })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      >
+                        <option value="single">Single choice</option>
+                        <option value="multiple">Multiple choices</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm font-medium text-slate-200">
+                      Options
+                      <textarea
+                        value={getChoiceOptions(field).join("\n")}
+                        onChange={(event) => updateField(field.id, { options: parseChoiceOptions(event.target.value) })}
+                        className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                        placeholder={"Yes\nNo"}
+                      />
+                      <span className="block text-xs font-normal text-slate-500">
+                        Separate options with commas, semicolons, or new lines.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           <div className="flex justify-end border-t border-slate-800 pt-3">
