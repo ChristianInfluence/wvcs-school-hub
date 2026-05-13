@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
@@ -21,6 +21,7 @@ import {
   fetchRecessEntries,
   saveRecessAttendanceRecord,
   saveRecessEntry,
+  subscribeToRecessDataChanges,
   updateRecessEntryStatus,
 } from "../../lib/recessData.js";
 
@@ -1006,6 +1007,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [historyDate, setHistoryDate] = useState(getTodayKey());
   const [stagedCompleteIds, setStagedCompleteIds] = useState([]);
   const [viewMode, setViewMode] = useState(initialView);
+  const refreshTimerRef = useRef(null);
   const [draft, setDraft] = useState({
     studentName: "",
     teacherName: currentUserEmail,
@@ -1042,6 +1044,56 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     // Load once on mount so any existing local records can seed the shared database safely.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const subscription = subscribeToRecessDataChanges(() => {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(refreshSharedRecessData, 250);
+    });
+
+    if (subscription.subscribed) {
+      setSharedDataStatus("Shared database connected. Live updates enabled.");
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        refreshSharedRecessData();
+      }
+    }
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearTimeout(refreshTimerRef.current);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function refreshSharedRecessData() {
+    try {
+      const [entriesResult, attendanceResult] = await Promise.all([
+        fetchRecessEntries(),
+        fetchRecessAttendance(),
+      ]);
+
+      if (entriesResult.loaded) {
+        setEntries(entriesResult.entries);
+        saveEntries(entriesResult.entries);
+      }
+
+      if (attendanceResult.loaded) {
+        setAttendance(attendanceResult.attendance);
+        saveAttendance(attendanceResult.attendance);
+      }
+
+      if (entriesResult.loaded || attendanceResult.loaded) {
+        setSharedDataStatus("Shared database synced across devices.");
+      }
+    } catch (error) {
+      setSharedDataStatus(`Live sync paused. Shared refresh failed: ${error.message}`);
+    }
+  }
 
   async function loadSharedRecessData() {
     try {

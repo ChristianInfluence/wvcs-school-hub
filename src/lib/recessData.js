@@ -142,3 +142,30 @@ export async function saveRecessAttendanceRecord(record) {
   if (error) throw error;
   return { saved: true };
 }
+
+export function subscribeToRecessDataChanges(onChange) {
+  if (!isSupabaseConfigured) {
+    return { subscribed: false, unsubscribe: () => {} };
+  }
+
+  const channel = supabase
+    .channel(`recess-data-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "recess_attendance_records" },
+      (payload) => onChange({ type: "attendance", payload })
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "structured_recess_entries" },
+      (payload) => onChange({ type: "entries", payload })
+    )
+    .subscribe();
+
+  return {
+    subscribed: true,
+    unsubscribe: () => {
+      supabase.removeChannel(channel);
+    },
+  };
+}
