@@ -249,21 +249,23 @@ create table if not exists public.staff_access (
   can_use_hub boolean not null default true,
   can_use_admin boolean not null default false,
   can_use_scheduler boolean not null default false,
+  can_use_digital_slips boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-insert into public.staff_access (email, can_use_hub, can_use_admin, can_use_scheduler)
+insert into public.staff_access (email, can_use_hub, can_use_admin, can_use_scheduler, can_use_digital_slips)
 values
-  ('mconniry@wvcs.org', true, true, true),
-  ('bkeith@wvcs.org', true, true, true),
-  ('jshackelton@wvcs.org', true, true, true),
-  ('ccota@wvcs.org', true, true, true)
+  ('mconniry@wvcs.org', true, true, true, true),
+  ('bkeith@wvcs.org', true, true, true, true),
+  ('jshackelton@wvcs.org', true, true, true, true),
+  ('ccota@wvcs.org', true, true, true, true)
 on conflict (email) do update
 set
   can_use_hub = excluded.can_use_hub,
   can_use_admin = excluded.can_use_admin,
   can_use_scheduler = excluded.can_use_scheduler,
+  can_use_digital_slips = excluded.can_use_digital_slips,
   updated_at = now();
 
 alter table public.staff_access enable row level security;
@@ -301,6 +303,24 @@ as $$
 $$;
 
 grant execute on function public.current_user_can_use_hub() to authenticated;
+
+create or replace function public.current_user_can_use_digital_slips()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.staff_access
+    where email = lower(auth.jwt() ->> 'email')
+      and can_use_hub = true
+      and (can_use_admin = true or can_use_digital_slips = true)
+  );
+$$;
+
+grant execute on function public.current_user_can_use_digital_slips() to authenticated;
 
 drop policy if exists "Authenticated users can read staff access" on public.staff_access;
 create policy "Authenticated users can read staff access"

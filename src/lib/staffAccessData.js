@@ -8,6 +8,7 @@ function mapStaffAccess(row) {
     canUseHub: row.can_use_hub,
     canUseAdmin: row.can_use_admin,
     canUseScheduler: row.can_use_scheduler,
+    canUseDigitalSlips: row.can_use_digital_slips,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     superuser: row.email === SUPERUSER_EMAIL,
@@ -20,6 +21,7 @@ function mapStaffAccessToDatabase(access) {
     can_use_hub: access.canUseHub !== false,
     can_use_admin: Boolean(access.canUseAdmin),
     can_use_scheduler: Boolean(access.canUseScheduler),
+    can_use_digital_slips: Boolean(access.canUseDigitalSlips),
     updated_at: new Date().toISOString(),
   };
 }

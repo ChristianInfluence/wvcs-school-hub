@@ -4,6 +4,7 @@ import {
   ClipboardCheck,
   Files,
   FileText,
+  FileSignature,
   LayoutDashboard,
   Lightbulb,
   Lock,
@@ -19,6 +20,7 @@ import StaffFormsModule, { AdminFormsModule } from "./modules/forms/FormsModule.
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
+import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
@@ -31,6 +33,7 @@ const defaultAccess = {
   canUseHub: true,
   canUseAdmin: false,
   canUseScheduler: false,
+  canUseDigitalSlips: false,
 };
 
 const modules = [
@@ -71,6 +74,15 @@ const modules = [
     description: "Complete school forms and route them to the right people.",
     color: "emerald",
     callout: "Staff submissions",
+  },
+  {
+    id: "permission-slips",
+    label: "Digital Slips",
+    icon: FileSignature,
+    description: "Create field trip permission slips and collect parent electronic signatures.",
+    color: "blue",
+    callout: "Parent signatures",
+    topLevelOnly: true,
   },
   {
     id: "documents",
@@ -184,15 +196,22 @@ const moduleStyles = {
     bar: "bg-orange-400",
     text: "text-orange-200",
   },
+  blue: {
+    card: "border-blue-400/40 bg-blue-500/10 hover:border-blue-300",
+    icon: "border-blue-300/40 bg-blue-400/20 text-blue-100",
+    bar: "bg-blue-400",
+    text: "text-blue-200",
+  },
 };
 
 function DashboardModule({ access, onSelectModule, onOpenAideView }) {
-  const launchModules = modules.filter((module) => module.id !== "dashboard");
+  const launchModules = modules.filter((module) => module.id !== "dashboard" && !module.topLevelOnly);
   const featured = launchModules.find((module) => module.id === "structured-recess");
 
   function isLocked(module) {
     if (module.id === "admin") return !access.canUseAdmin;
     if (module.id === "scheduler") return !access.canUseScheduler;
+    if (module.id === "permission-slips") return !access.canUseAdmin && !access.canUseDigitalSlips;
     return false;
   }
 
@@ -364,7 +383,7 @@ function AuthGate({ children }) {
 
       const { data, error } = await supabase
         .from("staff_access")
-        .select("can_use_hub, can_use_admin, can_use_scheduler")
+        .select("can_use_hub, can_use_admin, can_use_scheduler, can_use_digital_slips")
         .eq("email", email.toLowerCase())
         .maybeSingle();
 
@@ -384,6 +403,7 @@ function AuthGate({ children }) {
         canUseHub: data?.can_use_hub ?? false,
         canUseAdmin: data?.can_use_admin ?? false,
         canUseScheduler: data?.can_use_scheduler ?? false,
+        canUseDigitalSlips: data?.can_use_digital_slips ?? false,
       };
 
       if (!access.canUseHub) {
@@ -484,11 +504,24 @@ function AuthGate({ children }) {
 export default function App() {
   const [activeModule, setActiveModule] = useState("dashboard");
   const [structuredRecessView, setStructuredRecessView] = useState("full");
+  const [parentSigningToken, setParentSigningToken] = useState(() => {
+    const match = window.location.hash.match(/^#\/permission-sign\/(.+)$/);
+    return match ? decodeURIComponent(match[1]) : "";
+  });
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
     [activeModule]
   );
   const ActiveIcon = active.icon;
+
+  useEffect(() => {
+    function handleHashRoute() {
+      const match = window.location.hash.match(/^#\/permission-sign\/(.+)$/);
+      setParentSigningToken(match ? decodeURIComponent(match[1]) : "");
+    }
+    window.addEventListener("hashchange", handleHashRoute);
+    return () => window.removeEventListener("hashchange", handleHashRoute);
+  }, []);
 
   function openModule(moduleId) {
     if (moduleId === "structured-recess") setStructuredRecessView("full");
@@ -498,6 +531,10 @@ export default function App() {
   function openStructuredRecessAideView() {
     setStructuredRecessView("aide");
     setActiveModule("structured-recess");
+  }
+
+  if (parentSigningToken) {
+    return <ParentPermissionSigningPage token={parentSigningToken} />;
   }
 
   return (
@@ -516,7 +553,11 @@ export default function App() {
 
           <nav className="flex flex-wrap items-center gap-2">
             {modules
-              .filter((module) => module.id === "dashboard" || (module.id === "admin" && access.canUseAdmin))
+              .filter((module) =>
+                module.id === "dashboard" ||
+                (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
+                (module.id === "admin" && access.canUseAdmin)
+              )
               .map((module) => {
               const Icon = module.icon;
               const selected = module.id === activeModule;
@@ -577,6 +618,10 @@ export default function App() {
 
       {activeModule === "forms" && (
         <StaffFormsModule currentUserEmail={user.email} />
+      )}
+
+      {activeModule === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips) && (
+        <PermissionSlipsModule currentUserEmail={user.email} />
       )}
 
       {activeModule === "documents" && (

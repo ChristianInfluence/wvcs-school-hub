@@ -17,9 +17,16 @@ const requiredSecrets = [
 
 function StaffAccessManager() {
   const [staff, setStaff] = useState([]);
-  const [draft, setDraft] = useState({ email: "", canUseHub: true, canUseAdmin: false, canUseScheduler: false });
+  const [draft, setDraft] = useState({
+    email: "",
+    canUseHub: true,
+    canUseAdmin: false,
+    canUseScheduler: false,
+    canUseDigitalSlips: false,
+  });
   const [status, setStatus] = useState("Loading authorized users...");
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [savingEmail, setSavingEmail] = useState("");
 
   async function loadStaff() {
     try {
@@ -53,12 +60,35 @@ function StaffAccessManager() {
         canUseHub: draft.canUseHub,
         canUseAdmin: draft.canUseAdmin,
         canUseScheduler: draft.canUseScheduler,
+        canUseDigitalSlips: draft.canUseDigitalSlips,
       });
-      setDraft({ email: "", canUseHub: true, canUseAdmin: false, canUseScheduler: false });
+      setDraft({
+        email: "",
+        canUseHub: true,
+        canUseAdmin: false,
+        canUseScheduler: false,
+        canUseDigitalSlips: false,
+      });
       setStatus(`${email} added.`);
       await loadStaff();
     } catch (error) {
       setStatus(`Unable to add user: ${error.message}`);
+    }
+  }
+
+  async function updateUserAccess(user, updates) {
+    const nextUser = { ...user, ...updates };
+    setSavingEmail(user.email);
+    setStaff((current) => current.map((staffUser) => (staffUser.email === user.email ? nextUser : staffUser)));
+    try {
+      await saveStaffAccess(nextUser);
+      setStatus(`${user.email} access updated.`);
+      await loadStaff();
+    } catch (error) {
+      setStatus(`Unable to update ${user.email}: ${error.message}`);
+      await loadStaff();
+    } finally {
+      setSavingEmail("");
     }
   }
 
@@ -82,7 +112,7 @@ function StaffAccessManager() {
             Authorized Hub Users
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Add the WVCS accounts that can sign in to the hub, then optionally grant Admin or Master Scheduler access.
+            Add the WVCS accounts that can sign in to the hub, then optionally grant Admin, Master Scheduler, or Digital Slips access.
             {SUPERUSER_EMAIL} is the protected superuser.
           </p>
         </div>
@@ -91,7 +121,7 @@ function StaffAccessManager() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_140px_120px_140px_auto] lg:items-end">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_140px_120px_140px_150px_auto] lg:items-end">
         <label className="space-y-1 text-sm font-medium text-slate-200">
           WVCS Email
           <input
@@ -129,6 +159,15 @@ function StaffAccessManager() {
           />
           Scheduler
         </label>
+        <label className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+          <input
+            type="checkbox"
+            checked={draft.canUseDigitalSlips}
+            onChange={(event) => setDraft({ ...draft, canUseDigitalSlips: event.target.checked })}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+          />
+          Digital Slips
+        </label>
         <button
           type="button"
           onClick={addUser}
@@ -143,17 +182,30 @@ function StaffAccessManager() {
         {staff.map((user) => (
           <div
             key={user.email}
-            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 md:grid-cols-[1fr_110px_120px_140px_140px] md:items-center"
+            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 xl:grid-cols-[1fr_120px_120px_135px_155px_135px] xl:items-center"
           >
             <div>
               <div className="font-semibold text-white">{user.email}</div>
               {user.superuser && <div className="mt-1 text-xs font-semibold text-sky-300">Superuser</div>}
+              {savingEmail === user.email && <div className="mt-1 text-xs font-semibold text-amber-200">Saving...</div>}
             </div>
-            <div className="text-sm font-semibold text-slate-300">{user.canUseHub ? "Hub" : "No Hub"}</div>
-            <div className="text-sm font-semibold text-slate-300">{user.canUseAdmin ? "Admin" : "No Admin"}</div>
-            <div className="text-sm font-semibold text-slate-300">
-              {user.canUseScheduler ? "Scheduler" : "No Scheduler"}
-            </div>
+            {[
+              ["canUseHub", "Hub"],
+              ["canUseAdmin", "Admin"],
+              ["canUseScheduler", "Scheduler"],
+              ["canUseDigitalSlips", "Digital Slips"],
+            ].map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={Boolean(user[key])}
+                  disabled={savingEmail === user.email || user.superuser}
+                  onChange={(event) => updateUserAccess(user, { [key]: event.target.checked })}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 disabled:opacity-50"
+                />
+                {label}
+              </label>
+            ))}
             <div className="flex justify-end">
               {user.superuser ? (
                 <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-400">
