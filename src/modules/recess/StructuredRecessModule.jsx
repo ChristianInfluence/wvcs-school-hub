@@ -269,6 +269,37 @@ function getAttendanceDates(attendance, today) {
   return [...new Set([today, ...Object.keys(attendance)])].sort().reverse();
 }
 
+function getStructuredRecessLog(entries) {
+  const completedStructuredEntries = entries.filter(
+    (entry) => entry.status === "complete" && entry.needsStructuredRecess !== false
+  );
+
+  return Object.values(
+    completedStructuredEntries.reduce((log, entry) => {
+      const key = `${entry.studentGrade || ""}::${entry.studentName}`;
+      const current = log[key] || {
+        studentName: entry.studentName,
+        studentGrade: entry.studentGrade || "",
+        count: 0,
+        firstRecess: 0,
+        both: 0,
+        lunch: 0,
+        workTime: 0,
+        lastServed: "",
+      };
+
+      current.count += 1;
+      if (entry.recessType === "early") current.firstRecess += 1;
+      if (entry.recessType === "both") current.both += 1;
+      if (entry.recessType === "lunch") current.lunch += 1;
+      if (entry.needsWorkTime) current.workTime += 1;
+      if (!current.lastServed || entry.date > current.lastServed) current.lastServed = entry.date;
+      log[key] = current;
+      return log;
+    }, {})
+  ).sort((a, b) => b.count - a.count || a.studentName.localeCompare(b.studentName));
+}
+
 function getSlotGroups(roster, slot) {
   return slot.grades
     .map((grade) => roster.find((group) => group.grade === grade))
@@ -713,6 +744,66 @@ function AideCompactView({ entries, stagedCompleteIds, onStageChange, onConfirmC
   );
 }
 
+function StructuredRecessServiceLog({ log }) {
+  const totalServed = log.reduce((sum, item) => sum + item.count, 0);
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900">
+      <div className="flex flex-col gap-2 border-b border-slate-800 p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <History size={16} className="text-sky-300" />
+            Structured Recess Service Log
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Completed structured recess records, grouped by student.
+          </p>
+        </div>
+        <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
+          {totalServed} completed assignment{totalServed === 1 ? "" : "s"}
+        </div>
+      </div>
+
+      {log.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="border-b border-slate-800 bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Student</th>
+                <th className="px-4 py-3">Grade</th>
+                <th className="px-4 py-3 text-right">Total</th>
+                <th className="px-4 py-3 text-right">First</th>
+                <th className="px-4 py-3 text-right">Both</th>
+                <th className="px-4 py-3 text-right">Lunch</th>
+                <th className="px-4 py-3 text-right">With Work</th>
+                <th className="px-4 py-3">Last Served</th>
+              </tr>
+            </thead>
+            <tbody>
+              {log.map((item) => (
+                <tr key={`${item.studentGrade}-${item.studentName}`} className="border-b border-slate-800 last:border-b-0">
+                  <td className="px-4 py-3 font-semibold text-white">{formatStudentDisplayName(item.studentName)}</td>
+                  <td className="px-4 py-3 text-slate-300">{item.studentGrade || "Unlisted"}</td>
+                  <td className="px-4 py-3 text-right font-bold text-sky-100">{item.count}</td>
+                  <td className="px-4 py-3 text-right text-slate-300">{item.firstRecess}</td>
+                  <td className="px-4 py-3 text-right text-slate-300">{item.both}</td>
+                  <td className="px-4 py-3 text-right text-slate-300">{item.lunch}</td>
+                  <td className="px-4 py-3 text-right text-fuchsia-100">{item.workTime}</td>
+                  <td className="px-4 py-3 text-slate-300">{formatDate(item.lastServed)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="p-4">
+          <EmptyState>No completed structured recess records yet.</EmptyState>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AttendanceStatusButton({ active, tone, children, onClick }) {
   const toneClass =
     tone === "present"
@@ -1119,6 +1210,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const lunchEntries = todayEntries.filter((entry) => entry.recessType === "lunch");
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
   const attendanceDates = getAttendanceDates(attendance, today);
+  const structuredRecessLog = getStructuredRecessLog(entries);
   const rosterGrades = roster.map((group) => group.grade);
   const selectedRosterGroup = roster.find((group) => group.grade === draft.studentGrade) || roster[0];
   const durationOptions = getDurationOptionsForDraft(draft);
@@ -1753,6 +1845,8 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 </section>
               </div>
             </div>
+
+            <StructuredRecessServiceLog log={structuredRecessLog} />
 
             <div className="rounded-lg border border-slate-800 bg-slate-900">
               <div className="border-b border-slate-800 p-4">
