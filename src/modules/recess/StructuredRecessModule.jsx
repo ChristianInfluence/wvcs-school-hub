@@ -39,7 +39,7 @@ const ROSTER_URLS = [
 
 const attendanceRecesses = {
   early: {
-    label: "Early Recess",
+    label: "First Recess",
     accent: "sky",
     slots: [
       { id: "early-k1", label: "K/1", description: "Kindergarten and Grade 1", grades: ["Kindergarten", "Grade 1"] },
@@ -60,7 +60,7 @@ const attendanceRecesses = {
 
 const recessOptions = {
   early: {
-    label: "Early Recess",
+    label: "First Recess",
     durations: [5, 10, 15, "ALL"],
     tone: "border-sky-400 bg-sky-500/15 text-sky-100",
   },
@@ -1426,7 +1426,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               </div>
               <div>
                 <div className="text-2xl font-bold text-sky-200">{earlyEntries.length}</div>
-                <div className="text-xs text-slate-500">Early</div>
+                <div className="text-xs text-slate-500">First</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-emerald-200">{bothEntries.length}</div>
@@ -1576,7 +1576,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       />
                       <span>
                         Finish Work
-                        <span className="block text-xs font-normal text-slate-500">Policy limit: 5 min early recess, 10 min lunch recess.</span>
+                        <span className="block text-xs font-normal text-slate-500">Policy limit: 5 min first recess, 10 min lunch recess.</span>
                       </span>
                     </label>
                   </div>
@@ -1697,7 +1697,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               <div className="grid gap-4 p-4 xl:grid-cols-3">
                 <section className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Early Recess</h2>
+                    <h2 className="text-lg font-semibold text-white">First Recess</h2>
                     <span className="text-sm text-slate-500">{earlyEntries.length} students</span>
                   </div>
                   {earlyEntries.length ? (
@@ -1710,7 +1710,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       />
                     ))
                   ) : (
-                    <EmptyState>No students currently listed for early recess.</EmptyState>
+                    <EmptyState>No students currently listed for first recess.</EmptyState>
                   )}
                 </section>
 
