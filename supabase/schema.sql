@@ -1,3 +1,5 @@
+grant usage on schema public to anon, authenticated, service_role;
+
 create table if not exists public.meeting_requests (
   id uuid primary key,
   administrator_id text not null,
@@ -832,3 +834,9 @@ create policy "Admins can delete staff suggestions"
   on public.staff_suggestions for delete
   to authenticated
   using (public.current_user_can_manage_staff_access());
+
+grant select, insert, update, delete on all tables in schema public
+  to anon, authenticated, service_role;
+
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to anon, authenticated, service_role;
