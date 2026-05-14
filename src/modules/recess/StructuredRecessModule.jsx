@@ -1095,7 +1095,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const refreshTimerRef = useRef(null);
   const [draft, setDraft] = useState({
     studentGrade: "",
-    studentName: "",
+    studentNames: [],
     teacherName: currentUserEmail,
     recessType: "early",
     duration: 10,
@@ -1240,7 +1240,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         return {
           ...current,
           studentGrade: nextRoster[0].grade,
-          studentName: nextRoster[0].students[0] || "",
+          studentNames: [],
         };
       });
     } catch (error) {
@@ -1295,12 +1295,12 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   }
 
   function addEntry() {
-    if (!draft.studentName.trim() || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)) return;
-    const entry = {
+    if (!draft.studentNames.length || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)) return;
+    const newEntries = draft.studentNames.map((studentName) => ({
       id: crypto.randomUUID(),
       date: today,
       studentGrade: draft.studentGrade,
-      studentName: draft.studentName.trim(),
+      studentName,
       teacherName: draft.teacherName.trim(),
       recessType: draft.recessType,
       duration: draft.duration === "ALL" ? "ALL" : Number(draft.duration),
@@ -1310,15 +1310,31 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       notes: draft.notes.trim(),
       status: "active",
       createdAt: new Date().toISOString(),
-    };
-    persist([entry, ...entries]);
-    saveRecessEntry(entry)
-      .then((result) => {
-        if (result.saved) setSharedDataStatus("Shared database connected.");
+    }));
+    persist([...newEntries, ...entries]);
+    Promise.all(newEntries.map((entry) => saveRecessEntry(entry)))
+      .then((results) => {
+        if (results.some((result) => result.saved)) setSharedDataStatus("Shared database connected.");
       })
       .catch(noteSharedSaveError);
     setHistoryDate(today);
-    setDraft((current) => ({ ...current, reason: "", notes: "" }));
+    setDraft((current) => ({ ...current, studentNames: [], reason: "", notes: "" }));
+  }
+
+  function toggleDraftStudent(studentName) {
+    setDraft((current) => ({
+      ...current,
+      studentNames: current.studentNames.includes(studentName)
+        ? current.studentNames.filter((name) => name !== studentName)
+        : [...current.studentNames, studentName],
+    }));
+  }
+
+  function setAllDraftStudents(checked) {
+    setDraft((current) => ({
+      ...current,
+      studentNames: checked ? [...(selectedRosterGroup?.students || [])] : [],
+    }));
   }
 
   function updateStatus(entryId, status) {
@@ -1482,8 +1498,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   <select
                     value={draft.studentGrade}
                     onChange={(event) => {
-                      const nextGroup = roster.find((group) => group.grade === event.target.value);
-                      setDraft({ ...draft, studentGrade: event.target.value, studentName: nextGroup?.students[0] || "" });
+                      setDraft({ ...draft, studentGrade: event.target.value, studentNames: [] });
                     }}
                     disabled={!rosterGrades.length}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1495,17 +1510,37 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 </label>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">
-                  Student
-                  <select
-                    value={draft.studentName}
-                    onChange={(event) => setDraft({ ...draft, studentName: event.target.value })}
-                    disabled={!selectedRosterGroup?.students.length}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {selectedRosterGroup?.students.length ? selectedRosterGroup.students.map((studentName) => (
-                      <option key={studentName} value={studentName}>{formatStudentDisplayName(studentName)}</option>
-                    )) : <option value="">No students loaded</option>}
-                  </select>
+                  Students
+                  <div className="rounded-lg border border-slate-700 bg-slate-950">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+                      <span className="text-xs font-semibold text-slate-400">
+                        {draft.studentNames.length} selected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAllDraftStudents(draft.studentNames.length !== (selectedRosterGroup?.students.length || 0))}
+                        disabled={!selectedRosterGroup?.students.length}
+                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {draft.studentNames.length === (selectedRosterGroup?.students.length || 0) ? "Clear All" : "Select All"}
+                      </button>
+                    </div>
+                    <div className="max-h-56 overflow-auto p-2">
+                      {selectedRosterGroup?.students.length ? selectedRosterGroup.students.map((studentName) => (
+                        <label key={studentName} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-900">
+                          <input
+                            type="checkbox"
+                            checked={draft.studentNames.includes(studentName)}
+                            onChange={() => toggleDraftStudent(studentName)}
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                          />
+                          {formatStudentDisplayName(studentName)}
+                        </label>
+                      )) : (
+                        <div className="px-2 py-3 text-sm text-slate-500">No students loaded.</div>
+                      )}
+                    </div>
+                  </div>
                 </label>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">
@@ -1609,11 +1644,11 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 <button
                   type="button"
                   onClick={addEntry}
-                  disabled={!draft.studentName.trim() || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)}
+                  disabled={!draft.studentNames.length || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={16} />
-                  Add to Today&apos;s Board
+                  Add {draft.studentNames.length || ""} to Today&apos;s Board
                 </button>
               </div>
             </div>
