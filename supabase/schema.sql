@@ -73,10 +73,13 @@ create policy "Users can read notification settings"
 create table if not exists public.structured_recess_entries (
   id uuid primary key,
   entry_date date not null,
+  student_grade text,
   student_name text not null,
   teacher_name text not null,
   recess_type text not null,
   duration text not null,
+  needs_structured_recess boolean not null default true,
+  needs_work_time boolean not null default false,
   reason text,
   notes text,
   status text not null default 'active',
@@ -98,6 +101,9 @@ create table if not exists public.recess_attendance_records (
 
 create index if not exists structured_recess_entries_entry_date_idx
   on public.structured_recess_entries (entry_date);
+
+create index if not exists structured_recess_entries_student_grade_idx
+  on public.structured_recess_entries (student_grade);
 
 create index if not exists recess_attendance_records_attendance_date_idx
   on public.recess_attendance_records (attendance_date);

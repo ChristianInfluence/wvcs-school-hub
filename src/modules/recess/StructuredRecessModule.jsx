@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  ExternalLink,
   History,
   Loader2,
   Plus,
@@ -27,6 +28,7 @@ import {
 
 const STORE_KEY = "wvcs-structured-recess-v1";
 const ATTENDANCE_STORE_KEY = "wvcs-recess-attendance-v1";
+const RECESS_POLICY_URL = "https://docs.google.com/document/d/19N3wXVuqtXZzRuugWmJNS635G2E7i4TL6xELwZ0-fMg/edit?usp=sharing";
 const ROSTER_SHEET_ID = "1E47sLmoHmz7Cc68DDaYP1YEgBrg2QJAwOB_w-Pas1nI";
 const ROSTER_CSV_URL = `https://docs.google.com/spreadsheets/d/${ROSTER_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
 const ROSTER_URLS = [
@@ -78,10 +80,13 @@ const defaultEntries = [
   {
     id: "sr-demo-1",
     date: getTodayKey(),
+    studentGrade: "",
     studentName: "Sample Student",
     teacherName: "Mrs. Teacher",
     recessType: "early",
     duration: 10,
+    needsStructuredRecess: true,
+    needsWorkTime: false,
     reason: "Extra support with recess expectations.",
     notes: "Stay with aide near benches.",
     status: "active",
@@ -140,6 +145,24 @@ function saveAttendance(attendance) {
 
 function formatDuration(duration) {
   return duration === "ALL" ? "ALL" : `${duration} minutes`;
+}
+
+function getEntryTypeLabels(entry) {
+  const labels = [];
+  if (entry.needsStructuredRecess !== false) labels.push("Structured Recess");
+  if (entry.needsWorkTime) labels.push("Finish Work");
+  return labels.length ? labels : ["Structured Recess"];
+}
+
+function getWorkTimeLimit(recessType) {
+  return recessType === "early" ? 5 : 10;
+}
+
+function getDurationOptionsForDraft(draft) {
+  const baseOptions = recessOptions[draft.recessType].durations;
+  if (!draft.needsWorkTime) return baseOptions;
+  const maxWorkTime = getWorkTimeLimit(draft.recessType);
+  return baseOptions.filter((duration) => duration !== "ALL" && Number(duration) <= maxWorkTime);
 }
 
 function parseCsv(text) {
@@ -488,15 +511,37 @@ function RecessBadge({ type }) {
   );
 }
 
+function EntryTypeBadges({ entry }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {getEntryTypeLabels(entry).map((label) => (
+        <span
+          key={label}
+          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+            label === "Finish Work"
+              ? "border-fuchsia-400/40 bg-fuchsia-500/15 text-fuchsia-100"
+              : "border-sky-400/40 bg-sky-500/15 text-sky-100"
+          }`}
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function EntryCard({ entry, onComplete, onDelete }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-lg font-semibold text-white">{entry.studentName}</div>
+          <div className="text-lg font-semibold text-white">{formatStudentDisplayName(entry.studentName)}</div>
           <div className="mt-1 text-sm text-slate-400">Placed by {entry.teacherName}</div>
         </div>
-        <RecessBadge type={entry.recessType} />
+        <div className="flex flex-col items-end gap-2">
+          <RecessBadge type={entry.recessType} />
+          <EntryTypeBadges entry={entry} />
+        </div>
       </div>
 
       <div className="mt-4 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
@@ -564,7 +609,10 @@ function AideCompactRow({ entry, staged, onStageChange }) {
         aria-label={`Select ${entry.studentName} for completion`}
       />
       <div>
-        <div className={`font-semibold ${staged ? "text-emerald-100" : "text-white"}`}>{entry.studentName}</div>
+        <div className={`font-semibold ${staged ? "text-emerald-100" : "text-white"}`}>{formatStudentDisplayName(entry.studentName)}</div>
+        <div className="mt-1">
+          <EntryTypeBadges entry={entry} />
+        </div>
         <div className="text-xs text-slate-500">
           {entry.teacherName}
           {entry.reason ? ` • Reason: ${entry.reason}` : ""}
@@ -686,10 +734,28 @@ function AttendanceStatusButton({ active, tone, children, onClick }) {
   );
 }
 
-function AttendanceStudentRow({ date, recessId, slotId, grade, studentName, record, onUpdate }) {
+function AttendanceStudentRow({ date, recessId, slotId, grade, studentName, record, activeEntries, onUpdate }) {
   return (
-    <div className="grid gap-2 border-b border-slate-800 px-3 py-2 last:border-b-0 md:grid-cols-[1fr_76px_minmax(120px,190px)] md:items-center">
-      <div className="text-sm font-semibold text-white">{formatStudentDisplayName(studentName)}</div>
+    <div className={`grid gap-2 border-b px-3 py-2 last:border-b-0 md:grid-cols-[1fr_76px_minmax(120px,190px)] md:items-center ${activeEntries.length ? "border-sky-500/30 bg-sky-500/10" : "border-slate-800"}`}>
+      <div>
+        <div className="text-sm font-semibold text-white">{formatStudentDisplayName(studentName)}</div>
+        {activeEntries.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {activeEntries.flatMap((entry) => getEntryTypeLabels(entry)).filter((label, index, labels) => labels.indexOf(label) === index).map((label) => (
+              <span
+                key={label}
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                  label === "Finish Work"
+                    ? "border-fuchsia-400/50 bg-fuchsia-500/20 text-fuchsia-100"
+                    : "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                }`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="flex gap-2">
         <AttendanceStatusButton
           active={record.status === "present"}
@@ -724,7 +790,7 @@ function AttendanceStudentRow({ date, recessId, slotId, grade, studentName, reco
   );
 }
 
-function AttendanceGradeCard({ date, recessId, slotId, group, attendance, collapsed, onToggleCollapsed, onUpdate }) {
+function AttendanceGradeCard({ date, recessId, slotId, group, attendance, activeEntries, collapsed, onToggleCollapsed, onUpdate }) {
   const presentCount = group.students.filter(
     (studentName) => getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName).status === "present"
   ).length;
@@ -763,7 +829,9 @@ function AttendanceGradeCard({ date, recessId, slotId, group, attendance, collap
           {presentCount} present, {absentCount} absent, {group.students.length - presentCount - absentCount} unmarked.
         </div>
       ) : group.students.length ? (
-        group.students.map((studentName) => (
+        group.students.map((studentName) => {
+          const matchingEntries = activeEntries.filter((entry) => entry.studentName === studentName);
+          return (
           <AttendanceStudentRow
             key={`${group.grade}-${studentName}`}
             date={date}
@@ -772,9 +840,11 @@ function AttendanceGradeCard({ date, recessId, slotId, group, attendance, collap
             grade={group.grade}
             studentName={studentName}
             record={getAttendanceRecord(attendance, date, recessId, slotId, group.grade, studentName)}
+            activeEntries={matchingEntries}
             onUpdate={onUpdate}
           />
-        ))
+          );
+        })
       ) : (
         <div className="p-4 text-sm text-slate-500">No students listed for this grade.</div>
       )}
@@ -786,6 +856,7 @@ function RecessAttendanceBoard({
   date,
   selectedRecessId,
   roster,
+  activeEntries,
   attendance,
   attendanceDates,
   collapsedGrades,
@@ -801,6 +872,9 @@ function RecessAttendanceBoard({
 }) {
   const recess = attendanceRecesses[selectedRecessId];
   const totals = getRecessAttendanceSummary(roster, attendance, date, selectedRecessId);
+  const activeEntriesForRecess = activeEntries.filter(
+    (entry) => entry.recessType === selectedRecessId || entry.recessType === "both"
+  );
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900">
@@ -977,6 +1051,7 @@ function RecessAttendanceBoard({
                           slotId={slot.id}
                           group={group}
                           attendance={attendance}
+                          activeEntries={activeEntriesForRecess}
                           collapsed={Boolean(collapsedGrades[collapseKey])}
                           onToggleCollapsed={() => onToggleGrade(collapseKey)}
                           onUpdate={onUpdateAttendance}
@@ -1019,10 +1094,13 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [viewMode, setViewMode] = useState(initialView);
   const refreshTimerRef = useRef(null);
   const [draft, setDraft] = useState({
+    studentGrade: "",
     studentName: "",
     teacherName: currentUserEmail,
     recessType: "early",
     duration: 10,
+    needsStructuredRecess: true,
+    needsWorkTime: false,
     reason: "",
     notes: "",
   });
@@ -1041,7 +1119,9 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const lunchEntries = todayEntries.filter((entry) => entry.recessType === "lunch");
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
   const attendanceDates = getAttendanceDates(attendance, today);
-  const durationOptions = recessOptions[draft.recessType].durations;
+  const rosterGrades = roster.map((group) => group.grade);
+  const selectedRosterGroup = roster.find((group) => group.grade === draft.studentGrade) || roster[0];
+  const durationOptions = getDurationOptionsForDraft(draft);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(refreshRoster, 0);
@@ -1155,6 +1235,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     try {
       const nextRoster = await fetchRosterFromSheet();
       setRoster(nextRoster);
+      setDraft((current) => {
+        if (current.studentGrade || !nextRoster.length) return current;
+        return {
+          ...current,
+          studentGrade: nextRoster[0].grade,
+          studentName: nextRoster[0].students[0] || "",
+        };
+      });
     } catch (error) {
       setRosterError(error.message || "Unable to load the roster.");
     } finally {
@@ -1207,14 +1295,17 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   }
 
   function addEntry() {
-    if (!draft.studentName.trim() || !draft.teacherName.trim()) return;
+    if (!draft.studentName.trim() || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)) return;
     const entry = {
       id: crypto.randomUUID(),
       date: today,
+      studentGrade: draft.studentGrade,
       studentName: draft.studentName.trim(),
       teacherName: draft.teacherName.trim(),
       recessType: draft.recessType,
       duration: draft.duration === "ALL" ? "ALL" : Number(draft.duration),
+      needsStructuredRecess: draft.needsStructuredRecess,
+      needsWorkTime: draft.needsWorkTime,
       reason: draft.reason.trim(),
       notes: draft.notes.trim(),
       status: "active",
@@ -1227,7 +1318,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       })
       .catch(noteSharedSaveError);
     setHistoryDate(today);
-    setDraft((current) => ({ ...current, studentName: "", reason: "", notes: "" }));
+    setDraft((current) => ({ ...current, reason: "", notes: "" }));
   }
 
   function updateStatus(entryId, status) {
@@ -1271,14 +1362,27 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   }
 
   function setRecessType(recessType) {
-    const nextDurations = recessOptions[recessType].durations;
     setDraft((current) => ({
       ...current,
       recessType,
-      duration: nextDurations.includes(current.duration) || nextDurations.includes(Number(current.duration))
+      duration: getDurationOptionsForDraft({ ...current, recessType }).includes(current.duration) || getDurationOptionsForDraft({ ...current, recessType }).includes(Number(current.duration))
         ? current.duration
-        : nextDurations[0],
+        : getDurationOptionsForDraft({ ...current, recessType })[0],
     }));
+  }
+
+  function updateDraftEntryType(patch) {
+    setDraft((current) => {
+      const nextDraft = { ...current, ...patch };
+      if (!nextDraft.needsStructuredRecess && !nextDraft.needsWorkTime) {
+        nextDraft.needsStructuredRecess = true;
+      }
+      const nextOptions = getDurationOptionsForDraft(nextDraft);
+      if (!nextOptions.includes(nextDraft.duration) && !nextOptions.includes(Number(nextDraft.duration))) {
+        nextDraft.duration = nextOptions[0] || 5;
+      }
+      return nextDraft;
+    });
   }
 
   return (
@@ -1291,7 +1395,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             </div>
             <h1 className="mt-2 text-2xl font-bold text-white">Structured Recess Board</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-400">
-              Teachers can add students for today. Recess aides can see who needs structured recess, which recess, and for how long.
+              Teachers can add students for today. Recess aides can see who needs structured recess, finish-work time, or both.
             </p>
             <div className="mt-3 inline-flex rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
               {sharedDataStatus}
@@ -1319,6 +1423,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             </div>
             <button
               type="button"
+              onClick={() => window.open(RECESS_POLICY_URL, "_blank", "noopener,noreferrer")}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
+            >
+              <ExternalLink size={15} />
+              Recess Policy & Procedure
+            </button>
+            <button
+              type="button"
               onClick={() => setViewMode(viewMode === "aide" ? "full" : "aide")}
               className="rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/25"
             >
@@ -1339,6 +1451,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               date={attendanceDate}
               selectedRecessId={selectedAttendanceRecess}
               roster={roster}
+              activeEntries={todayEntries}
               attendance={attendance}
               attendanceDates={attendanceDates}
               collapsedGrades={collapsedGrades}
@@ -1365,12 +1478,34 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               </div>
               <div className="space-y-4 p-4">
                 <label className="space-y-1 text-sm font-medium text-slate-200">
-                  Student Name
-                  <input
+                  Grade
+                  <select
+                    value={draft.studentGrade}
+                    onChange={(event) => {
+                      const nextGroup = roster.find((group) => group.grade === event.target.value);
+                      setDraft({ ...draft, studentGrade: event.target.value, studentName: nextGroup?.students[0] || "" });
+                    }}
+                    disabled={!rosterGrades.length}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {rosterGrades.length ? rosterGrades.map((grade) => (
+                      <option key={grade} value={grade}>{grade}</option>
+                    )) : <option value="">Roster loading...</option>}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  Student
+                  <select
                     value={draft.studentName}
                     onChange={(event) => setDraft({ ...draft, studentName: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                  />
+                    disabled={!selectedRosterGroup?.students.length}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {selectedRosterGroup?.students.length ? selectedRosterGroup.students.map((studentName) => (
+                      <option key={studentName} value={studentName}>{formatStudentDisplayName(studentName)}</option>
+                    )) : <option value="">No students loaded</option>}
+                  </select>
                 </label>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">
@@ -1383,7 +1518,37 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 </label>
 
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-slate-200">Structured Recess</div>
+                  <div className="text-sm font-medium text-slate-200">Assignment</div>
+                  <div className="grid gap-2">
+                    <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={draft.needsStructuredRecess}
+                        onChange={(event) => updateDraftEntryType({ needsStructuredRecess: event.target.checked })}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                      />
+                      <span>
+                        Structured Recess
+                        <span className="block text-xs font-normal text-slate-500">Supervised physical activity with limited options.</span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={draft.needsWorkTime}
+                        onChange={(event) => updateDraftEntryType({ needsWorkTime: event.target.checked })}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-fuchsia-500"
+                      />
+                      <span>
+                        Finish Work
+                        <span className="block text-xs font-normal text-slate-500">Policy limit: 5 min early recess, 10 min lunch recess.</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-slate-200">Recess Time</div>
                   <div className="grid gap-2">
                     {Object.entries(recessOptions).map(([id, option]) => (
                       <button
@@ -1403,7 +1568,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 </div>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">
-                  Length
+                  {draft.needsWorkTime ? "Work/assignment length" : "Length"}
                   <select
                     value={draft.duration}
                     onChange={(event) =>
@@ -1444,7 +1609,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 <button
                   type="button"
                   onClick={addEntry}
-                  disabled={!draft.studentName.trim() || !draft.teacherName.trim()}
+                  disabled={!draft.studentName.trim() || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={16} />
