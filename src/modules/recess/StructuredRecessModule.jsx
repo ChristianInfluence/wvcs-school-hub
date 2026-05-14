@@ -102,6 +102,16 @@ function formatDate(value) {
   });
 }
 
+function formatStudentDisplayName(studentName) {
+  const [lastName, ...firstParts] = String(studentName || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!lastName || !firstParts.length) return studentName;
+  return `${firstParts.join(" ")} ${lastName}`.trim();
+}
+
 function loadEntries() {
   try {
     const saved = localStorage.getItem(STORE_KEY);
@@ -296,7 +306,7 @@ function buildAttendancePdfHtml(roster, attendance, date, recessId) {
               const status = record.status === "present" ? "P" : record.status === "absent" ? "A" : "";
               return `
                 <tr>
-                  <td>${escapeHtml(studentName)}</td>
+                  <td>${escapeHtml(formatStudentDisplayName(studentName))}</td>
                   <td class="status">${escapeHtml(status)}</td>
                   <td>${escapeHtml(record.note)}</td>
                 </tr>
@@ -679,7 +689,7 @@ function AttendanceStatusButton({ active, tone, children, onClick }) {
 function AttendanceStudentRow({ date, recessId, slotId, grade, studentName, record, onUpdate }) {
   return (
     <div className="grid gap-2 border-b border-slate-800 px-3 py-2 last:border-b-0 md:grid-cols-[1fr_76px_minmax(120px,190px)] md:items-center">
-      <div className="text-sm font-semibold text-white">{studentName}</div>
+      <div className="text-sm font-semibold text-white">{formatStudentDisplayName(studentName)}</div>
       <div className="flex gap-2">
         <AttendanceStatusButton
           active={record.status === "present"}
