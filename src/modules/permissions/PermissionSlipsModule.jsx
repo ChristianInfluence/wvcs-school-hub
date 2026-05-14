@@ -8,6 +8,7 @@ import {
   Link2,
   Mail,
   MessageSquareText,
+  GripVertical,
   Plus,
   RotateCcw,
   Save,
@@ -1282,6 +1283,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [lastSendResult, setLastSendResult] = useState(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [studentStatusFilter, setStudentStatusFilter] = useState("all");
+  const [draggedFieldId, setDraggedFieldId] = useState("");
+  const [addedFieldId, setAddedFieldId] = useState("");
   const selectedEventIdRef = useRef(selectedEventId);
   const [syncStatus, setSyncStatus] = useState("Connecting to shared permission data...");
   const [manualRosterStudent, setManualRosterStudent] = useState({
@@ -1406,15 +1409,43 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   }
 
   function addField() {
+    const field = { id: uid("field"), label: "New question", type: "text", required: false, options: [] };
     updateEvent({
-      fields: [...selectedEvent.fields, { id: uid("field"), label: "New question", type: "text", required: false, options: [] }],
+      fields: [...selectedEvent.fields, field],
     });
+    setAddedFieldId(field.id);
+    window.setTimeout(() => setAddedFieldId((current) => (current === field.id ? "" : current)), 1400);
   }
 
   function updateField(fieldId, patch) {
     updateEvent({
       fields: selectedEvent.fields.map((field) => (field.id === fieldId ? { ...field, ...patch } : field)),
     });
+  }
+
+  function moveField(fieldId, targetFieldId) {
+    if (!fieldId || !targetFieldId || fieldId === targetFieldId) return;
+    const fields = [...selectedEvent.fields];
+    const fromIndex = fields.findIndex((field) => field.id === fieldId);
+    const toIndex = fields.findIndex((field) => field.id === targetFieldId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const [movedField] = fields.splice(fromIndex, 1);
+    fields.splice(toIndex, 0, movedField);
+    updateEvent({ fields });
+  }
+
+  function updateChoiceOption(field, optionIndex, value) {
+    const options = [...(field.options || [])];
+    options[optionIndex] = value;
+    updateField(field.id, { options });
+  }
+
+  function addChoiceOption(field) {
+    updateField(field.id, { options: [...(field.options || []), ""] });
+  }
+
+  function removeChoiceOption(field, optionIndex) {
+    updateField(field.id, { options: (field.options || []).filter((_, index) => index !== optionIndex) });
   }
 
   function deleteField(fieldId) {
@@ -2221,17 +2252,32 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   <FileSignature size={18} />
                   Fillable Fields
                 </div>
-                <button type="button" onClick={addField} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-100">
+                <button type="button" onClick={addField} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition active:scale-[0.98] ${addedFieldId ? "border-emerald-400 bg-emerald-500 text-white shadow-lg shadow-emerald-950/40" : "border-slate-700 bg-slate-950 text-slate-100 hover:border-sky-400 hover:bg-slate-900"}`}>
                   <Plus size={16} />
-                  Add Field
+                  {addedFieldId ? "Field Added" : "Add Field"}
                 </button>
               </div>
               <div className="grid gap-3">
-                {selectedEvent.fields.map((field) => (
-                  <div key={field.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_120px_44px] lg:items-end">
+                {selectedEvent.fields.map((field, fieldIndex) => (
+                  <div
+                    key={field.id}
+                    draggable
+                    onDragStart={() => setDraggedFieldId(field.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      moveField(draggedFieldId, field.id);
+                      setDraggedFieldId("");
+                    }}
+                    onDragEnd={() => setDraggedFieldId("")}
+                    className={`rounded-lg border bg-slate-950 p-3 transition ${draggedFieldId === field.id ? "border-sky-400 opacity-70" : addedFieldId === field.id ? "border-emerald-400 shadow-lg shadow-emerald-950/40" : "border-slate-800"}`}
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[34px_minmax(0,1fr)_180px_120px_44px] lg:items-end">
+                      <div className="flex h-10 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-500" title="Drag to reorder">
+                        <GripVertical size={16} />
+                      </div>
                       <label className="text-sm font-semibold text-slate-300">
-                        Label
+                        Label <span className="text-xs font-normal text-slate-500">#{fieldIndex + 1}</span>
                         <input value={field.label} onChange={(event) => updateField(field.id, { label: event.target.value })} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white outline-none focus:border-sky-400" />
                       </label>
                       <label className="text-sm font-semibold text-slate-300">
@@ -2249,15 +2295,30 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                       </button>
                     </div>
                     {field.type === "choice" && (
-                      <label className="mt-3 block text-sm font-semibold text-slate-300">
-                        Options, one per line
-                        <textarea
-                          rows={3}
-                          value={(field.options || []).join("\n")}
-                          onChange={(event) => updateField(field.id, { options: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })}
-                          className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white outline-none focus:border-sky-400"
-                        />
-                      </label>
+                      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold text-slate-300">Choices</div>
+                          <button type="button" onClick={() => addChoiceOption(field)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-sky-400">
+                            <Plus size={13} />
+                            Add Choice
+                          </button>
+                        </div>
+                        <div className="grid gap-2">
+                          {(field.options?.length ? field.options : [""]).map((option, optionIndex) => (
+                            <div key={`${field.id}-option-${optionIndex}`} className="grid gap-2 sm:grid-cols-[1fr_40px]">
+                              <input
+                                value={option}
+                                onChange={(event) => updateChoiceOption(field, optionIndex, event.target.value)}
+                                placeholder={`Choice ${optionIndex + 1}`}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                              />
+                              <button type="button" onClick={() => removeChoiceOption(field, optionIndex)} className="flex h-10 items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-100 transition hover:bg-rose-500/20">
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}
