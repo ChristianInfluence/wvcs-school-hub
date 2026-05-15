@@ -34,6 +34,7 @@ import {
   savePermissionSubmission,
   sendPermissionParentCopyEmail,
   sendPermissionSigningRequestEmail,
+  sendPermissionSigningRequestSms,
   uploadPermissionSignedPdf,
 } from "../../lib/permissionSlipsData.js";
 
@@ -1660,7 +1661,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     );
     const now = new Date().toISOString();
     const nextRecipients = [...selectedEvent.recipients];
-    const recipientsToSend = [];
+    const emailRecipientsToSend = [];
+    const smsRecipientsToSend = [];
     selectedStudents.forEach((student) => {
       student.parents.forEach((parent) => {
         const key = `${student.id}:${parent.id}`;
@@ -1668,45 +1670,84 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
         if (existingIndex >= 0) {
           nextRecipients[existingIndex] = {
             ...nextRecipients[existingIndex],
-            status: parent.parentEmail ? "Email Queued" : "SMS Queued",
+            status: parent.parentEmail && parent.parentPhone ? "Email + SMS Queued" : parent.parentEmail ? "Email Queued" : "SMS Queued",
             sentAt: now,
             emailedAt: parent.parentEmail ? now : nextRecipients[existingIndex].emailedAt || "",
+            smsStatus: parent.parentPhone ? "Queued" : nextRecipients[existingIndex].smsStatus || "",
+            smsQueuedAt: parent.parentPhone ? now : nextRecipients[existingIndex].smsQueuedAt || "",
           };
-          if (parent.parentEmail) recipientsToSend.push(nextRecipients[existingIndex]);
+          if (parent.parentEmail) emailRecipientsToSend.push(nextRecipients[existingIndex]);
+          if (parent.parentPhone) smsRecipientsToSend.push(nextRecipients[existingIndex]);
         } else if (!existingKeys.has(key)) {
           const newRecipient = {
             ...createRecipientFromStudentParent(student, parent),
-            status: parent.parentEmail ? "Email Queued" : "SMS Queued",
+            status: parent.parentEmail && parent.parentPhone ? "Email + SMS Queued" : parent.parentEmail ? "Email Queued" : "SMS Queued",
             sentAt: now,
             emailedAt: parent.parentEmail ? now : "",
+            smsStatus: parent.parentPhone ? "Queued" : "",
+            smsQueuedAt: parent.parentPhone ? now : "",
           };
           nextRecipients.push(newRecipient);
-          if (parent.parentEmail) recipientsToSend.push(newRecipient);
+          if (parent.parentEmail) emailRecipientsToSend.push(newRecipient);
+          if (parent.parentPhone) smsRecipientsToSend.push(newRecipient);
         }
       });
     });
     updateEvent({ recipients: nextRecipients });
-    if (!recipientsToSend.length) {
-      setSyncStatus("No checked students have parent email addresses. SMS sending is not connected yet.");
+    if (!emailRecipientsToSend.length && !smsRecipientsToSend.length) {
+      setSyncStatus("No checked students have parent email addresses or phone numbers.");
       updateEvent({ recipients: nextRecipients, selectedStudentIds: [] });
       setIsSendingCheckedStudents(false);
       return;
     }
     try {
-      setSyncStatus(`Sending ${recipientsToSend.length} permission email${recipientsToSend.length === 1 ? "" : "s"}...`);
+      setSyncStatus(`Sending permission links to ${emailRecipientsToSend.length + smsRecipientsToSend.length} parent contact${emailRecipientsToSend.length + smsRecipientsToSend.length === 1 ? "" : "s"}...`);
       setLastSendResult(null);
       await savePermissionRecipients(selectedEvent.id, nextRecipients);
-      const result = await sendPermissionSigningRequestEmail({
-        eventId: selectedEvent.id,
-        recipientIds: recipientsToSend.map((recipient) => recipient.id),
-        signingBaseUrl: `${window.location.origin}${window.location.pathname}`,
-      });
-      const sentIds = new Set((result.messages || []).map((message) => message.recipientId));
-      const sentAtById = Object.fromEntries((result.messages || []).map((message) => [message.recipientId, message.sentAt]));
+      const signingBaseUrl = `${window.location.origin}${window.location.pathname}`;
+      const [emailResult, smsResult] = await Promise.all([
+        emailRecipientsToSend.length
+          ? sendPermissionSigningRequestEmail({
+              eventId: selectedEvent.id,
+              recipientIds: emailRecipientsToSend.map((recipient) => recipient.id),
+              signingBaseUrl,
+            })
+          : Promise.resolve({ messages: [], skipped: [], failed: [] }),
+        smsRecipientsToSend.length
+          ? sendPermissionSigningRequestSms({
+              eventId: selectedEvent.id,
+              recipientIds: smsRecipientsToSend.map((recipient) => recipient.id),
+              signingBaseUrl,
+            })
+          : Promise.resolve({ messages: [], skipped: [], failed: [], smsEnabled: false }),
+      ]);
+      const sentIds = new Set((emailResult.messages || []).map((message) => message.recipientId));
+      const sentAtById = Object.fromEntries((emailResult.messages || []).map((message) => [message.recipientId, message.sentAt]));
+      const smsIds = new Set((smsResult.messages || []).map((message) => message.recipientId));
+      const smsAtById = Object.fromEntries((smsResult.messages || []).map((message) => [message.recipientId, message.sentAt]));
       const updatedRecipients = nextRecipients.map((recipient) =>
         sentIds.has(recipient.id)
-          ? { ...recipient, status: "Email Sent", deliveryChannel: "email", sentAt: sentAtById[recipient.id] || now, emailedAt: sentAtById[recipient.id] || now }
-          : recipient
+          ? {
+              ...recipient,
+              status: smsIds.has(recipient.id) ? "Email + SMS Sent" : "Email Sent",
+              deliveryChannel: smsIds.has(recipient.id) ? "email+sms" : "email",
+              sentAt: sentAtById[recipient.id] || smsAtById[recipient.id] || now,
+              emailedAt: sentAtById[recipient.id] || now,
+              smsStatus: smsIds.has(recipient.id) ? (smsResult.smsEnabled ? "Sent" : "Previewed") : recipient.smsStatus || "",
+              smsSentAt: smsResult.smsEnabled && smsIds.has(recipient.id) ? smsAtById[recipient.id] || now : recipient.smsSentAt || "",
+              smsQueuedAt: !smsResult.smsEnabled && smsIds.has(recipient.id) ? smsAtById[recipient.id] || now : recipient.smsQueuedAt || "",
+            }
+          : smsIds.has(recipient.id)
+            ? {
+                ...recipient,
+                status: smsResult.smsEnabled ? "SMS Sent" : "SMS Previewed",
+                deliveryChannel: "sms",
+                sentAt: smsAtById[recipient.id] || now,
+                smsStatus: smsResult.smsEnabled ? "Sent" : "Previewed",
+                smsSentAt: smsResult.smsEnabled ? smsAtById[recipient.id] || now : recipient.smsSentAt || "",
+                smsQueuedAt: !smsResult.smsEnabled ? smsAtById[recipient.id] || now : recipient.smsQueuedAt || "",
+              }
+            : recipient
       );
       persist((current) => ({
         ...current,
@@ -1714,29 +1755,31 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
           event.id === selectedEvent.id ? { ...event, recipients: updatedRecipients, selectedStudentIds: [] } : event
         ),
       }));
-      const skippedCount = result.skipped?.length || 0;
       setLastSendResult({
-        sent: result.messages || [],
-        skipped: result.skipped || [],
-        failed: result.failed || [],
+        sent: [...(emailResult.messages || []), ...(smsResult.messages || [])],
+        skipped: [...(emailResult.skipped || []), ...(smsResult.skipped || [])],
+        failed: [...(emailResult.failed || []), ...(smsResult.failed || [])],
         sentAt: new Date().toISOString(),
       });
-      const failedCount = result.failed?.length || 0;
-      setSyncStatus(`Sent ${result.messages?.length || 0} permission email${(result.messages?.length || 0) === 1 ? "" : "s"}${skippedCount ? `; ${skippedCount} skipped` : ""}${failedCount ? `; ${failedCount} failed` : ""}.`);
+      const skippedCount = (emailResult.skipped?.length || 0) + (smsResult.skipped?.length || 0);
+      const failedCount = (emailResult.failed?.length || 0) + (smsResult.failed?.length || 0);
+      const smsLabel = smsResult.messages?.length ? (smsResult.smsEnabled ? "SMS sent" : "SMS previewed") : "no SMS";
+      setSyncStatus(`Email sent: ${emailResult.messages?.length || 0}; ${smsLabel}: ${smsResult.messages?.length || 0}${skippedCount ? `; ${skippedCount} skipped` : ""}${failedCount ? `; ${failedCount} failed` : ""}.`);
     } catch (error) {
       updateEvent({ recipients: nextRecipients, selectedStudentIds: [] });
       setLastSendResult({
         sent: [],
         skipped: [],
-        failed: recipientsToSend.map((recipient) => ({
+        failed: [...emailRecipientsToSend, ...smsRecipientsToSend].map((recipient) => ({
           recipientId: recipient.id,
           recipientEmail: recipient.parentEmail,
+          parentPhone: recipient.parentPhone,
           studentName: recipient.studentName,
           reason: error.message,
         })),
         sentAt: new Date().toISOString(),
       });
-      setSyncStatus(`Queued locally, but email send failed: ${error.message}`);
+      setSyncStatus(`Queued locally, but sending failed: ${error.message}`);
     } finally {
       setIsSendingCheckedStudents(false);
     }
@@ -1766,6 +1809,40 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
       }
     } catch (error) {
       setSyncStatus(`Resend failed for ${recipient.parentEmail}: ${error.message}`);
+    } finally {
+      setSendingRecipientIds((current) => current.filter((id) => id !== recipient.id));
+    }
+  }
+
+  async function sendPermissionSms(recipient) {
+    if (!recipient.parentPhone || sendingRecipientIds.includes(recipient.id)) return;
+    setSendingRecipientIds((current) => [...current, recipient.id]);
+    try {
+      await savePermissionRecipients(selectedEvent.id, [recipient]);
+      const result = await sendPermissionSigningRequestSms({
+        eventId: selectedEvent.id,
+        recipientIds: [recipient.id],
+        signingBaseUrl: `${window.location.origin}${window.location.pathname}`,
+      });
+      const message = result.messages?.[0];
+      if (message) {
+        updateRecipient(recipient.id, {
+          status: result.smsEnabled ? "SMS Sent" : "SMS Previewed",
+          deliveryChannel: recipient.deliveryChannel === "email" ? "email+sms" : "sms",
+          sentAt: message.sentAt || new Date().toISOString(),
+          smsStatus: result.smsEnabled ? "Sent" : "Previewed",
+          smsQueuedAt: result.smsEnabled ? recipient.smsQueuedAt || "" : message.sentAt || new Date().toISOString(),
+          smsSentAt: result.smsEnabled ? message.sentAt || new Date().toISOString() : recipient.smsSentAt || "",
+          smsError: "",
+          twilioMessageSid: message.twilioMessageSid || "",
+        });
+        setSyncStatus(result.smsEnabled ? `Sent permission SMS to ${recipient.parentPhone}.` : `SMS preview recorded for ${recipient.parentPhone}. Twilio sending is disabled until A2P is approved.`);
+      } else {
+        setSyncStatus(result.skipped?.[0]?.reason || `No SMS prepared for ${recipient.parentPhone}.`);
+      }
+    } catch (error) {
+      updateRecipient(recipient.id, { smsStatus: "Failed", smsError: error.message });
+      setSyncStatus(`SMS failed for ${recipient.parentPhone}: ${error.message}`);
     } finally {
       setSendingRecipientIds((current) => current.filter((id) => id !== recipient.id));
     }
@@ -2362,7 +2439,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="font-bold text-white">Last Send</div>
                     <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-bold text-emerald-100">
-                      {lastSendResult.sent.length} sent
+                      {lastSendResult.sent.length} sent or previewed
                     </span>
                     <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-100">
                       {lastSendResult.skipped.length} skipped
@@ -2379,7 +2456,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         return (
                           <div key={`${item.recipientId}-${item.reason}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
                             <span className="font-bold text-white">{recipient?.studentName || item.studentName || "Student"}</span>
-                            <span>{item.recipientEmail || recipient?.parentEmail || "No email"}</span>
+                            <span>{item.recipientEmail || recipient?.parentEmail || item.parentPhone || recipient?.parentPhone || "No email or phone"}</span>
                             <span className="text-slate-500">{item.reason}</span>
                             {recipient && (
                               <button type="button" onClick={() => copyLink(recipient)} className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-bold text-slate-100">
@@ -2450,7 +2527,9 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     const studentSubmissions = getStudentSubmissions(submissionsForEvent, selectedEvent.id, student.id);
                     const studentRecipients = selectedEvent.recipients.filter((recipient) => recipient.studentId === student.id || recipient.studentName === student.studentName);
                     const signedParents = studentSubmissions.length;
-                    const sentParents = studentRecipients.filter((recipient) => ["Email Sent", "Viewed", "Signed"].includes(recipient.status)).length;
+                    const sentParents = studentRecipients.filter((recipient) =>
+                      ["Email Sent", "Email + SMS Sent", "SMS Sent", "SMS Previewed", "Viewed", "Signed"].includes(recipient.status)
+                    ).length;
                     const viewedParents = studentRecipients.filter((recipient) => recipient.viewedAt).length;
                     const isSigned = studentSubmissions.length > 0;
                     const statusLabel = isSigned
@@ -2522,7 +2601,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     <MessageSquareText size={18} />
                     Parent SMS and Email Links
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">Copy links for SMS or open an email draft. Later this can connect to Twilio and Gmail/API delivery.</p>
+                  <p className="mt-1 text-sm text-slate-400">Send email links now and preview SMS delivery while Twilio A2P approval is pending.</p>
                 </div>
                 <button type="button" onClick={addRecipient} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-100">
                   <Plus size={16} />
@@ -2561,15 +2640,30 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         <Send size={15} className={sendingRecipientIds.includes(recipient.id) ? "animate-pulse" : ""} />
                         {sendingRecipientIds.includes(recipient.id) ? "Sending..." : "Resend Email"}
                       </button>
-                      <button type="button" onClick={() => markSmsReady(recipient.id)} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100">
-                        <Send size={15} />
-                        Mark Ready for SMS
+                      <button
+                        type="button"
+                        onClick={() => sendPermissionSms(recipient)}
+                        disabled={!recipient.parentPhone || sendingRecipientIds.includes(recipient.id)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Send size={15} className={sendingRecipientIds.includes(recipient.id) ? "animate-pulse" : ""} />
+                        {sendingRecipientIds.includes(recipient.id) ? "Preparing..." : "Preview SMS"}
                       </button>
                       <button type="button" onClick={() => deleteRecipient(recipient.id)} className="ml-auto inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100">
                         <Trash2 size={15} />
                         Remove
                       </button>
                       <span className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-bold text-slate-300">{recipient.status}</span>
+                      {recipient.smsStatus && (
+                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-100">
+                          SMS {recipient.smsStatus}
+                        </span>
+                      )}
+                      {recipient.smsError && (
+                        <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-bold text-rose-100">
+                          SMS Error
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

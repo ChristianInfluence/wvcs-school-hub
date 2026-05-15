@@ -139,6 +139,11 @@ function mapRecipientToDatabase(recipient, eventId) {
     delivery_channel: recipient.deliveryChannel || null,
     sent_at: recipient.sentAt || null,
     emailed_at: recipient.emailedAt || null,
+    sms_status: recipient.smsStatus || null,
+    sms_queued_at: recipient.smsQueuedAt || null,
+    sms_sent_at: recipient.smsSentAt || null,
+    sms_error: recipient.smsError || null,
+    twilio_message_sid: recipient.twilioMessageSid || null,
     viewed_at: recipient.viewedAt || null,
     signed_at: recipient.signedAt || null,
     recipient,
@@ -163,6 +168,11 @@ function mapRecipientFromDatabase(row) {
     deliveryChannel: row.delivery_channel || row.recipient?.deliveryChannel || "",
     sentAt: row.sent_at || row.recipient?.sentAt || "",
     emailedAt: row.emailed_at || row.recipient?.emailedAt || "",
+    smsStatus: row.sms_status || row.recipient?.smsStatus || "",
+    smsQueuedAt: row.sms_queued_at || row.recipient?.smsQueuedAt || "",
+    smsSentAt: row.sms_sent_at || row.recipient?.smsSentAt || "",
+    smsError: row.sms_error || row.recipient?.smsError || "",
+    twilioMessageSid: row.twilio_message_sid || row.recipient?.twilioMessageSid || "",
     viewedAt: row.viewed_at || row.recipient?.viewedAt || "",
     signedAt: row.signed_at || row.recipient?.signedAt || "",
   };
@@ -481,6 +491,19 @@ export async function sendPermissionSigningRequestEmail({ eventId, recipientIds,
   }
 
   const { data, error } = await supabase.functions.invoke("send-permission-signing-request", {
+    body: { eventId, recipientIds, signingBaseUrl },
+  });
+
+  if (error) throw error;
+  return data || { sent: true, messages: [] };
+}
+
+export async function sendPermissionSigningRequestSms({ eventId, recipientIds, signingBaseUrl }) {
+  if (!isSupabaseConfigured) {
+    return { sent: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("send-permission-signing-sms", {
     body: { eventId, recipientIds, signingBaseUrl },
   });
 
