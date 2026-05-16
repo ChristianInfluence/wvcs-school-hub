@@ -278,9 +278,14 @@ function getAttendanceDates(attendance, today) {
   return [...new Set([today, ...Object.keys(attendance)])].sort().reverse();
 }
 
-function getStructuredRecessLog(entries) {
+function isRosterLinkedEntry(entry, roster) {
+  const group = roster.find((item) => item.grade === entry.studentGrade);
+  return Boolean(group?.students.includes(entry.studentName));
+}
+
+function getStructuredRecessLog(entries, roster) {
   const completedStructuredEntries = entries.filter(
-    (entry) => entry.status === "complete" && entry.needsStructuredRecess !== false
+    (entry) => entry.status === "complete" && entry.needsStructuredRecess !== false && isRosterLinkedEntry(entry, roster)
   );
 
   return Object.values(
@@ -329,11 +334,12 @@ function addCount(map, key, patch = {}) {
   map.set(label, current);
 }
 
-function getStructuredRecessAnalytics(entries, { range, grade, search, today }) {
+function getStructuredRecessAnalytics(entries, roster, { range, grade, search, today }) {
   const rangeStart = getRangeStartDate(range, today);
   const normalizedSearch = search.trim().toLowerCase();
   const filteredEntries = entries
     .filter((entry) => entry.id !== "sr-demo-1")
+    .filter((entry) => isRosterLinkedEntry(entry, roster))
     .filter((entry) => !rangeStart || entry.date >= rangeStart)
     .filter((entry) => grade === "all" || entry.studentGrade === grade)
     .filter((entry) => {
@@ -855,7 +861,7 @@ function StructuredRecessServiceLog({ log }) {
             Structured Recess Service Log
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Completed structured recess records, grouped by student.
+            Completed structured recess records matched to roster students.
           </p>
         </div>
         <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
@@ -942,7 +948,7 @@ function StructuredRecessAnalytics({
             Behavior Analysis
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Past structured recess and finish-work records for pattern review.
+            Past roster-linked structured recess and finish-work records for pattern review.
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-[150px_170px_minmax(220px,1fr)] lg:min-w-[650px]">
@@ -1499,16 +1505,16 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const lunchEntries = todayEntries.filter((entry) => entry.recessType === "lunch");
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
   const attendanceDates = getAttendanceDates(attendance, today);
-  const structuredRecessLog = getStructuredRecessLog(entries);
+  const structuredRecessLog = getStructuredRecessLog(entries, roster);
   const analyticsGrades = [...new Set(entries.map((entry) => entry.studentGrade).filter(Boolean))].sort();
   const structuredRecessAnalytics = useMemo(
-    () => getStructuredRecessAnalytics(entries, {
+    () => getStructuredRecessAnalytics(entries, roster, {
       range: analyticsRange,
       grade: analyticsGrade,
       search: analyticsSearch,
       today,
     }),
-    [entries, analyticsRange, analyticsGrade, analyticsSearch, today]
+    [entries, roster, analyticsRange, analyticsGrade, analyticsSearch, today]
   );
   const rosterGrades = roster.map((group) => group.grade);
   const selectedRosterGroup = roster.find((group) => group.grade === draft.studentGrade) || roster[0];
