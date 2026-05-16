@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -306,6 +307,96 @@ function getStructuredRecessLog(entries) {
       return log;
     }, {})
   ).sort((a, b) => b.count - a.count || compareStudentsByFirstName(a.studentName, b.studentName));
+}
+
+function getRangeStartDate(range, today) {
+  if (range === "all") return "";
+  const days = Number(range);
+  if (!days) return "";
+  const start = new Date(`${today}T12:00:00`);
+  start.setDate(start.getDate() - days + 1);
+  return start.toISOString().slice(0, 10);
+}
+
+function addCount(map, key, patch = {}) {
+  const label = key || "Unlisted";
+  const current = map.get(label) || { label, count: 0, ...patch };
+  current.count += 1;
+  Object.entries(patch).forEach(([field, value]) => {
+    if (typeof value === "number") current[field] = (current[field] || 0) + value;
+    else if (value) current[field] = value;
+  });
+  map.set(label, current);
+}
+
+function getStructuredRecessAnalytics(entries, { range, grade, search, today }) {
+  const rangeStart = getRangeStartDate(range, today);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredEntries = entries
+    .filter((entry) => entry.id !== "sr-demo-1")
+    .filter((entry) => !rangeStart || entry.date >= rangeStart)
+    .filter((entry) => grade === "all" || entry.studentGrade === grade)
+    .filter((entry) => {
+      if (!normalizedSearch) return true;
+      return [entry.studentName, entry.teacherName, entry.reason, entry.notes]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+    });
+
+  const students = new Map();
+  const grades = new Map();
+  const recessTypes = new Map();
+  const reasons = new Map();
+
+  filteredEntries.forEach((entry) => {
+    const studentKey = `${entry.studentGrade || ""}::${entry.studentName}`;
+    const student = students.get(studentKey) || {
+      studentName: entry.studentName,
+      studentGrade: entry.studentGrade || "",
+      count: 0,
+      structured: 0,
+      workTime: 0,
+      complete: 0,
+      active: 0,
+      lastDate: "",
+      reasons: new Map(),
+    };
+    student.count += 1;
+    if (entry.needsStructuredRecess !== false) student.structured += 1;
+    if (entry.needsWorkTime) student.workTime += 1;
+    if (entry.status === "complete") student.complete += 1;
+    if (entry.status !== "complete") student.active += 1;
+    if (!student.lastDate || entry.date > student.lastDate) student.lastDate = entry.date;
+    if (entry.reason) addCount(student.reasons, entry.reason);
+    students.set(studentKey, student);
+
+    addCount(grades, entry.studentGrade || "Unlisted");
+    addCount(recessTypes, recessOptions[entry.recessType]?.label || "Unlisted");
+    if (entry.reason) addCount(reasons, entry.reason);
+  });
+
+  const studentRows = [...students.values()]
+    .map((student) => ({
+      ...student,
+      topReason: [...student.reasons.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))[0]?.label || "",
+    }))
+    .sort((a, b) => b.count - a.count || compareStudentsByFirstName(a.studentName, b.studentName));
+
+  return {
+    entries: filteredEntries.sort((a, b) => b.date.localeCompare(a.date) || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))),
+    studentRows,
+    gradeRows: [...grades.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    recessRows: [...recessTypes.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    reasonRows: [...reasons.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    totals: {
+      total: filteredEntries.length,
+      uniqueStudents: students.size,
+      structured: filteredEntries.filter((entry) => entry.needsStructuredRecess !== false).length,
+      workTime: filteredEntries.filter((entry) => entry.needsWorkTime).length,
+      complete: filteredEntries.filter((entry) => entry.status === "complete").length,
+      active: filteredEntries.filter((entry) => entry.status !== "complete").length,
+    },
+  };
 }
 
 function getSlotGroups(roster, slot) {
@@ -812,6 +903,193 @@ function StructuredRecessServiceLog({ log }) {
   );
 }
 
+function MiniBreakdownList({ title, rows }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{title}</div>
+      <div className="space-y-2">
+        {rows.length ? rows.slice(0, 5).map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate font-semibold text-slate-200">{row.label}</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs font-bold text-sky-100">{row.count}</span>
+          </div>
+        )) : (
+          <div className="text-sm text-slate-500">No records match.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StructuredRecessAnalytics({
+  analytics,
+  range,
+  grade,
+  search,
+  grades,
+  onRangeChange,
+  onGradeChange,
+  onSearchChange,
+}) {
+  const rangeLabel = range === "all" ? "All time" : `Last ${range} days`;
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900">
+      <div className="flex flex-col gap-3 border-b border-slate-800 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <BarChart3 size={16} className="text-sky-300" />
+            Behavior Analysis
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Past structured recess and finish-work records for pattern review.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[150px_170px_minmax(220px,1fr)] lg:min-w-[650px]">
+          <select
+            value={range}
+            onChange={(event) => onRangeChange(event.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+          >
+            <option value="30">Last 30 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="all">All time</option>
+          </select>
+          <select
+            value={grade}
+            onChange={(event) => onGradeChange(event.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+          >
+            <option value="all">All grades</option>
+            {grades.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search student, teacher, reason, or notes"
+            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b border-slate-800 p-4 md:grid-cols-3 xl:grid-cols-6">
+        {[
+          ["Records", analytics.totals.total, "text-white"],
+          ["Students", analytics.totals.uniqueStudents, "text-sky-100"],
+          ["Structured", analytics.totals.structured, "text-sky-100"],
+          ["Finish Work", analytics.totals.workTime, "text-fuchsia-100"],
+          ["Completed", analytics.totals.complete, "text-emerald-100"],
+          ["Still Active", analytics.totals.active, "text-amber-100"],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+            <div className={`text-2xl font-bold ${tone}`}>{value}</div>
+            <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.8fr)]">
+        <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+            <div className="text-sm font-bold text-white">Student Frequency</div>
+            <div className="text-xs font-semibold text-slate-500">{rangeLabel}</div>
+          </div>
+          {analytics.studentRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="border-b border-slate-800 text-xs uppercase tracking-[0.12em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Student</th>
+                    <th className="px-4 py-3">Grade</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3 text-right">Structured</th>
+                    <th className="px-4 py-3 text-right">Work</th>
+                    <th className="px-4 py-3">Top Reason</th>
+                    <th className="px-4 py-3">Last</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.studentRows.slice(0, 12).map((student) => (
+                    <tr key={`${student.studentGrade}-${student.studentName}`} className="border-b border-slate-800 last:border-b-0">
+                      <td className="px-4 py-3 font-semibold text-white">{formatStudentDisplayName(student.studentName)}</td>
+                      <td className="px-4 py-3 text-slate-300">{student.studentGrade || "Unlisted"}</td>
+                      <td className="px-4 py-3 text-right font-bold text-sky-100">{student.count}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{student.structured}</td>
+                      <td className="px-4 py-3 text-right text-fuchsia-100">{student.workTime}</td>
+                      <td className="max-w-[220px] truncate px-4 py-3 text-slate-300">{student.topReason || "No reason listed"}</td>
+                      <td className="px-4 py-3 text-slate-300">{formatDate(student.lastDate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState>No records match these filters.</EmptyState>
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3">
+          <MiniBreakdownList title="Common Reasons" rows={analytics.reasonRows} />
+          <MiniBreakdownList title="By Grade" rows={analytics.gradeRows} />
+          <MiniBreakdownList title="By Recess Time" rows={analytics.recessRows} />
+        </div>
+      </div>
+
+      <div className="border-t border-slate-800 p-4">
+        <div className="mb-3 text-sm font-bold text-white">Past Records</div>
+        {analytics.entries.length ? (
+          <div className="overflow-x-auto rounded-lg border border-slate-800">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="border-b border-slate-800 bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Student</th>
+                  <th className="px-4 py-3">Grade</th>
+                  <th className="px-4 py-3">Assignment</th>
+                  <th className="px-4 py-3">Recess</th>
+                  <th className="px-4 py-3">Teacher</th>
+                  <th className="px-4 py-3">Reason / Notes</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analytics.entries.slice(0, 80).map((entry) => (
+                  <tr key={entry.id} className="border-b border-slate-800 last:border-b-0">
+                    <td className="px-4 py-3 text-slate-300">{formatDate(entry.date)}</td>
+                    <td className="px-4 py-3 font-semibold text-white">{formatStudentDisplayName(entry.studentName)}</td>
+                    <td className="px-4 py-3 text-slate-300">{entry.studentGrade || "Unlisted"}</td>
+                    <td className="px-4 py-3"><EntryTypeBadges entry={entry} /></td>
+                    <td className="px-4 py-3 text-slate-300">{recessOptions[entry.recessType]?.label || "Unlisted"}</td>
+                    <td className="px-4 py-3 text-slate-300">{entry.teacherName || "Unlisted"}</td>
+                    <td className="max-w-[300px] px-4 py-3 text-slate-300">
+                      <div className="truncate">{entry.reason || "No reason listed"}</div>
+                      {entry.notes && <div className="truncate text-xs text-slate-500">{entry.notes}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-1 text-xs font-bold ${
+                        entry.status === "complete" ? "bg-emerald-500/15 text-emerald-100" : "bg-amber-500/15 text-amber-100"
+                      }`}>
+                        {entry.status === "complete" ? "Complete" : "Active"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState>No past records match these filters.</EmptyState>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AttendanceStatusButton({ active, tone, children, onClick }) {
   const toneClass =
     tone === "present"
@@ -1189,6 +1467,9 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [collapsedGrades, setCollapsedGrades] = useState({});
   const [expandedAttendanceSlots, setExpandedAttendanceSlots] = useState({});
   const [historyDate, setHistoryDate] = useState(getTodayKey());
+  const [analyticsRange, setAnalyticsRange] = useState("30");
+  const [analyticsGrade, setAnalyticsGrade] = useState("all");
+  const [analyticsSearch, setAnalyticsSearch] = useState("");
   const [stagedCompleteIds, setStagedCompleteIds] = useState([]);
   const [viewMode, setViewMode] = useState(initialView);
   const refreshTimerRef = useRef(null);
@@ -1219,6 +1500,16 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
   const attendanceDates = getAttendanceDates(attendance, today);
   const structuredRecessLog = getStructuredRecessLog(entries);
+  const analyticsGrades = [...new Set(entries.map((entry) => entry.studentGrade).filter(Boolean))].sort();
+  const structuredRecessAnalytics = useMemo(
+    () => getStructuredRecessAnalytics(entries, {
+      range: analyticsRange,
+      grade: analyticsGrade,
+      search: analyticsSearch,
+      today,
+    }),
+    [entries, analyticsRange, analyticsGrade, analyticsSearch, today]
+  );
   const rosterGrades = roster.map((group) => group.grade);
   const selectedRosterGroup = roster.find((group) => group.grade === draft.studentGrade) || roster[0];
   const durationOptions = getDurationOptionsForDraft(draft);
@@ -1853,6 +2144,17 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                 </section>
               </div>
             </div>
+
+            <StructuredRecessAnalytics
+              analytics={structuredRecessAnalytics}
+              range={analyticsRange}
+              grade={analyticsGrade}
+              search={analyticsSearch}
+              grades={analyticsGrades}
+              onRangeChange={setAnalyticsRange}
+              onGradeChange={setAnalyticsGrade}
+              onSearchChange={setAnalyticsSearch}
+            />
 
             <StructuredRecessServiceLog log={structuredRecessLog} />
 
