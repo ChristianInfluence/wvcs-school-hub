@@ -117,6 +117,13 @@ function formatStudentDisplayName(studentName) {
   return `${firstParts.join(" ")} ${lastName}`.trim();
 }
 
+function compareStudentsByFirstName(a, b) {
+  return formatStudentDisplayName(a).localeCompare(formatStudentDisplayName(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function loadEntries() {
   try {
     const saved = localStorage.getItem(STORE_KEY);
@@ -213,7 +220,8 @@ function buildRosterFromCsv(csvText) {
     students: rows
       .slice(1)
       .map((row) => row[columnIndex]?.trim())
-      .filter(Boolean),
+      .filter(Boolean)
+      .sort(compareStudentsByFirstName),
   }));
 }
 
@@ -297,7 +305,7 @@ function getStructuredRecessLog(entries) {
       log[key] = current;
       return log;
     }, {})
-  ).sort((a, b) => b.count - a.count || a.studentName.localeCompare(b.studentName));
+  ).sort((a, b) => b.count - a.count || compareStudentsByFirstName(a.studentName, b.studentName));
 }
 
 function getSlotGroups(roster, slot) {
@@ -656,7 +664,7 @@ function AideCompactRow({ entry, staged, onStageChange }) {
 }
 
 function AideRecessColumn({ type, entries, stagedCompleteIds, onStageChange }) {
-  const sortedEntries = [...entries].sort((a, b) => a.studentName.localeCompare(b.studentName));
+  const sortedEntries = [...entries].sort((a, b) => compareStudentsByFirstName(a.studentName, b.studentName));
   const option = recessOptions[type];
 
   return (
