@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import {
@@ -162,6 +163,30 @@ function getEntryTypeLabels(entry) {
   return labels.length ? labels : ["Structured Recess"];
 }
 
+function isEntryComplete(entry) {
+  return entry.status === "complete";
+}
+
+function isEntryNotServed(entry) {
+  return entry.status === "not-served";
+}
+
+function isEntryUnconfirmed(entry) {
+  return !isEntryComplete(entry) && !isEntryNotServed(entry);
+}
+
+function getEntryStatusLabel(entry) {
+  if (isEntryComplete(entry)) return "Served";
+  if (isEntryNotServed(entry)) return "Not Served";
+  return "Unconfirmed";
+}
+
+function getEntryStatusTone(entry) {
+  if (isEntryComplete(entry)) return "bg-emerald-500/15 text-emerald-100";
+  if (isEntryNotServed(entry)) return "bg-rose-500/15 text-rose-100";
+  return "bg-amber-500/15 text-amber-100";
+}
+
 function getWorkTimeLimit(recessType) {
   return recessType === "early" ? 5 : 10;
 }
@@ -285,7 +310,7 @@ function isRosterLinkedEntry(entry, roster) {
 
 function getStructuredRecessLog(entries, roster) {
   const completedStructuredEntries = entries.filter(
-    (entry) => entry.status === "complete" && entry.needsStructuredRecess !== false && isRosterLinkedEntry(entry, roster)
+    (entry) => isEntryComplete(entry) && entry.needsStructuredRecess !== false && isRosterLinkedEntry(entry, roster)
   );
 
   return Object.values(
@@ -370,8 +395,8 @@ function getStructuredRecessAnalytics(entries, roster, { range, grade, search, t
     student.count += 1;
     if (entry.needsStructuredRecess !== false) student.structured += 1;
     if (entry.needsWorkTime) student.workTime += 1;
-    if (entry.status === "complete") student.complete += 1;
-    if (entry.status !== "complete") student.active += 1;
+    if (isEntryComplete(entry)) student.complete += 1;
+    if (isEntryUnconfirmed(entry)) student.active += 1;
     if (!student.lastDate || entry.date > student.lastDate) student.lastDate = entry.date;
     if (entry.reason) addCount(student.reasons, entry.reason);
     students.set(studentKey, student);
@@ -399,8 +424,9 @@ function getStructuredRecessAnalytics(entries, roster, { range, grade, search, t
       uniqueStudents: students.size,
       structured: filteredEntries.filter((entry) => entry.needsStructuredRecess !== false).length,
       workTime: filteredEntries.filter((entry) => entry.needsWorkTime).length,
-      complete: filteredEntries.filter((entry) => entry.status === "complete").length,
-      active: filteredEntries.filter((entry) => entry.status !== "complete").length,
+      complete: filteredEntries.filter(isEntryComplete).length,
+      notServed: filteredEntries.filter(isEntryNotServed).length,
+      active: filteredEntries.filter(isEntryUnconfirmed).length,
     },
   };
 }
@@ -692,7 +718,7 @@ function EntryTypeBadges({ entry }) {
   );
 }
 
-function EntryCard({ entry, onComplete, onDelete }) {
+function EntryCard({ entry, onComplete, onNotServed, onDelete }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -701,6 +727,9 @@ function EntryCard({ entry, onComplete, onDelete }) {
           <div className="mt-1 text-sm text-slate-400">Placed by {entry.teacherName}</div>
         </div>
         <div className="flex flex-col items-end gap-2">
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${getEntryStatusTone(entry)}`}>
+            {getEntryStatusLabel(entry)}
+          </span>
           <RecessBadge type={entry.recessType} />
           <EntryTypeBadges entry={entry} />
         </div>
@@ -733,14 +762,24 @@ function EntryCard({ entry, onComplete, onDelete }) {
       )}
 
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-3">
-        {entry.status !== "complete" && (
+        {isEntryUnconfirmed(entry) && (
           <button
             type="button"
             onClick={() => onComplete(entry.id)}
             className="inline-flex items-center gap-2 rounded-lg border border-emerald-400 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
           >
             <CheckCircle2 size={14} />
-            Mark Complete
+            Mark Served
+          </button>
+        )}
+        {isEntryUnconfirmed(entry) && onNotServed && (
+          <button
+            type="button"
+            onClick={() => onNotServed(entry.id)}
+            className="inline-flex items-center gap-2 rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+          >
+            <X size={14} />
+            Not Served
           </button>
         )}
         <button
@@ -1006,10 +1045,8 @@ function PastRecordCard({ entry }) {
             {formatDate(entry.date)} · {entry.studentGrade || "Unlisted"} · {recessOptions[entry.recessType]?.label || "Unlisted"}
           </div>
         </div>
-        <span className={`rounded-full px-2 py-1 text-xs font-bold ${
-          entry.status === "complete" ? "bg-emerald-500/15 text-emerald-100" : "bg-amber-500/15 text-amber-100"
-        }`}>
-          {entry.status === "complete" ? "Complete" : "Active"}
+        <span className={`rounded-full px-2 py-1 text-xs font-bold ${getEntryStatusTone(entry)}`}>
+          {getEntryStatusLabel(entry)}
         </span>
       </div>
       <div className="mt-3">
@@ -1086,8 +1123,9 @@ function StructuredRecessAnalytics({
           ["Students", analytics.totals.uniqueStudents, "text-sky-100"],
           ["Structured", analytics.totals.structured, "text-sky-100"],
           ["Finish Work", analytics.totals.workTime, "text-fuchsia-100"],
-          ["Completed", analytics.totals.complete, "text-emerald-100"],
-          ["Still Active", analytics.totals.active, "text-amber-100"],
+          ["Served", analytics.totals.complete, "text-emerald-100"],
+          ["Not Served", analytics.totals.notServed, "text-rose-100"],
+          ["Unconfirmed", analytics.totals.active, "text-amber-100"],
         ].map(([label, value, tone]) => <SmallMetric key={label} label={label} value={value} tone={tone} />)}
       </div>
 
@@ -1529,12 +1567,18 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
 
   const today = getTodayKey();
   const todayEntries = useMemo(
-    () => entries.filter((entry) => entry.date === today && entry.status !== "complete"),
+    () => entries.filter((entry) => entry.date === today && isEntryUnconfirmed(entry)),
     [entries, today]
   );
   const historyEntries = useMemo(
     () => entries.filter((entry) => entry.date === historyDate),
     [entries, historyDate]
+  );
+  const unconfirmedPastEntries = useMemo(
+    () => entries
+      .filter((entry) => entry.date < today && isEntryUnconfirmed(entry))
+      .sort((a, b) => b.date.localeCompare(a.date) || compareStudentsByFirstName(a.studentName, b.studentName)),
+    [entries, today]
   );
   const earlyEntries = todayEntries.filter((entry) => entry.recessType === "early");
   const bothEntries = todayEntries.filter((entry) => entry.recessType === "both");
@@ -1781,9 +1825,16 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         if (result.saved) setSharedDataStatus("Shared database connected.");
       })
       .catch(noteSharedSaveError);
-    if (status === "complete") {
+    if (status === "complete" || status === "not-served") {
       setStagedCompleteIds((current) => current.filter((id) => id !== entryId));
     }
+  }
+
+  function markEntryNotServed(entryId) {
+    const entry = entries.find((item) => item.id === entryId);
+    const label = entry ? `${formatStudentDisplayName(entry.studentName)} on ${formatDate(entry.date)}` : "this structured recess entry";
+    if (!window.confirm(`Mark ${label} as not served?`)) return;
+    updateStatus(entryId, "not-served");
   }
 
   function stageCompletion(entryId, staged) {
@@ -2160,6 +2211,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         key={entry.id}
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
+                        onNotServed={markEntryNotServed}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2179,6 +2231,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         key={entry.id}
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
+                        onNotServed={markEntryNotServed}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2198,6 +2251,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         key={entry.id}
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
+                        onNotServed={markEntryNotServed}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2205,6 +2259,33 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                     <EmptyState>No students currently listed for lunch recess.</EmptyState>
                   )}
                 </section>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="past-confirmation"
+              title="Past Entries Needing Confirmation"
+              icon={AlertCircle}
+              summary={`${unconfirmedPastEntries.length} unconfirmed entr${unconfirmedPastEntries.length === 1 ? "y" : "ies"}`}
+              collapsed={Boolean(collapsedSections["past-confirmation"])}
+              onToggle={toggleStructuredSection}
+            >
+              <div className="grid gap-3 p-4 md:grid-cols-2">
+                {unconfirmedPastEntries.length ? (
+                  unconfirmedPastEntries.map((entry) => (
+                    <EntryCard
+                      key={entry.id}
+                      entry={entry}
+                      onComplete={(id) => updateStatus(id, "complete")}
+                      onNotServed={markEntryNotServed}
+                      onDelete={removeEntry}
+                    />
+                  ))
+                ) : (
+                  <div className="md:col-span-2">
+                    <EmptyState>No past structured recess entries are waiting for confirmation.</EmptyState>
+                  </div>
+                )}
               </div>
             </CollapsibleSection>
 
@@ -2254,6 +2335,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       key={entry.id}
                       entry={entry}
                       onComplete={(id) => updateStatus(id, "complete")}
+                      onNotServed={markEntryNotServed}
                       onDelete={removeEntry}
                     />
                   ))
