@@ -638,6 +638,32 @@ function EmptyState({ children }) {
   );
 }
 
+function CollapsibleSection({ id, title, icon: Icon, summary, collapsed, onToggle, children }) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        className="flex w-full items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 text-left transition hover:bg-slate-800/70"
+        aria-expanded={!collapsed}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {collapsed ? <ChevronRight size={17} className="shrink-0 text-slate-400" /> : <ChevronDown size={17} className="shrink-0 text-slate-400" />}
+          {Icon && <Icon size={16} className="shrink-0 text-sky-300" />}
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">{title}</div>
+            {summary && <div className="mt-0.5 truncate text-xs text-slate-500">{summary}</div>}
+          </div>
+        </div>
+        <span className="shrink-0 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+          {collapsed ? "Expand" : "Minimize"}
+        </span>
+      </button>
+      {!collapsed && children}
+    </section>
+  );
+}
+
 function RecessBadge({ type }) {
   const option = recessOptions[type];
   return (
@@ -927,6 +953,75 @@ function MiniBreakdownList({ title, rows }) {
   );
 }
 
+function SmallMetric({ label, value, tone = "text-white" }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className={`text-2xl font-bold ${tone}`}>{value}</div>
+      <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function StudentFrequencyCard({ student }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-white">{formatStudentDisplayName(student.studentName)}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">{student.studentGrade || "Unlisted"}</div>
+        </div>
+        <div className="rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-sm font-bold text-sky-100">
+          {student.count}
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+        <div className="rounded-md bg-slate-900 px-2 py-1.5">
+          <div className="font-bold text-slate-100">{student.structured}</div>
+          <div className="text-slate-500">Structured</div>
+        </div>
+        <div className="rounded-md bg-slate-900 px-2 py-1.5">
+          <div className="font-bold text-fuchsia-100">{student.workTime}</div>
+          <div className="text-slate-500">Work</div>
+        </div>
+        <div className="rounded-md bg-slate-900 px-2 py-1.5">
+          <div className="font-bold text-emerald-100">{student.complete}</div>
+          <div className="text-slate-500">Done</div>
+        </div>
+      </div>
+      <div className="mt-3 text-xs text-slate-400">
+        <span className="font-semibold text-slate-300">Top reason:</span> {student.topReason || "No reason listed"}
+      </div>
+      <div className="mt-1 text-xs text-slate-500">Last: {formatDate(student.lastDate)}</div>
+    </div>
+  );
+}
+
+function PastRecordCard({ entry }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-white">{formatStudentDisplayName(entry.studentName)}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {formatDate(entry.date)} · {entry.studentGrade || "Unlisted"} · {recessOptions[entry.recessType]?.label || "Unlisted"}
+          </div>
+        </div>
+        <span className={`rounded-full px-2 py-1 text-xs font-bold ${
+          entry.status === "complete" ? "bg-emerald-500/15 text-emerald-100" : "bg-amber-500/15 text-amber-100"
+        }`}>
+          {entry.status === "complete" ? "Complete" : "Active"}
+        </span>
+      </div>
+      <div className="mt-3">
+        <EntryTypeBadges entry={entry} />
+      </div>
+      <div className="mt-3 text-sm text-slate-300">{entry.reason || "No reason listed"}</div>
+      {entry.notes && <div className="mt-1 text-xs text-slate-500">{entry.notes}</div>}
+      <div className="mt-2 text-xs font-semibold text-slate-500">Teacher: {entry.teacherName || "Unlisted"}</div>
+    </div>
+  );
+}
+
 function StructuredRecessAnalytics({
   analytics,
   range,
@@ -940,8 +1035,8 @@ function StructuredRecessAnalytics({
   const rangeLabel = range === "all" ? "All time" : `Last ${range} days`;
 
   return (
-    <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
-      <div className="flex min-w-0 flex-col gap-3 border-b border-slate-800 p-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-w-0 max-w-full overflow-hidden bg-slate-900">
+      <div className="grid min-w-0 gap-3 border-b border-slate-800 p-4 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <BarChart3 size={16} className="text-sky-300" />
@@ -950,35 +1045,39 @@ function StructuredRecessAnalytics({
           <p className="mt-1 text-xs text-slate-400">
             Past roster-linked structured recess and finish-work records for pattern review.
           </p>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search student, teacher, reason, or notes"
+            className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
+          />
         </div>
-        <div className="grid min-w-0 w-full gap-2 sm:grid-cols-[150px_170px_minmax(0,1fr)] lg:max-w-[650px] lg:flex-1">
+        <label className="space-y-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+          Range
           <select
             value={range}
             onChange={(event) => onRangeChange(event.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-white outline-none focus:border-sky-400"
           >
             <option value="30">Last 30 days</option>
             <option value="7">Last 7 days</option>
             <option value="90">Last 90 days</option>
             <option value="all">All time</option>
           </select>
+        </label>
+        <label className="space-y-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+          Grade
           <select
             value={grade}
             onChange={(event) => onGradeChange(event.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-white outline-none focus:border-sky-400"
           >
             <option value="all">All grades</option>
             {grades.map((item) => (
               <option key={item} value={item}>{item}</option>
             ))}
           </select>
-          <input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search student, teacher, reason, or notes"
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
-          />
-        </div>
+        </label>
       </div>
 
       <div className="grid gap-3 border-b border-slate-800 p-4 md:grid-cols-3 xl:grid-cols-6">
@@ -989,53 +1088,23 @@ function StructuredRecessAnalytics({
           ["Finish Work", analytics.totals.workTime, "text-fuchsia-100"],
           ["Completed", analytics.totals.complete, "text-emerald-100"],
           ["Still Active", analytics.totals.active, "text-amber-100"],
-        ].map(([label, value, tone]) => (
-          <div key={label} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-            <div className={`text-2xl font-bold ${tone}`}>{value}</div>
-            <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
-          </div>
-        ))}
+        ].map(([label, value, tone]) => <SmallMetric key={label} label={label} value={value} tone={tone} />)}
       </div>
 
-      <div className="grid min-w-0 gap-4 p-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)]">
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+      <div className="grid min-w-0 gap-4 p-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.8fr)]">
+        <div className="min-w-0">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div className="text-sm font-bold text-white">Student Frequency</div>
             <div className="text-xs font-semibold text-slate-500">{rangeLabel}</div>
           </div>
           {analytics.studentRows.length ? (
-            <div className="max-w-full overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead className="border-b border-slate-800 text-xs uppercase tracking-[0.12em] text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Grade</th>
-                    <th className="px-4 py-3 text-right">Total</th>
-                    <th className="px-4 py-3 text-right">Structured</th>
-                    <th className="px-4 py-3 text-right">Work</th>
-                    <th className="px-4 py-3">Top Reason</th>
-                    <th className="px-4 py-3">Last</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {analytics.studentRows.slice(0, 12).map((student) => (
-                    <tr key={`${student.studentGrade}-${student.studentName}`} className="border-b border-slate-800 last:border-b-0">
-                      <td className="px-4 py-3 font-semibold text-white">{formatStudentDisplayName(student.studentName)}</td>
-                      <td className="px-4 py-3 text-slate-300">{student.studentGrade || "Unlisted"}</td>
-                      <td className="px-4 py-3 text-right font-bold text-sky-100">{student.count}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{student.structured}</td>
-                      <td className="px-4 py-3 text-right text-fuchsia-100">{student.workTime}</td>
-                      <td className="max-w-[220px] truncate px-4 py-3 text-slate-300">{student.topReason || "No reason listed"}</td>
-                      <td className="px-4 py-3 text-slate-300">{formatDate(student.lastDate)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid gap-3 md:grid-cols-2">
+              {analytics.studentRows.slice(0, 8).map((student) => (
+                <StudentFrequencyCard key={`${student.studentGrade}-${student.studentName}`} student={student} />
+              ))}
             </div>
           ) : (
-            <div className="p-4">
-              <EmptyState>No records match these filters.</EmptyState>
-            </div>
+            <EmptyState>No records match these filters.</EmptyState>
           )}
         </div>
 
@@ -1049,44 +1118,10 @@ function StructuredRecessAnalytics({
       <div className="border-t border-slate-800 p-4">
         <div className="mb-3 text-sm font-bold text-white">Past Records</div>
         {analytics.entries.length ? (
-          <div className="max-w-full overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="border-b border-slate-800 bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Student</th>
-                  <th className="px-4 py-3">Grade</th>
-                  <th className="px-4 py-3">Assignment</th>
-                  <th className="px-4 py-3">Recess</th>
-                  <th className="px-4 py-3">Teacher</th>
-                  <th className="px-4 py-3">Reason / Notes</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analytics.entries.slice(0, 80).map((entry) => (
-                  <tr key={entry.id} className="border-b border-slate-800 last:border-b-0">
-                    <td className="px-4 py-3 text-slate-300">{formatDate(entry.date)}</td>
-                    <td className="px-4 py-3 font-semibold text-white">{formatStudentDisplayName(entry.studentName)}</td>
-                    <td className="px-4 py-3 text-slate-300">{entry.studentGrade || "Unlisted"}</td>
-                    <td className="px-4 py-3"><EntryTypeBadges entry={entry} /></td>
-                    <td className="px-4 py-3 text-slate-300">{recessOptions[entry.recessType]?.label || "Unlisted"}</td>
-                    <td className="px-4 py-3 text-slate-300">{entry.teacherName || "Unlisted"}</td>
-                    <td className="max-w-[300px] px-4 py-3 text-slate-300">
-                      <div className="truncate">{entry.reason || "No reason listed"}</div>
-                      {entry.notes && <div className="truncate text-xs text-slate-500">{entry.notes}</div>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-1 text-xs font-bold ${
-                        entry.status === "complete" ? "bg-emerald-500/15 text-emerald-100" : "bg-amber-500/15 text-amber-100"
-                      }`}>
-                        {entry.status === "complete" ? "Complete" : "Active"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {analytics.entries.slice(0, 12).map((entry) => (
+              <PastRecordCard key={entry.id} entry={entry} />
+            ))}
           </div>
         ) : (
           <EmptyState>No past records match these filters.</EmptyState>
@@ -1476,6 +1511,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [analyticsRange, setAnalyticsRange] = useState("30");
   const [analyticsGrade, setAnalyticsGrade] = useState("all");
   const [analyticsSearch, setAnalyticsSearch] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState({});
   const [stagedCompleteIds, setStagedCompleteIds] = useState([]);
   const [viewMode, setViewMode] = useState(initialView);
   const refreshTimerRef = useRef(null);
@@ -1691,6 +1727,10 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     setExpandedAttendanceSlots((current) => ({ ...current, [slotKey]: !current[slotKey] }));
   }
 
+  function toggleStructuredSection(sectionId) {
+    setCollapsedSections((current) => ({ ...current, [sectionId]: !current[sectionId] }));
+  }
+
   function addEntry() {
     if (!draft.studentNames.length || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)) return;
     const newEntries = draft.studentNames.map((studentName) => ({
@@ -1882,13 +1922,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         ) : (
         <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
           <aside className="min-w-0 space-y-4">
-            <div className="rounded-lg border border-slate-800 bg-slate-900">
-              <div className="border-b border-slate-800 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Plus size={16} className="text-sky-300" />
-                  Add Student for Today
-                </div>
-              </div>
+            <CollapsibleSection
+              id="add-student"
+              title="Add Student for Today"
+              icon={Plus}
+              summary={`${draft.studentNames.length} selected`}
+              collapsed={Boolean(collapsedSections["add-student"])}
+              onToggle={toggleStructuredSection}
+            >
               <div className="space-y-4 p-4">
                 <label className="space-y-1 text-sm font-medium text-slate-200">
                   Grade
@@ -2048,49 +2089,65 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   Add {draft.studentNames.length || ""} to Today&apos;s Board
                 </button>
               </div>
-            </div>
+            </CollapsibleSection>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                <History size={16} className="text-sky-300" />
-                Past Day Logs
+            <CollapsibleSection
+              id="past-day-picker"
+              title="Past Day Logs"
+              icon={History}
+              summary={`${historyEntries.length} entr${historyEntries.length === 1 ? "y" : "ies"} on selected date`}
+              collapsed={Boolean(collapsedSections["past-day-picker"])}
+              onToggle={toggleStructuredSection}
+            >
+              <div className="p-4">
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  View Date
+                  <select
+                    value={historyDate}
+                    onChange={(event) => setHistoryDate(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                  >
+                    {[today, ...logDates.filter((date) => date !== today)].map((date) => (
+                      <option key={date} value={date}>
+                        {formatDate(date)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mt-3 text-sm text-slate-400">
+                  {historyEntries.length} entr{historyEntries.length === 1 ? "y" : "ies"} logged for this date.
+                </div>
               </div>
-              <label className="space-y-1 text-sm font-medium text-slate-200">
-                View Date
-                <select
-                  value={historyDate}
-                  onChange={(event) => setHistoryDate(event.target.value)}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                >
-                  {[today, ...logDates.filter((date) => date !== today)].map((date) => (
-                    <option key={date} value={date}>
-                      {formatDate(date)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="mt-3 text-sm text-slate-400">
-                {historyEntries.length} entr{historyEntries.length === 1 ? "y" : "ies"} logged for this date.
-              </div>
-            </div>
+            </CollapsibleSection>
           </aside>
 
           <main className="min-w-0 space-y-5">
-            <AideCompactView
-              entries={todayEntries}
-              stagedCompleteIds={stagedCompleteIds}
-              onStageChange={stageCompletion}
-              onConfirmComplete={confirmStagedComplete}
-            />
-
-            <div className="rounded-lg border border-slate-800 bg-slate-900">
-              <div className="border-b border-slate-800 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Users size={16} className="text-sky-300" />
-                  Current Structured Recess: {formatDate(today)}
-                </div>
+            <CollapsibleSection
+              id="aide-checklist"
+              title="Aide Checklist"
+              icon={CheckCircle2}
+              summary={`${todayEntries.length} active student${todayEntries.length === 1 ? "" : "s"}`}
+              collapsed={Boolean(collapsedSections["aide-checklist"])}
+              onToggle={toggleStructuredSection}
+            >
+              <div className="p-4">
+                <AideCompactView
+                  entries={todayEntries}
+                  stagedCompleteIds={stagedCompleteIds}
+                  onStageChange={stageCompletion}
+                  onConfirmComplete={confirmStagedComplete}
+                />
               </div>
+            </CollapsibleSection>
 
+            <CollapsibleSection
+              id="current-recess"
+              title={`Current Structured Recess: ${formatDate(today)}`}
+              icon={Users}
+              summary={`${todayEntries.length} current · ${earlyEntries.length} first · ${bothEntries.length} both · ${lunchEntries.length} lunch`}
+              collapsed={Boolean(collapsedSections["current-recess"])}
+              onToggle={toggleStructuredSection}
+            >
               <div className="grid gap-4 p-4 xl:grid-cols-3">
                 <section className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -2149,28 +2206,47 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   )}
                 </section>
               </div>
-            </div>
+            </CollapsibleSection>
 
-            <StructuredRecessAnalytics
-              analytics={structuredRecessAnalytics}
-              range={analyticsRange}
-              grade={analyticsGrade}
-              search={analyticsSearch}
-              grades={analyticsGrades}
-              onRangeChange={setAnalyticsRange}
-              onGradeChange={setAnalyticsGrade}
-              onSearchChange={setAnalyticsSearch}
-            />
+            <CollapsibleSection
+              id="behavior-analysis"
+              title="Behavior Analysis"
+              icon={BarChart3}
+              summary={`${structuredRecessAnalytics.totals.total} records · ${structuredRecessAnalytics.totals.uniqueStudents} students`}
+              collapsed={Boolean(collapsedSections["behavior-analysis"])}
+              onToggle={toggleStructuredSection}
+            >
+              <StructuredRecessAnalytics
+                analytics={structuredRecessAnalytics}
+                range={analyticsRange}
+                grade={analyticsGrade}
+                search={analyticsSearch}
+                grades={analyticsGrades}
+                onRangeChange={setAnalyticsRange}
+                onGradeChange={setAnalyticsGrade}
+                onSearchChange={setAnalyticsSearch}
+              />
+            </CollapsibleSection>
 
-            <StructuredRecessServiceLog log={structuredRecessLog} />
+            <CollapsibleSection
+              id="service-log"
+              title="Structured Recess Service Log"
+              icon={History}
+              summary={`${structuredRecessLog.reduce((sum, item) => sum + item.count, 0)} completed assignment${structuredRecessLog.reduce((sum, item) => sum + item.count, 0) === 1 ? "" : "s"}`}
+              collapsed={Boolean(collapsedSections["service-log"])}
+              onToggle={toggleStructuredSection}
+            >
+              <StructuredRecessServiceLog log={structuredRecessLog} />
+            </CollapsibleSection>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900">
-              <div className="border-b border-slate-800 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <History size={16} className="text-sky-300" />
-                  Log for {formatDate(historyDate)}
-                </div>
-              </div>
+            <CollapsibleSection
+              id="daily-log"
+              title={`Log for ${formatDate(historyDate)}`}
+              icon={History}
+              summary={`${historyEntries.length} entr${historyEntries.length === 1 ? "y" : "ies"} logged`}
+              collapsed={Boolean(collapsedSections["daily-log"])}
+              onToggle={toggleStructuredSection}
+            >
               <div className="grid gap-3 p-4 md:grid-cols-2">
                 {historyEntries.length ? (
                   historyEntries.map((entry) => (
@@ -2187,7 +2263,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   </div>
                 )}
               </div>
-            </div>
+            </CollapsibleSection>
           </main>
         </div>
         )}
