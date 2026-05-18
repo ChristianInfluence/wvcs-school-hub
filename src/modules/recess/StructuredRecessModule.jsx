@@ -940,9 +940,9 @@ function StructuredRecessAnalytics({
   const rangeLabel = range === "all" ? "All time" : `Last ${range} days`;
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900">
-      <div className="flex flex-col gap-3 border-b border-slate-800 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+    <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+      <div className="flex min-w-0 flex-col gap-3 border-b border-slate-800 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <BarChart3 size={16} className="text-sky-300" />
             Behavior Analysis
@@ -951,7 +951,7 @@ function StructuredRecessAnalytics({
             Past roster-linked structured recess and finish-work records for pattern review.
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[150px_170px_minmax(220px,1fr)] lg:min-w-[650px]">
+        <div className="grid min-w-0 w-full gap-2 sm:grid-cols-[150px_170px_minmax(0,1fr)] lg:max-w-[650px] lg:flex-1">
           <select
             value={range}
             onChange={(event) => onRangeChange(event.target.value)}
@@ -997,14 +997,14 @@ function StructuredRecessAnalytics({
         ))}
       </div>
 
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.8fr)]">
-        <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+      <div className="grid min-w-0 gap-4 p-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)]">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
           <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
             <div className="text-sm font-bold text-white">Student Frequency</div>
             <div className="text-xs font-semibold text-slate-500">{rangeLabel}</div>
           </div>
           {analytics.studentRows.length ? (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b border-slate-800 text-xs uppercase tracking-[0.12em] text-slate-500">
                   <tr>
@@ -1039,7 +1039,7 @@ function StructuredRecessAnalytics({
           )}
         </div>
 
-        <div className="grid gap-3">
+        <div className="grid min-w-0 gap-3">
           <MiniBreakdownList title="Common Reasons" rows={analytics.reasonRows} />
           <MiniBreakdownList title="By Grade" rows={analytics.gradeRows} />
           <MiniBreakdownList title="By Recess Time" rows={analytics.recessRows} />
@@ -1049,7 +1049,7 @@ function StructuredRecessAnalytics({
       <div className="border-t border-slate-800 p-4">
         <div className="mb-3 text-sm font-bold text-white">Past Records</div>
         {analytics.entries.length ? (
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
+          <div className="max-w-full overflow-x-auto rounded-lg border border-slate-800">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-slate-800 bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
