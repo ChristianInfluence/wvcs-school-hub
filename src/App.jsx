@@ -135,6 +135,45 @@ const modules = [
   },
 ];
 
+const moduleIds = new Set(modules.map((module) => module.id));
+const moduleHashPaths = Object.fromEntries(modules.map((module) => [module.id, `#/${module.id}`]));
+
+function getRouteFromHash(hash = window.location.hash) {
+  const permissionMatch = hash.match(/^#\/permission-sign\/(.+)$/);
+  if (permissionMatch) {
+    return {
+      parentSigningToken: decodeURIComponent(permissionMatch[1]),
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  if (hash === "#/structured-recess/aide") {
+    return {
+      parentSigningToken: "",
+      moduleId: "structured-recess",
+      structuredRecessView: "aide",
+    };
+  }
+
+  const moduleMatch = hash.match(/^#\/([^/?#]+)$/);
+  const moduleId = moduleMatch?.[1];
+  return {
+    parentSigningToken: "",
+    moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
+    structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
+  };
+}
+
+function setModuleHash(moduleId, structuredRecessView = "full") {
+  const nextHash = moduleId === "structured-recess" && structuredRecessView === "aide"
+    ? "#/structured-recess/aide"
+    : moduleHashPaths[moduleId] || "#/dashboard";
+  if (window.location.hash !== nextHash) {
+    window.location.hash = nextHash;
+  }
+}
+
 const moduleStyles = {
   sky: {
     card: "border-sky-400/40 bg-sky-500/10 hover:border-sky-300",
@@ -502,12 +541,10 @@ function AuthGate({ children }) {
 }
 
 export default function App() {
-  const [activeModule, setActiveModule] = useState("dashboard");
-  const [structuredRecessView, setStructuredRecessView] = useState("full");
-  const [parentSigningToken, setParentSigningToken] = useState(() => {
-    const match = window.location.hash.match(/^#\/permission-sign\/(.+)$/);
-    return match ? decodeURIComponent(match[1]) : "";
-  });
+  const initialRoute = getRouteFromHash();
+  const [activeModule, setActiveModule] = useState(initialRoute.moduleId);
+  const [structuredRecessView, setStructuredRecessView] = useState(initialRoute.structuredRecessView);
+  const [parentSigningToken, setParentSigningToken] = useState(initialRoute.parentSigningToken);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
     [activeModule]
@@ -516,21 +553,25 @@ export default function App() {
 
   useEffect(() => {
     function handleHashRoute() {
-      const match = window.location.hash.match(/^#\/permission-sign\/(.+)$/);
-      setParentSigningToken(match ? decodeURIComponent(match[1]) : "");
+      const route = getRouteFromHash();
+      setParentSigningToken(route.parentSigningToken);
+      setActiveModule(route.moduleId);
+      setStructuredRecessView(route.structuredRecessView);
     }
     window.addEventListener("hashchange", handleHashRoute);
+    if (!window.location.hash) setModuleHash("dashboard");
+    else handleHashRoute();
     return () => window.removeEventListener("hashchange", handleHashRoute);
   }, []);
 
   function openModule(moduleId) {
-    if (moduleId === "structured-recess") setStructuredRecessView("full");
-    setActiveModule(moduleId);
+    setParentSigningToken("");
+    setModuleHash(moduleId, "full");
   }
 
   function openStructuredRecessAideView() {
-    setStructuredRecessView("aide");
-    setActiveModule("structured-recess");
+    setParentSigningToken("");
+    setModuleHash("structured-recess", "aide");
   }
 
   if (parentSigningToken) {
