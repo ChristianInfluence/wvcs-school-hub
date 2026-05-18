@@ -463,8 +463,8 @@ export default function MasterSchoolSchedulerPrototype() {
 
   const { teachers, classes, scheduleBlocks, periodTimes, appSettings } = workingState;
   const sidebarGridClass = sidebarHidden
-    ? "grid gap-4 grid-cols-1 print:block"
-    : "grid gap-4 lg:grid-cols-[180px_1fr] print:block";
+    ? "grid min-w-0 gap-4 grid-cols-1 print:block"
+    : "grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] print:block";
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workingState));
@@ -1735,7 +1735,7 @@ export default function MasterSchoolSchedulerPrototype() {
 
         <div className={sidebarGridClass}>
             {!sidebarHidden && (
-              <aside className="no-print space-y-4">
+              <aside className="no-print min-w-0 space-y-4">
                 <button
                   type="button"
                   className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
@@ -1887,7 +1887,7 @@ export default function MasterSchoolSchedulerPrototype() {
           </aside>
           )}
 
-          <main className="screen-schedule rounded-2xl border border-slate-700 bg-slate-900 shadow-inner">
+          <main className="screen-schedule min-w-0 overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-inner">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-200">
               <div className="flex items-center gap-2">
                 <button

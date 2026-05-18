@@ -1880,8 +1880,8 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             />
           </div>
         ) : (
-        <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-          <aside className="space-y-4">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <aside className="min-w-0 space-y-4">
             <div className="rounded-lg border border-slate-800 bg-slate-900">
               <div className="border-b border-slate-800 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -2075,7 +2075,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             </div>
           </aside>
 
-          <main className="space-y-5">
+          <main className="min-w-0 space-y-5">
             <AideCompactView
               entries={todayEntries}
               stagedCompleteIds={stagedCompleteIds}
