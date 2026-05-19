@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, UserCheck } from "lucide-react";
+import html2pdf from "html2pdf.js";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, Plus, Trash2, UserCheck } from "lucide-react";
 import {
   deleteSubstituteAbsence,
   fetchSubstituteAbsences,
   saveSubstituteAbsence,
 } from "../../lib/substituteCalendarData.js";
+import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const STORE_KEY = "wvcs-substitute-calendar-v1";
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -25,6 +27,14 @@ function formatDate(value) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function loadLocalAbsences() {
@@ -61,6 +71,15 @@ function getMonthDays(monthKey) {
   }
 
   return days;
+}
+
+function getPrintMonthDays(monthKey) {
+  const days = getMonthDays(monthKey);
+  const trailingCount = days.length % 7 === 0 ? 0 : 7 - (days.length % 7);
+  return [
+    ...days,
+    ...Array.from({ length: trailingCount }, (_, index) => ({ key: `print-blank-${index}`, date: "", inMonth: false })),
+  ];
 }
 
 function shiftMonth(monthKey, amount) {
@@ -102,6 +121,287 @@ function getCoveredPeriods(absence) {
 function getUncoveredPeriods(absence) {
   const covered = new Set(getCoveredPeriods(absence));
   return (absence.periods || []).filter((period) => !covered.has(period));
+}
+
+function getSubstituteCalendarPdfFileName(monthKey) {
+  return `wvcs-substitute-calendar-${monthKey}.pdf`;
+}
+
+function buildPdfAbsenceLine(absence) {
+  const uncovered = getUncoveredPeriods(absence);
+  const substituteText = (absence.coverage || []).length
+    ? (absence.coverage || [])
+      .map((coverage) => `${coverage.substituteName} P${formatPeriodRange(coverage.periods)}`)
+      .join("; ")
+    : "No substitute";
+  return `
+    <div class="entry ${uncovered.length ? "needs" : "covered"}">
+      <div class="entry-top">
+        <span class="teacher">${escapeHtml(absence.staffName)}</span>
+        <span class="periods">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
+      </div>
+      <div class="sub">${escapeHtml(substituteText)}</div>
+      ${uncovered.length ? `<div class="uncovered">Needs P${escapeHtml(formatPeriodRange(uncovered))}</div>` : ""}
+    </div>
+  `;
+}
+
+async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, monthAbsences }) {
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.background = "#ffffff";
+  const printableDays = getPrintMonthDays(monthKey);
+  const uncoveredCount = monthAbsences.filter((absence) => getUncoveredPeriods(absence).length).length;
+  const monthTitle = monthFormatter.format(new Date(`${monthKey}-01T12:00:00`));
+
+  host.innerHTML = `
+    <div class="sub-calendar-pdf">
+      <style>
+        .sub-calendar-pdf {
+          width: 1040px;
+          min-height: 760px;
+          box-sizing: border-box;
+          padding: 22px 24px 18px;
+          color: #0f172a;
+          background: #ffffff;
+          font-family: Arial, Helvetica, sans-serif;
+          position: relative;
+          overflow: hidden;
+        }
+        .sub-calendar-pdf .watermark {
+          position: absolute;
+          left: 50%;
+          top: 55%;
+          width: 420px;
+          transform: translate(-50%, -50%);
+          opacity: 0.045;
+          z-index: 0;
+        }
+        .sub-calendar-pdf .content {
+          position: relative;
+          z-index: 1;
+        }
+        .sub-calendar-pdf header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
+          border: 1px solid #cbd5e1;
+          border-bottom: 4px solid #475569;
+          background: #f8fafc;
+          border-radius: 8px 8px 0 0;
+          padding: 10px 14px;
+        }
+        .sub-calendar-pdf .brand {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .sub-calendar-pdf .logo {
+          width: 54px;
+          height: 54px;
+          object-fit: contain;
+        }
+        .sub-calendar-pdf .school {
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .sub-calendar-pdf h1 {
+          margin: 3px 0 0;
+          font-size: 24px;
+          color: #020617;
+        }
+        .sub-calendar-pdf .meta {
+          text-align: right;
+          font-size: 10px;
+          line-height: 1.35;
+          color: #475569;
+        }
+        .sub-calendar-pdf .stats {
+          margin-top: 10px;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          font-size: 10px;
+        }
+        .sub-calendar-pdf .stat {
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+          background: #ffffff;
+          padding: 7px 9px;
+        }
+        .sub-calendar-pdf .stat strong {
+          display: block;
+          margin-top: 2px;
+          font-size: 15px;
+          color: #020617;
+        }
+        .sub-calendar-pdf .weekday-row,
+        .sub-calendar-pdf .calendar {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+        }
+        .sub-calendar-pdf .weekday-row {
+          margin-top: 10px;
+          border: 1px solid #cbd5e1;
+          border-bottom: 0;
+          background: #e2e8f0;
+          color: #334155;
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-align: center;
+          text-transform: uppercase;
+        }
+        .sub-calendar-pdf .weekday-row div {
+          padding: 5px 3px;
+          border-right: 1px solid #cbd5e1;
+        }
+        .sub-calendar-pdf .weekday-row div:last-child {
+          border-right: 0;
+        }
+        .sub-calendar-pdf .calendar {
+          border-left: 1px solid #cbd5e1;
+          border-top: 1px solid #cbd5e1;
+        }
+        .sub-calendar-pdf .day {
+          height: ${printableDays.length > 35 ? "86px" : "103px"};
+          border-right: 1px solid #cbd5e1;
+          border-bottom: 1px solid #cbd5e1;
+          background: rgba(255, 255, 255, 0.92);
+          padding: 4px;
+          box-sizing: border-box;
+          overflow: hidden;
+        }
+        .sub-calendar-pdf .day.blank {
+          background: rgba(241, 245, 249, 0.72);
+        }
+        .sub-calendar-pdf .date {
+          margin-bottom: 2px;
+          font-size: 10px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .sub-calendar-pdf .entry {
+          margin-top: 2px;
+          border: 1px solid #cbd5e1;
+          border-left-width: 3px;
+          border-radius: 4px;
+          background: #f8fafc;
+          padding: 3px 4px;
+          font-size: 7.8px;
+          line-height: 1.18;
+          overflow: hidden;
+        }
+        .sub-calendar-pdf .entry.covered {
+          border-left-color: #16a34a;
+        }
+        .sub-calendar-pdf .entry.needs {
+          border-left-color: #e11d48;
+          background: #fff1f2;
+        }
+        .sub-calendar-pdf .entry-top {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 4px;
+        }
+        .sub-calendar-pdf .teacher {
+          min-width: 0;
+          max-width: 72px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 800;
+        }
+        .sub-calendar-pdf .periods {
+          flex: 0 0 auto;
+          font-weight: 800;
+          color: #334155;
+        }
+        .sub-calendar-pdf .sub {
+          margin-top: 1px;
+          color: #475569;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .sub-calendar-pdf .uncovered {
+          margin-top: 1px;
+          color: #be123c;
+          font-weight: 800;
+        }
+        .sub-calendar-pdf footer {
+          margin-top: 8px;
+          display: flex;
+          justify-content: space-between;
+          color: #64748b;
+          font-size: 8.5px;
+        }
+      </style>
+      <img class="watermark" src="${warriorHeadNew}" alt="">
+      <div class="content">
+        <header>
+          <div class="brand">
+            <img class="logo" src="${warriorHeadNew}" alt="WVCS">
+            <div>
+              <div class="school">Willamette Valley Christian School</div>
+              <h1>Substitute Calendar</h1>
+            </div>
+          </div>
+          <div class="meta">
+            <strong>${escapeHtml(monthTitle)}</strong><br>
+            9075 Pueblo Ave NE, Brooks, OR 97305<br>
+            TEL: 503-393-5236
+          </div>
+        </header>
+
+        <section class="stats">
+          <div class="stat">Staff Absences<strong>${monthAbsences.length}</strong></div>
+          <div class="stat">Uncovered Needs<strong>${uncoveredCount}</strong></div>
+          <div class="stat">Generated<strong>${escapeHtml(formatDate(getTodayKey()))}</strong></div>
+        </section>
+
+        <div class="weekday-row">
+          ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => `<div>${day}</div>`).join("")}
+        </div>
+        <section class="calendar">
+          ${printableDays.map((day) => {
+            const dayAbsences = day.date ? absencesByDate[day.date] || [] : [];
+            return `
+              <div class="day ${day.inMonth ? "" : "blank"}">
+                ${day.inMonth ? `<div class="date">${Number(day.date.slice(-2))}</div>` : ""}
+                ${dayAbsences.map(buildPdfAbsenceLine).join("")}
+              </div>
+            `;
+          }).join("")}
+        </section>
+        <footer>
+          <span>Compact monthly view. Full notes remain available inside WVCS School Hub.</span>
+          <span>Covered entries are green; uncovered needs are red.</span>
+        </footer>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(host);
+  const blob = await html2pdf()
+    .set({
+      margin: [10, 10, 10, 10],
+      filename: getSubstituteCalendarPdfFileName(monthKey),
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: "pt", format: "letter", orientation: "landscape" },
+      pagebreak: { mode: ["css", "legacy"] },
+    })
+    .from(host.firstElementChild)
+    .outputPdf("blob");
+  host.remove();
+  return blob;
 }
 
 function PeriodCheckboxes({ selected, onToggle, disabledPeriods = [] }) {
@@ -249,6 +549,7 @@ export default function SubstituteCalendarModule() {
   });
   const [coverageDraft, setCoverageDraft] = useState(null);
   const [selectedAbsenceId, setSelectedAbsenceId] = useState("");
+  const [pdfStatus, setPdfStatus] = useState("");
 
   const monthDays = useMemo(() => getMonthDays(monthKey), [monthKey]);
   const absencesByDate = useMemo(
@@ -405,6 +706,25 @@ export default function SubstituteCalendarModule() {
     }
   }
 
+  async function viewPdf() {
+    const pdfWindow = window.open("", "_blank", "noopener,noreferrer");
+    try {
+      setPdfStatus("Preparing PDF...");
+      const blob = await generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, monthAbsences });
+      const url = URL.createObjectURL(blob);
+      if (pdfWindow) {
+        pdfWindow.location.href = url;
+      } else {
+        window.location.href = url;
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setPdfStatus("PDF opened.");
+    } catch (error) {
+      if (pdfWindow) pdfWindow.close();
+      setPdfStatus(`PDF failed: ${error.message}`);
+    }
+  }
+
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1500px] px-5 py-6">
@@ -416,8 +736,18 @@ export default function SubstituteCalendarModule() {
               Track staff absences by school period, assign one or more substitutes, and spot uncovered needs by month.
             </p>
           </div>
-          <div className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
-            {status}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={viewPdf}
+              className="inline-flex items-center gap-2 rounded-lg border border-sky-400/60 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 hover:bg-sky-500/20"
+            >
+              <FileText size={16} />
+              View PDF
+            </button>
+            <div className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+              {pdfStatus || status}
+            </div>
           </div>
         </div>
 
