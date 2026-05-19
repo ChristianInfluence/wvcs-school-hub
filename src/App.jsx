@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
+  CalendarDays,
   ClipboardCheck,
   Files,
   FileText,
@@ -18,6 +19,7 @@ import {
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
 import StaffFormsModule, { AdminFormsModule } from "./modules/forms/FormsModule.jsx";
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
+import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
@@ -340,6 +342,7 @@ function AdminModule() {
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
           ["infrastructure", "Infrastructure", Settings],
+          ["substitutes", "Substitutes", CalendarDays],
           ["meetings", "Meetings Admin", Users],
           ["forms", "Forms Admin", FileText],
           ["documents", "Documents Admin", Files],
@@ -362,6 +365,7 @@ function AdminModule() {
         ))}
       </div>
       {adminView === "infrastructure" && <InfrastructureModule />}
+      {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "meetings" && <AdminMeetingsModule />}
       {adminView === "forms" && <AdminFormsModule />}
       {adminView === "documents" && <AdminDocumentsModule />}
