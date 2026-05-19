@@ -73,13 +73,28 @@ function getMonthDays(monthKey) {
   return days;
 }
 
-function getPrintMonthDays(monthKey) {
-  const days = getMonthDays(monthKey);
-  const trailingCount = days.length % 7 === 0 ? 0 : 7 - (days.length % 7);
-  return [
-    ...days,
-    ...Array.from({ length: trailingCount }, (_, index) => ({ key: `print-blank-${index}`, date: "", inMonth: false })),
-  ];
+function getPrintWeekdayDays(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const start = new Date(first);
+  start.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+  const days = [];
+
+  for (const weekStart = new Date(start); weekStart <= last; weekStart.setDate(weekStart.getDate() + 7)) {
+    for (let offset = 0; offset < 5; offset += 1) {
+      const date = new Date(weekStart);
+      date.setDate(weekStart.getDate() + offset);
+      const key = date.toISOString().slice(0, 10);
+      days.push({
+        key,
+        date: key,
+        inMonth: date.getMonth() === month - 1,
+      });
+    }
+  }
+
+  return days;
 }
 
 function shiftMonth(monthKey, amount) {
@@ -127,19 +142,23 @@ function getSubstituteCalendarPdfFileName(monthKey) {
   return `wvcs-substitute-calendar-${monthKey}.pdf`;
 }
 
-function buildPdfAbsenceLine(absence) {
+function buildPdfAbsenceBlock(absence) {
   const uncovered = getUncoveredPeriods(absence);
-  const substituteText = (absence.coverage || []).length
-    ? (absence.coverage || [])
-      .map((coverage) => `${coverage.substituteName} P${formatPeriodRange(coverage.periods)}`)
-      .join("; ")
-    : "No substitute";
+  const coverageRows = (absence.coverage || []).map((coverage) => `
+    <div class="person-row covering-row">
+      <span class="person-name">${escapeHtml(coverage.substituteName)}</span>
+      <span class="person-period">P${escapeHtml(formatPeriodRange(coverage.periods))}</span>
+    </div>
+  `).join("");
+
   return `
-    <div class="entry ${uncovered.length ? "needs" : "covered"}">
-      <div class="teacher">${escapeHtml(absence.staffName)}</div>
-      <div class="periods">Absent P${escapeHtml(formatPeriodRange(absence.periods))}</div>
-      <div class="sub">${escapeHtml(substituteText)}</div>
-      ${uncovered.length ? `<div class="uncovered">Needs P${escapeHtml(formatPeriodRange(uncovered))}</div>` : ""}
+    <div class="entry">
+      <div class="person-row absent-row">
+        <span class="person-name">${escapeHtml(absence.staffName)}</span>
+        <span class="person-period">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
+      </div>
+      ${coverageRows || `<div class="person-row missing-row"><span class="person-name">No substitute</span><span class="person-period">Open</span></div>`}
+      ${uncovered.length ? `<div class="person-row missing-row"><span class="person-name">Needs coverage</span><span class="person-period">P${escapeHtml(formatPeriodRange(uncovered))}</span></div>` : ""}
     </div>
   `;
 }
@@ -150,7 +169,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
   host.style.left = "-10000px";
   host.style.top = "0";
   host.style.background = "#ffffff";
-  const printableDays = getPrintMonthDays(monthKey);
+  const printableDays = getPrintWeekdayDays(monthKey);
   const uncoveredCount = monthAbsences.filter((absence) => getUncoveredPeriods(absence).length).length;
   const monthTitle = monthFormatter.format(new Date(`${monthKey}-01T12:00:00`));
 
@@ -242,7 +261,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         .sub-calendar-pdf .weekday-row,
         .sub-calendar-pdf .calendar {
           display: grid;
-          grid-template-columns: repeat(7, 1fr);
+          grid-template-columns: repeat(5, 1fr);
         }
         .sub-calendar-pdf .weekday-row {
           margin-top: 10px;
@@ -268,11 +287,11 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           border-top: 1px solid #cbd5e1;
         }
         .sub-calendar-pdf .day {
-          height: ${printableDays.length > 35 ? "86px" : "103px"};
+          height: ${printableDays.length > 25 ? "92px" : "112px"};
           border-right: 1px solid #cbd5e1;
           border-bottom: 1px solid #cbd5e1;
           background: rgba(255, 255, 255, 0.92);
-          padding: 4px;
+          padding: 5px;
           box-sizing: border-box;
           overflow: hidden;
         }
@@ -280,54 +299,59 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           background: rgba(241, 245, 249, 0.72);
         }
         .sub-calendar-pdf .date {
-          margin-bottom: 2px;
+          margin-bottom: 3px;
           font-size: 10px;
           font-weight: 800;
           color: #0f172a;
         }
         .sub-calendar-pdf .entry {
-          margin-top: 2px;
-          border: 1px solid #cbd5e1;
-          border-left-width: 3px;
+          margin-top: 3px;
+          border: 1px solid #e2e8f0;
           border-radius: 4px;
-          background: #f8fafc;
-          padding: 3px 4px 4px;
-          font-size: 7.6px;
-          line-height: 1.16;
-          overflow: hidden;
-        }
-        .sub-calendar-pdf .entry.covered {
-          border-left-color: #16a34a;
-        }
-        .sub-calendar-pdf .entry.needs {
-          border-left-color: #e11d48;
-          background: #fff1f2;
-        }
-        .sub-calendar-pdf .teacher {
-          display: block;
-          max-width: 100%;
-          overflow: hidden;
+          background: rgba(248, 250, 252, 0.96);
+          padding: 3px;
+          font-size: 8.4px;
           line-height: 1.12;
-          overflow-wrap: anywhere;
-          font-weight: 800;
+          overflow: hidden;
         }
-        .sub-calendar-pdf .periods {
-          display: block;
-          margin-top: 1px;
-          font-weight: 800;
-          color: #334155;
+        .sub-calendar-pdf .person-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 5px;
+          margin-top: 2px;
+          border-radius: 3px;
+          padding: 2px 4px;
         }
-        .sub-calendar-pdf .sub {
-          margin-top: 1px;
-          color: #475569;
+        .sub-calendar-pdf .person-row:first-child {
+          margin-top: 0;
+        }
+        .sub-calendar-pdf .absent-row {
+          background: #fee2e2;
+          color: #7f1d1d;
+          border: 1px solid #fecaca;
+        }
+        .sub-calendar-pdf .covering-row {
+          background: #dcfce7;
+          color: #14532d;
+          border: 1px solid #bbf7d0;
+        }
+        .sub-calendar-pdf .missing-row {
+          background: #fff7ed;
+          color: #9a3412;
+          border: 1px solid #fed7aa;
+        }
+        .sub-calendar-pdf .person-name {
+          min-width: 0;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-        }
-        .sub-calendar-pdf .uncovered {
-          margin-top: 1px;
-          color: #be123c;
           font-weight: 800;
+        }
+        .sub-calendar-pdf .person-period {
+          white-space: nowrap;
+          font-weight: 800;
+          font-size: 7.7px;
         }
         .sub-calendar-pdf footer {
           margin-top: 8px;
@@ -361,7 +385,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         </section>
 
         <div class="weekday-row">
-          ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => `<div>${day}</div>`).join("")}
+          ${["Mon", "Tue", "Wed", "Thu", "Fri"].map((day) => `<div>${day}</div>`).join("")}
         </div>
         <section class="calendar">
           ${printableDays.map((day) => {
@@ -369,7 +393,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
             return `
               <div class="day ${day.inMonth ? "" : "blank"}">
                 ${day.inMonth ? `<div class="date">${Number(day.date.slice(-2))}</div>` : ""}
-                ${dayAbsences.map(buildPdfAbsenceLine).join("")}
+                ${dayAbsences.map(buildPdfAbsenceBlock).join("")}
               </div>
             `;
           }).join("")}
@@ -791,20 +815,14 @@ export default function SubstituteCalendarModule() {
   }
 
   async function viewPdf() {
-    const pdfWindow = window.open("", "_blank", "noopener,noreferrer");
     try {
       setPdfStatus("Preparing PDF...");
       const blob = await generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, monthAbsences });
       const url = URL.createObjectURL(blob);
-      if (pdfWindow) {
-        pdfWindow.location.href = url;
-      } else {
-        window.location.href = url;
-      }
+      window.open(url, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(url), 60000);
       setPdfStatus("PDF opened.");
     } catch (error) {
-      if (pdfWindow) pdfWindow.close();
       setPdfStatus(`PDF failed: ${error.message}`);
     }
   }
