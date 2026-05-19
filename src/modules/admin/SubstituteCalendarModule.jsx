@@ -75,6 +75,26 @@ function togglePeriod(periods, period) {
     : [...periods, period].sort((a, b) => a - b);
 }
 
+function formatPeriodRange(periods = []) {
+  const sorted = [...new Set(periods)].sort((a, b) => a - b);
+  if (!sorted.length) return "No periods";
+  const ranges = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+
+  sorted.slice(1).forEach((period) => {
+    if (period === previous + 1) {
+      previous = period;
+      return;
+    }
+    ranges.push(start === previous ? `${start}` : `${start}-${previous}`);
+    start = period;
+    previous = period;
+  });
+  ranges.push(start === previous ? `${start}` : `${start}-${previous}`);
+  return ranges.join(", ");
+}
+
 function getCoveredPeriods(absence) {
   return [...new Set((absence.coverage || []).flatMap((item) => item.periods || []))].sort((a, b) => a - b);
 }
@@ -86,13 +106,13 @@ function getUncoveredPeriods(absence) {
 
 function PeriodCheckboxes({ selected, onToggle, disabledPeriods = [] }) {
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-4 gap-1.5">
       {PERIODS.map((period) => {
         const disabled = disabledPeriods.includes(period);
         return (
           <label
             key={period}
-            className={`flex items-center justify-center gap-2 rounded-lg border px-2 py-2 text-sm font-semibold ${
+            className={`flex items-center justify-center gap-2 rounded-lg border px-2 py-1.5 text-sm font-semibold ${
               selected.includes(period)
                 ? "border-sky-400 bg-sky-500/20 text-sky-100"
                 : "border-slate-700 bg-slate-950 text-slate-300"
@@ -123,13 +143,13 @@ function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
         <div className="min-w-0">
           <div className="truncate font-semibold text-white">{absence.staffName}</div>
           <div className="mt-1 text-xs text-slate-500">
-            Gone: {(absence.periods || []).map((period) => `P${period}`).join(", ")}
+            Gone: P{formatPeriodRange(absence.periods)}
           </div>
         </div>
         {uncovered.length ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-1 text-xs font-bold text-rose-100">
             <AlertTriangle size={12} />
-            Needs P{uncovered.join(", P")}
+            Needs P{formatPeriodRange(uncovered)}
           </span>
         ) : (
           <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-bold text-emerald-100">
@@ -146,7 +166,7 @@ function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
             <div key={coverage.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs">
               <div>
                 <span className="font-bold text-slate-100">{coverage.substituteName}</span>
-                <span className="text-slate-500"> · {(coverage.periods || []).map((period) => `P${period}`).join(", ")}</span>
+                <span className="text-slate-500"> · P{formatPeriodRange(coverage.periods)}</span>
               </div>
               <button
                 type="button"
@@ -191,17 +211,44 @@ function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
   );
 }
 
+function CompactAbsenceButton({ absence, selected, onSelect }) {
+  const uncovered = getUncoveredPeriods(absence);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(absence.id)}
+      className={`w-full rounded-md border px-2 py-1 text-left text-xs transition ${
+        selected
+          ? "border-sky-300 bg-sky-500/20"
+          : uncovered.length
+            ? "border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20"
+            : "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20"
+      }`}
+    >
+      <div className="flex min-w-0 items-center justify-between gap-1">
+        <span className="min-w-0 truncate font-bold text-white">{absence.staffName}</span>
+        {uncovered.length ? <AlertTriangle size={12} className="shrink-0 text-rose-200" /> : null}
+      </div>
+      <div className={uncovered.length ? "mt-0.5 font-semibold text-rose-100" : "mt-0.5 font-semibold text-emerald-100"}>
+        P{formatPeriodRange(absence.periods)}
+      </div>
+    </button>
+  );
+}
+
 export default function SubstituteCalendarModule() {
   const [absences, setAbsences] = useState(loadLocalAbsences);
   const [monthKey, setMonthKey] = useState(getMonthKey());
   const [status, setStatus] = useState("Loading substitute calendar...");
   const [draft, setDraft] = useState({
     staffName: "",
-    absenceDate: getTodayKey(),
+    selectedDates: [getTodayKey()],
+    dateToAdd: getTodayKey(),
     periods: [],
     notes: "",
   });
   const [coverageDraft, setCoverageDraft] = useState(null);
+  const [selectedAbsenceId, setSelectedAbsenceId] = useState("");
 
   const monthDays = useMemo(() => getMonthDays(monthKey), [monthKey]);
   const absencesByDate = useMemo(
@@ -213,6 +260,7 @@ export default function SubstituteCalendarModule() {
   );
   const monthAbsences = absences.filter((absence) => absence.absenceDate.startsWith(monthKey));
   const uncoveredCount = monthAbsences.filter((absence) => getUncoveredPeriods(absence).length).length;
+  const selectedAbsence = absences.find((absence) => absence.id === selectedAbsenceId) || null;
 
   useEffect(() => {
     async function load() {
@@ -238,36 +286,54 @@ export default function SubstituteCalendarModule() {
     saveLocalAbsences(nextAbsences);
   }
 
+  function addDraftDate() {
+    if (!draft.dateToAdd) return;
+    setDraft((current) => ({
+      ...current,
+      selectedDates: [...new Set([...current.selectedDates, current.dateToAdd])].sort(),
+    }));
+  }
+
+  function removeDraftDate(date) {
+    setDraft((current) => ({
+      ...current,
+      selectedDates: current.selectedDates.filter((item) => item !== date),
+    }));
+  }
+
   async function addAbsence() {
-    if (!draft.staffName.trim() || !draft.absenceDate || !draft.periods.length) {
-      setStatus("Enter a staff member, date, and at least one period.");
+    if (!draft.staffName.trim() || !draft.selectedDates.length || !draft.periods.length) {
+      setStatus("Enter a staff member, at least one date, and at least one period.");
       return;
     }
 
-    const absence = {
+    const createdAt = new Date().toISOString();
+    const newAbsences = draft.selectedDates.map((absenceDate) => ({
       id: crypto.randomUUID(),
       staffName: draft.staffName.trim(),
-      absenceDate: draft.absenceDate,
+      absenceDate,
       periods: draft.periods,
       notes: draft.notes.trim(),
       coverage: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const nextAbsences = [...absences, absence].sort((a, b) => a.absenceDate.localeCompare(b.absenceDate) || a.staffName.localeCompare(b.staffName));
+      createdAt,
+      updatedAt: createdAt,
+    }));
+    const nextAbsences = [...absences, ...newAbsences].sort((a, b) => a.absenceDate.localeCompare(b.absenceDate) || a.staffName.localeCompare(b.staffName));
     persist(nextAbsences);
-    setMonthKey(getMonthKey(absence.absenceDate));
-    setDraft({ staffName: "", absenceDate: draft.absenceDate, periods: [], notes: "" });
+    setMonthKey(getMonthKey(newAbsences[0].absenceDate));
+    setSelectedAbsenceId(newAbsences[0].id);
+    setDraft({ staffName: "", selectedDates: [draft.dateToAdd], dateToAdd: draft.dateToAdd, periods: [], notes: "" });
 
     try {
-      const result = await saveSubstituteAbsence(absence);
-      if (result.saved) setStatus("Absence saved to shared calendar.");
+      const results = await Promise.all(newAbsences.map((absence) => saveSubstituteAbsence(absence)));
+      if (results.some((result) => result.saved)) setStatus(`${newAbsences.length} absence${newAbsences.length === 1 ? "" : "s"} saved to shared calendar.`);
     } catch (error) {
       setStatus(`Saved locally. Shared save failed: ${error.message}`);
     }
   }
 
   function beginCoverage(absence, defaultPeriods) {
+    setSelectedAbsenceId(absence.id);
     setCoverageDraft({
       absenceId: absence.id,
       substituteName: "",
@@ -330,6 +396,7 @@ export default function SubstituteCalendarModule() {
     const absence = absences.find((item) => item.id === absenceId);
     if (!window.confirm(`Delete absence for ${absence?.staffName || "this staff member"} on ${absence ? formatDate(absence.absenceDate) : "this date"}?`)) return;
     persist(absences.filter((item) => item.id !== absenceId));
+    if (selectedAbsenceId === absenceId) setSelectedAbsenceId("");
     try {
       const result = await deleteSubstituteAbsence(absenceId);
       if (result.saved) setStatus("Absence deleted.");
@@ -371,17 +438,48 @@ export default function SubstituteCalendarModule() {
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-400"
                   />
                 </label>
-                <label className="space-y-1 text-sm font-medium text-slate-200">
-                  Date
-                  <input
-                    type="date"
-                    value={draft.absenceDate}
-                    onChange={(event) => setDraft({ ...draft, absenceDate: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                  />
-                </label>
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-slate-200">Periods Needing Coverage</div>
+                  <div className="text-sm font-medium text-slate-200">Dates</div>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      type="date"
+                      value={draft.dateToAdd}
+                      onChange={(event) => setDraft({ ...draft, dateToAdd: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={addDraftDate}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-100 hover:bg-slate-800"
+                    >
+                      Add Date
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {draft.selectedDates.map((date) => (
+                      <button
+                        key={date}
+                        type="button"
+                        onClick={() => removeDraftDate(date)}
+                        className="rounded-full border border-sky-400/40 bg-sky-500/10 px-2.5 py-1 text-xs font-bold text-sky-100 hover:bg-sky-500/20"
+                        title="Remove date"
+                      >
+                        {formatDate(date)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium text-slate-200">Periods Needing Coverage</div>
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ ...draft, periods: PERIODS })}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                    >
+                      All Day
+                    </button>
+                  </div>
                   <PeriodCheckboxes
                     selected={draft.periods}
                     onToggle={(period) => setDraft({ ...draft, periods: togglePeriod(draft.periods, period) })}
@@ -424,7 +522,16 @@ export default function SubstituteCalendarModule() {
                     />
                   </label>
                   <div className="space-y-2">
-                    <div className="text-sm font-medium text-emerald-50">Periods Covered</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-medium text-emerald-50">Periods Covered</div>
+                      <button
+                        type="button"
+                        onClick={() => setCoverageDraft({ ...coverageDraft, periods: PERIODS })}
+                        className="rounded-md border border-emerald-400/40 bg-slate-950 px-2 py-1 text-xs font-bold text-emerald-100 hover:bg-emerald-500/20"
+                      >
+                        All Day
+                      </button>
+                    </div>
                     <PeriodCheckboxes
                       selected={coverageDraft.periods}
                       onToggle={(period) => setCoverageDraft({ ...coverageDraft, periods: togglePeriod(coverageDraft.periods, period) })}
@@ -490,7 +597,7 @@ export default function SubstituteCalendarModule() {
                 return (
                   <div
                     key={day.key}
-                    className={`min-h-[180px] border-b border-r border-slate-800 p-2 last:border-r-0 ${
+                    className={`min-h-[112px] border-b border-r border-slate-800 p-2 last:border-r-0 ${
                       day.inMonth ? "bg-slate-900" : "hidden bg-slate-950/40 md:block"
                     }`}
                   >
@@ -503,14 +610,13 @@ export default function SubstituteCalendarModule() {
                           </div>
                           {dayNeedsCoverage && <AlertTriangle size={15} className="text-rose-300" />}
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           {dayAbsences.map((absence) => (
-                            <AbsenceCard
+                            <CompactAbsenceButton
                               key={absence.id}
                               absence={absence}
-                              onAddCoverage={beginCoverage}
-                              onRemoveCoverage={removeCoverage}
-                              onDelete={removeAbsence}
+                              selected={selectedAbsenceId === absence.id}
+                              onSelect={setSelectedAbsenceId}
                             />
                           ))}
                         </div>
@@ -519,6 +625,25 @@ export default function SubstituteCalendarModule() {
                   </div>
                 );
               })}
+            </div>
+
+            <div className="border-t border-slate-800 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                <UserCheck size={16} className="text-sky-300" />
+                Absence Details
+              </div>
+              {selectedAbsence ? (
+                <AbsenceCard
+                  absence={selectedAbsence}
+                  onAddCoverage={beginCoverage}
+                  onRemoveCoverage={removeCoverage}
+                  onDelete={removeAbsence}
+                />
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">
+                  Select an absence on the calendar to view notes and substitute coverage.
+                </div>
+              )}
             </div>
           </main>
         </div>
