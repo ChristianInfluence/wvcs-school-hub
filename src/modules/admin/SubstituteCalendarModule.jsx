@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import html2pdf from "html2pdf.js";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, Plus, Trash2, UserCheck } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, Pencil, Plus, Trash2, UserCheck } from "lucide-react";
 import {
   deleteSubstituteAbsence,
   fetchSubstituteAbsences,
@@ -426,7 +426,7 @@ function PeriodCheckboxes({ selected, onToggle, disabledPeriods = [] }) {
   );
 }
 
-function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
+function AbsenceCard({ absence, onAddCoverage, onEdit, onEditCoverage, onRemoveCoverage, onDelete }) {
   const uncovered = getUncoveredPeriods(absence);
   const covered = getCoveredPeriods(absence);
 
@@ -461,14 +461,24 @@ function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
                 <span className="font-bold text-slate-100">{coverage.substituteName}</span>
                 <span className="text-slate-500"> · P{formatPeriodRange(coverage.periods)}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => onRemoveCoverage(absence.id, coverage.id)}
-                className="text-slate-500 transition hover:text-rose-200"
-                aria-label="Remove substitute coverage"
-              >
-                <Trash2 size={13} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onEditCoverage(absence, coverage)}
+                  className="text-slate-500 transition hover:text-sky-200"
+                  aria-label="Edit substitute coverage"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveCoverage(absence.id, coverage.id)}
+                  className="text-slate-500 transition hover:text-rose-200"
+                  aria-label="Remove substitute coverage"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           ))
         ) : (
@@ -479,6 +489,14 @@ function AbsenceCard({ absence, onAddCoverage, onRemoveCoverage, onDelete }) {
       </div>
 
       <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-3">
+        <button
+          type="button"
+          onClick={() => onEdit(absence)}
+          className="inline-flex items-center gap-1 rounded-lg border border-sky-400/60 bg-sky-500/10 px-2.5 py-1.5 text-xs font-bold text-sky-100 hover:bg-sky-500/20"
+        >
+          <Pencil size={13} />
+          Edit
+        </button>
         <button
           type="button"
           onClick={() => onAddCoverage(absence, uncovered.length ? uncovered : absence.periods)}
@@ -540,6 +558,7 @@ export default function SubstituteCalendarModule() {
     periods: [],
     notes: "",
   });
+  const [editDraft, setEditDraft] = useState(null);
   const [coverageDraft, setCoverageDraft] = useState(null);
   const [selectedAbsenceId, setSelectedAbsenceId] = useState("");
   const [pdfStatus, setPdfStatus] = useState("");
@@ -628,12 +647,72 @@ export default function SubstituteCalendarModule() {
 
   function beginCoverage(absence, defaultPeriods) {
     setSelectedAbsenceId(absence.id);
+    setEditDraft(null);
     setCoverageDraft({
       absenceId: absence.id,
+      coverageId: "",
       substituteName: "",
       periods: defaultPeriods || [],
       notes: "",
     });
+  }
+
+  function beginEditCoverage(absence, coverage) {
+    setSelectedAbsenceId(absence.id);
+    setEditDraft(null);
+    setCoverageDraft({
+      absenceId: absence.id,
+      coverageId: coverage.id,
+      substituteName: coverage.substituteName || "",
+      periods: coverage.periods || [],
+      notes: coverage.notes || "",
+    });
+  }
+
+  function beginEdit(absence) {
+    setSelectedAbsenceId(absence.id);
+    setCoverageDraft(null);
+    setEditDraft({
+      id: absence.id,
+      staffName: absence.staffName || "",
+      absenceDate: absence.absenceDate || getTodayKey(),
+      periods: absence.periods || [],
+      notes: absence.notes || "",
+    });
+  }
+
+  async function saveEdit() {
+    if (!editDraft?.staffName.trim() || !editDraft.absenceDate || !editDraft.periods.length) {
+      setStatus("Enter a staff member, date, and at least one period.");
+      return;
+    }
+
+    const nextAbsences = absences
+      .map((absence) => (
+        absence.id === editDraft.id
+          ? {
+              ...absence,
+              staffName: editDraft.staffName.trim(),
+              absenceDate: editDraft.absenceDate,
+              periods: editDraft.periods,
+              notes: editDraft.notes.trim(),
+              updatedAt: new Date().toISOString(),
+            }
+          : absence
+      ))
+      .sort((a, b) => a.absenceDate.localeCompare(b.absenceDate) || a.staffName.localeCompare(b.staffName));
+    persist(nextAbsences);
+    setMonthKey(getMonthKey(editDraft.absenceDate));
+    setSelectedAbsenceId(editDraft.id);
+    setEditDraft(null);
+    const updatedAbsence = nextAbsences.find((absence) => absence.id === editDraft.id);
+
+    try {
+      const result = await saveSubstituteAbsence(updatedAbsence);
+      if (result.saved) setStatus("Absence updated.");
+    } catch (error) {
+      setStatus(`Saved locally. Shared update failed: ${error.message}`);
+    }
   }
 
   async function saveCoverage() {
@@ -646,15 +725,26 @@ export default function SubstituteCalendarModule() {
       if (absence.id !== coverageDraft.absenceId) return absence;
       return {
         ...absence,
-        coverage: [
-          ...(absence.coverage || []),
-          {
-            id: crypto.randomUUID(),
-            substituteName: coverageDraft.substituteName.trim(),
-            periods: coverageDraft.periods,
-            notes: coverageDraft.notes.trim(),
-          },
-        ],
+        coverage: coverageDraft.coverageId
+          ? (absence.coverage || []).map((coverage) => (
+              coverage.id === coverageDraft.coverageId
+                ? {
+                    ...coverage,
+                    substituteName: coverageDraft.substituteName.trim(),
+                    periods: coverageDraft.periods,
+                    notes: coverageDraft.notes.trim(),
+                  }
+                : coverage
+            ))
+          : [
+              ...(absence.coverage || []),
+              {
+                id: crypto.randomUUID(),
+                substituteName: coverageDraft.substituteName.trim(),
+                periods: coverageDraft.periods,
+                notes: coverageDraft.notes.trim(),
+              },
+            ],
         updatedAt: new Date().toISOString(),
       };
     });
@@ -663,7 +753,7 @@ export default function SubstituteCalendarModule() {
     const updatedAbsence = nextAbsences.find((absence) => absence.id === coverageDraft.absenceId);
     try {
       const result = await saveSubstituteAbsence(updatedAbsence);
-      if (result.saved) setStatus("Substitute coverage saved.");
+      if (result.saved) setStatus(coverageDraft.coverageId ? "Substitute coverage updated." : "Substitute coverage saved.");
     } catch (error) {
       setStatus(`Saved locally. Shared coverage save failed: ${error.message}`);
     }
@@ -691,6 +781,7 @@ export default function SubstituteCalendarModule() {
     if (!window.confirm(`Delete absence for ${absence?.staffName || "this staff member"} on ${absence ? formatDate(absence.absenceDate) : "this date"}?`)) return;
     persist(absences.filter((item) => item.id !== absenceId));
     if (selectedAbsenceId === absenceId) setSelectedAbsenceId("");
+    if (editDraft?.id === absenceId) setEditDraft(null);
     try {
       const result = await deleteSubstituteAbsence(absenceId);
       if (result.saved) setStatus("Absence deleted.");
@@ -746,6 +837,68 @@ export default function SubstituteCalendarModule() {
 
         <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside className="space-y-4">
+            {editDraft && (
+              <div className="rounded-lg border border-sky-400/50 bg-sky-500/10 p-4">
+                <div className="mb-4 flex items-center gap-2 text-sm font-bold text-sky-100">
+                  <Pencil size={16} />
+                  Edit Staff Absence
+                </div>
+                <div className="space-y-4">
+                  <label className="space-y-1 text-sm font-medium text-sky-50">
+                    Staff Member
+                    <input
+                      value={editDraft.staffName}
+                      onChange={(event) => setEditDraft({ ...editDraft, staffName: event.target.value })}
+                      placeholder="Teacher or staff name"
+                      className="w-full rounded-lg border border-sky-400/40 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-300"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-medium text-sky-50">
+                    Date
+                    <input
+                      type="date"
+                      value={editDraft.absenceDate}
+                      onChange={(event) => setEditDraft({ ...editDraft, absenceDate: event.target.value })}
+                      className="w-full rounded-lg border border-sky-400/40 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-300"
+                    />
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-medium text-sky-50">Periods Needing Coverage</div>
+                      <button
+                        type="button"
+                        onClick={() => setEditDraft({ ...editDraft, periods: PERIODS })}
+                        className="rounded-md border border-sky-400/40 bg-slate-950 px-2 py-1 text-xs font-bold text-sky-100 hover:bg-sky-500/20"
+                      >
+                        All Day
+                      </button>
+                    </div>
+                    <PeriodCheckboxes
+                      selected={editDraft.periods}
+                      onToggle={(period) => setEditDraft({ ...editDraft, periods: togglePeriod(editDraft.periods, period) })}
+                    />
+                  </div>
+                  <label className="space-y-1 text-sm font-medium text-sky-50">
+                    Notes
+                    <textarea
+                      value={editDraft.notes}
+                      onChange={(event) => setEditDraft({ ...editDraft, notes: event.target.value })}
+                      placeholder="Optional room, class, or preparation notes"
+                      className="min-h-20 w-full rounded-lg border border-sky-400/40 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-sky-300"
+                    />
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button type="button" onClick={saveEdit} className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white hover:bg-sky-400">
+                      Save Changes
+                    </button>
+                    <button type="button" onClick={() => setEditDraft(null)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center gap-2 text-sm font-bold text-white">
                 <Plus size={16} className="text-sky-300" />
@@ -832,7 +985,7 @@ export default function SubstituteCalendarModule() {
               <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
                 <div className="mb-4 flex items-center gap-2 text-sm font-bold text-emerald-100">
                   <UserCheck size={16} />
-                  Add Substitute Coverage
+                  {coverageDraft.coverageId ? "Edit Substitute Coverage" : "Add Substitute Coverage"}
                 </div>
                 <div className="space-y-4">
                   <label className="space-y-1 text-sm font-medium text-emerald-50">
@@ -871,7 +1024,7 @@ export default function SubstituteCalendarModule() {
                   </label>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <button type="button" onClick={saveCoverage} className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-400">
-                      Save Coverage
+                      {coverageDraft.coverageId ? "Save Changes" : "Save Coverage"}
                     </button>
                     <button type="button" onClick={() => setCoverageDraft(null)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">
                       Cancel
@@ -959,6 +1112,8 @@ export default function SubstituteCalendarModule() {
                 <AbsenceCard
                   absence={selectedAbsence}
                   onAddCoverage={beginCoverage}
+                  onEdit={beginEdit}
+                  onEditCoverage={beginEditCoverage}
                   onRemoveCoverage={removeCoverage}
                   onDelete={removeAbsence}
                 />
