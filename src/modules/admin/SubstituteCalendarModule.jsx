@@ -136,10 +136,8 @@ function buildPdfAbsenceLine(absence) {
     : "No substitute";
   return `
     <div class="entry ${uncovered.length ? "needs" : "covered"}">
-      <div class="entry-top">
-        <span class="teacher">${escapeHtml(absence.staffName)}</span>
-        <span class="periods">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
-      </div>
+      <div class="teacher">${escapeHtml(absence.staffName)}</div>
+      <div class="periods">Absent P${escapeHtml(formatPeriodRange(absence.periods))}</div>
       <div class="sub">${escapeHtml(substituteText)}</div>
       ${uncovered.length ? `<div class="uncovered">Needs P${escapeHtml(formatPeriodRange(uncovered))}</div>` : ""}
     </div>
@@ -293,9 +291,9 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           border-left-width: 3px;
           border-radius: 4px;
           background: #f8fafc;
-          padding: 3px 4px;
-          font-size: 7.8px;
-          line-height: 1.18;
+          padding: 3px 4px 4px;
+          font-size: 7.6px;
+          line-height: 1.16;
           overflow: hidden;
         }
         .sub-calendar-pdf .entry.covered {
@@ -305,22 +303,17 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           border-left-color: #e11d48;
           background: #fff1f2;
         }
-        .sub-calendar-pdf .entry-top {
-          display: flex;
-          align-items: baseline;
-          justify-content: space-between;
-          gap: 4px;
-        }
         .sub-calendar-pdf .teacher {
-          min-width: 0;
-          max-width: 72px;
+          display: block;
+          max-width: 100%;
           overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          line-height: 1.12;
+          overflow-wrap: anywhere;
           font-weight: 800;
         }
         .sub-calendar-pdf .periods {
-          flex: 0 0 auto;
+          display: block;
+          margin-top: 1px;
           font-weight: 800;
           color: #334155;
         }
