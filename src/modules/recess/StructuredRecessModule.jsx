@@ -11,6 +11,7 @@ import {
   ExternalLink,
   History,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -124,6 +125,14 @@ function compareStudentsByFirstName(a, b) {
     numeric: true,
     sensitivity: "base",
   });
+}
+
+function sortEntries(entries) {
+  return [...entries].sort((a, b) =>
+    b.date.localeCompare(a.date)
+      || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+      || compareStudentsByFirstName(a.studentName, b.studentName)
+  );
 }
 
 function loadEntries() {
@@ -718,7 +727,7 @@ function EntryTypeBadges({ entry }) {
   );
 }
 
-function EntryCard({ entry, onComplete, onNotServed, onDelete }) {
+function EntryCard({ entry, onComplete, onNotServed, onEdit, onDelete }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -762,6 +771,16 @@ function EntryCard({ entry, onComplete, onNotServed, onDelete }) {
       )}
 
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-3">
+        {onEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(entry)}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-400/60 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+          >
+            <Pencil size={14} />
+            Edit
+          </button>
+        )}
         {isEntryUnconfirmed(entry) && (
           <button
             type="button"
@@ -1553,6 +1572,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [stagedCompleteIds, setStagedCompleteIds] = useState([]);
   const [viewMode, setViewMode] = useState(initialView);
   const refreshTimerRef = useRef(null);
+  const [editDraft, setEditDraft] = useState(null);
   const [draft, setDraft] = useState({
     studentGrade: "",
     studentNames: [],
@@ -1598,7 +1618,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   );
   const rosterGrades = roster.map((group) => group.grade);
   const selectedRosterGroup = roster.find((group) => group.grade === draft.studentGrade) || roster[0];
+  const selectedEditRosterGroup = editDraft
+    ? roster.find((group) => group.grade === editDraft.studentGrade) || roster[0]
+    : null;
   const durationOptions = getDurationOptionsForDraft(draft);
+  const editDurationOptions = editDraft ? getDurationOptionsForDraft(editDraft) : [];
+  const editStudentOptions = editDraft
+    ? [...new Set([...(selectedEditRosterGroup?.students || []), editDraft.studentName].filter(Boolean))].sort(compareStudentsByFirstName)
+    : [];
 
   useEffect(() => {
     const timeoutId = window.setTimeout(refreshRoster, 0);
@@ -1802,6 +1829,82 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     setDraft((current) => ({ ...current, studentNames: [], reason: "", notes: "" }));
   }
 
+  function beginEditEntry(entry) {
+    setEditDraft({
+      id: entry.id,
+      date: entry.date || today,
+      studentGrade: entry.studentGrade || roster[0]?.grade || "",
+      studentName: entry.studentName || "",
+      teacherName: entry.teacherName || currentUserEmail,
+      recessType: entry.recessType || "early",
+      duration: entry.duration || 10,
+      needsStructuredRecess: entry.needsStructuredRecess !== false,
+      needsWorkTime: Boolean(entry.needsWorkTime),
+      reason: entry.reason || "",
+      notes: entry.notes || "",
+      status: entry.status || "active",
+      createdAt: entry.createdAt || new Date().toISOString(),
+    });
+    setCollapsedSections((current) => ({ ...current, "edit-entry": false }));
+  }
+
+  function updateEditEntryType(patch) {
+    setEditDraft((current) => {
+      if (!current) return current;
+      const nextDraft = { ...current, ...patch };
+      if (!nextDraft.needsStructuredRecess && !nextDraft.needsWorkTime) {
+        nextDraft.needsStructuredRecess = true;
+      }
+      const nextOptions = getDurationOptionsForDraft(nextDraft);
+      if (!nextOptions.includes(nextDraft.duration) && !nextOptions.includes(Number(nextDraft.duration))) {
+        nextDraft.duration = nextOptions[0] || 5;
+      }
+      return nextDraft;
+    });
+  }
+
+  function setEditRecessType(recessType) {
+    setEditDraft((current) => {
+      if (!current) return current;
+      const nextDraft = { ...current, recessType };
+      const nextOptions = getDurationOptionsForDraft(nextDraft);
+      return {
+        ...nextDraft,
+        duration: nextOptions.includes(nextDraft.duration) || nextOptions.includes(Number(nextDraft.duration))
+          ? nextDraft.duration
+          : nextOptions[0],
+      };
+    });
+  }
+
+  function saveEditedEntry() {
+    if (!editDraft?.studentName || !editDraft.teacherName.trim() || (!editDraft.needsStructuredRecess && !editDraft.needsWorkTime)) return;
+    const updatedEntry = {
+      ...entries.find((entry) => entry.id === editDraft.id),
+      id: editDraft.id,
+      date: editDraft.date || today,
+      studentGrade: editDraft.studentGrade,
+      studentName: editDraft.studentName,
+      teacherName: editDraft.teacherName.trim(),
+      recessType: editDraft.recessType,
+      duration: editDraft.duration === "ALL" ? "ALL" : Number(editDraft.duration),
+      needsStructuredRecess: editDraft.needsStructuredRecess,
+      needsWorkTime: editDraft.needsWorkTime,
+      reason: editDraft.reason.trim(),
+      notes: editDraft.notes.trim(),
+      status: editDraft.status || "active",
+      createdAt: editDraft.createdAt,
+    };
+    persist(sortEntries(entries.map((entry) => (entry.id === updatedEntry.id ? updatedEntry : entry))));
+    saveRecessEntry(updatedEntry)
+      .then((result) => {
+        if (result.saved) setSharedDataStatus("Shared database connected.");
+      })
+      .catch(noteSharedSaveError);
+    setHistoryDate(updatedEntry.date);
+    setEditDraft(null);
+  }
+
   function toggleDraftStudent(studentName) {
     setDraft((current) => ({
       ...current,
@@ -1857,7 +1960,11 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   }
 
   function removeEntry(entryId) {
+    const entry = entries.find((item) => item.id === entryId);
+    const label = entry ? `${formatStudentDisplayName(entry.studentName)} on ${formatDate(entry.date)}` : "this structured recess entry";
+    if (!window.confirm(`Remove ${label}?`)) return;
     persist(entries.filter((entry) => entry.id !== entryId));
+    if (editDraft?.id === entryId) setEditDraft(null);
     deleteRecessEntry(entryId)
       .then((result) => {
         if (result.saved) setSharedDataStatus("Shared database connected.");
@@ -1973,6 +2080,190 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         ) : (
         <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
           <aside className="min-w-0 space-y-4">
+            {editDraft && (
+              <CollapsibleSection
+                id="edit-entry"
+                title="Edit Structured Recess Entry"
+                icon={Pencil}
+                summary={formatStudentDisplayName(editDraft.studentName) || "Editing entry"}
+                collapsed={Boolean(collapsedSections["edit-entry"])}
+                onToggle={toggleStructuredSection}
+              >
+                <div className="space-y-4 p-4">
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Date
+                    <input
+                      type="date"
+                      value={editDraft.date}
+                      onChange={(event) => setEditDraft({ ...editDraft, date: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Grade
+                    <select
+                      value={editDraft.studentGrade}
+                      onChange={(event) => {
+                        const nextGroup = roster.find((group) => group.grade === event.target.value);
+                        setEditDraft({
+                          ...editDraft,
+                          studentGrade: event.target.value,
+                          studentName: nextGroup?.students.includes(editDraft.studentName) ? editDraft.studentName : "",
+                        });
+                      }}
+                      disabled={!rosterGrades.length}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {rosterGrades.length ? rosterGrades.map((grade) => (
+                        <option key={grade} value={grade}>{grade}</option>
+                      )) : <option value={editDraft.studentGrade}>{editDraft.studentGrade || "Roster loading..."}</option>}
+                    </select>
+                  </label>
+
+                  {editStudentOptions.length ? (
+                    <label className="space-y-1 text-sm font-medium text-slate-200">
+                      Student
+                      <select
+                        value={editDraft.studentName}
+                        onChange={(event) => setEditDraft({ ...editDraft, studentName: event.target.value })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      >
+                        <option value="">Choose student...</option>
+                        {editStudentOptions.map((studentName) => (
+                          <option key={studentName} value={studentName}>{formatStudentDisplayName(studentName)}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="space-y-1 text-sm font-medium text-slate-200">
+                      Student
+                      <input
+                        value={editDraft.studentName}
+                        onChange={(event) => setEditDraft({ ...editDraft, studentName: event.target.value })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      />
+                    </label>
+                  )}
+
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Teacher Placing Student
+                    <input
+                      value={editDraft.teacherName}
+                      onChange={(event) => setEditDraft({ ...editDraft, teacherName: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                    />
+                  </label>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-slate-200">Assignment</div>
+                    <div className="grid gap-2">
+                      <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={editDraft.needsStructuredRecess}
+                          onChange={(event) => updateEditEntryType({ needsStructuredRecess: event.target.checked })}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                        />
+                        <span>
+                          Structured Recess
+                          <span className="block text-xs font-normal text-slate-500">Supervised physical activity with limited options.</span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={editDraft.needsWorkTime}
+                          onChange={(event) => updateEditEntryType({ needsWorkTime: event.target.checked })}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-fuchsia-500"
+                        />
+                        <span>
+                          Finish Work
+                          <span className="block text-xs font-normal text-slate-500">Policy limit: 5 min first recess, 10 min lunch recess.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-slate-200">Recess Time</div>
+                    <div className="grid gap-2">
+                      {Object.entries(recessOptions).map(([id, option]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setEditRecessType(id)}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                            editDraft.recessType === id
+                              ? option.tone
+                              : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    {editDraft.needsWorkTime ? "Work/assignment length" : "Length"}
+                    <select
+                      value={editDraft.duration}
+                      onChange={(event) =>
+                        setEditDraft({
+                          ...editDraft,
+                          duration: event.target.value === "ALL" ? "ALL" : Number(event.target.value),
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                    >
+                      {editDurationOptions.map((duration) => (
+                        <option key={duration} value={duration}>
+                          {formatDuration(duration)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Reason <span className="text-xs font-normal text-slate-500">(optional)</span>
+                    <input
+                      value={editDraft.reason}
+                      onChange={(event) => setEditDraft({ ...editDraft, reason: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none placeholder:text-slate-600 focus:border-sky-400"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Notes for Aide
+                    <textarea
+                      value={editDraft.notes}
+                      onChange={(event) => setEditDraft({ ...editDraft, notes: event.target.value })}
+                      className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                    />
+                  </label>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={saveEditedEntry}
+                      disabled={!editDraft.studentName || !editDraft.teacherName.trim() || (!editDraft.needsStructuredRecess && !editDraft.needsWorkTime)}
+                      className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Save Changes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditDraft(null)}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </CollapsibleSection>
+            )}
+
             <CollapsibleSection
               id="add-student"
               title="Add Student for Today"
@@ -2212,6 +2503,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
                         onNotServed={markEntryNotServed}
+                        onEdit={beginEditEntry}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2232,6 +2524,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
                         onNotServed={markEntryNotServed}
+                        onEdit={beginEditEntry}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2252,6 +2545,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                         entry={entry}
                         onComplete={(id) => updateStatus(id, "complete")}
                         onNotServed={markEntryNotServed}
+                        onEdit={beginEditEntry}
                         onDelete={removeEntry}
                       />
                     ))
@@ -2278,6 +2572,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       entry={entry}
                       onComplete={(id) => updateStatus(id, "complete")}
                       onNotServed={markEntryNotServed}
+                      onEdit={beginEditEntry}
                       onDelete={removeEntry}
                     />
                   ))
@@ -2336,6 +2631,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                       entry={entry}
                       onComplete={(id) => updateStatus(id, "complete")}
                       onNotServed={markEntryNotServed}
+                      onEdit={beginEditEntry}
                       onDelete={removeEntry}
                     />
                   ))
