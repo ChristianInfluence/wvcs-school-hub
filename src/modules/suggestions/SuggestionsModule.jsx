@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import html2pdf from "html2pdf.js";
-import { CheckCircle2, FileText, Lightbulb, Loader2, Mail, MessageSquareText, Plus, Send, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, FileText, Lightbulb, Loader2, Mail, MessageSquareText, Plus, Send, Trash2 } from "lucide-react";
 import {
   deleteSuggestion,
   fetchSuggestions,
@@ -337,6 +337,9 @@ export function AdminSuggestionsModule() {
   const [drafts, setDrafts] = useState({});
   const [emailDrafts, setEmailDrafts] = useState({});
   const [sendingId, setSendingId] = useState("");
+  const [savingId, setSavingId] = useState("");
+  const [savedId, setSavedId] = useState("");
+  const [expandedIds, setExpandedIds] = useState({});
   const [pendingDelete, setPendingDelete] = useState(null);
   const counts = useMemo(
     () =>
@@ -349,6 +352,20 @@ export function AdminSuggestionsModule() {
       ),
     [suggestions]
   );
+  const sortedSuggestions = useMemo(() => {
+    const statusRank = {
+      new: 0,
+      reviewing: 1,
+      planned: 2,
+      declined: 3,
+      resolved: 4,
+    };
+    return [...suggestions].sort((a, b) => {
+      const rankDiff = (statusRank[a.status] ?? 2) - (statusRank[b.status] ?? 2);
+      if (rankDiff) return rankDiff;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+  }, [suggestions]);
 
   async function saveAdminUpdate(suggestion) {
     const patch = drafts[suggestion.id] || {
@@ -357,6 +374,8 @@ export function AdminSuggestionsModule() {
     };
 
     try {
+      setSavingId(suggestion.id);
+      setSavedId("");
       setStatus("Saving suggestion update...");
       const result = await updateSuggestionStatus(suggestion.id, patch);
       if (!result.saved) {
@@ -365,9 +384,15 @@ export function AdminSuggestionsModule() {
       }
       setSuggestions((current) => current.map((item) => (item.id === suggestion.id ? result.suggestion : item)));
       setStatus("Suggestion updated.");
+      setSavedId(suggestion.id);
+      window.setTimeout(() => {
+        setSavedId((current) => (current === suggestion.id ? "" : current));
+      }, 1800);
       await loadSuggestions();
     } catch (error) {
       setStatus(`Unable to update suggestion: ${error.message}`);
+    } finally {
+      setSavingId("");
     }
   }
 
@@ -394,6 +419,10 @@ export function AdminSuggestionsModule() {
       recipients: "",
       note: "",
     };
+  }
+
+  function toggleExpanded(suggestionId) {
+    setExpandedIds((current) => ({ ...current, [suggestionId]: !current[suggestionId] }));
   }
 
   async function emailSuggestion(suggestion) {
@@ -467,13 +496,21 @@ export function AdminSuggestionsModule() {
         </div>
 
         <div className="mt-5 space-y-3">
-          {suggestions.map((suggestion) => {
+          {sortedSuggestions.map((suggestion) => {
             const draft = getDraft(suggestion);
+            const isExpanded = Boolean(expandedIds[suggestion.id]);
+            const isSaving = savingId === suggestion.id;
+            const isSaved = savedId === suggestion.id;
             return (
-              <article key={suggestion.id} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+              <article key={suggestion.id} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(suggestion.id)}
+                  className="flex w-full flex-col gap-3 p-4 text-left transition hover:bg-slate-800/60 md:flex-row md:items-start md:justify-between"
+                >
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
+                      {isExpanded ? <ChevronDown size={17} className="text-lime-300" /> : <ChevronRight size={17} className="text-slate-500" />}
                       <h2 className="text-lg font-bold text-white">{suggestion.title}</h2>
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[suggestion.status]}`}>
                         {statusLabels[suggestion.status]}
@@ -485,7 +522,16 @@ export function AdminSuggestionsModule() {
                       <span>{suggestion.anonymous ? "Anonymous to staff" : "Visible to staff"}</span>
                       <span>Submitted by: {suggestion.submitterEmail || "Unknown"}</span>
                     </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-300">{suggestion.body}</p>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    {isExpanded ? "Hide details" : "Open details"}
+                  </div>
+                </button>
+
+                {isExpanded && (
+                <div className="grid gap-4 border-t border-slate-800 p-4 xl:grid-cols-[1fr_360px]">
+                  <div>
+                    <p className="text-sm leading-6 text-slate-300">{suggestion.body}</p>
                   </div>
 
                   <div className="space-y-3">
@@ -572,10 +618,15 @@ export function AdminSuggestionsModule() {
                       <button
                         type="button"
                         onClick={() => saveAdminUpdate(suggestion)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-lime-400 bg-lime-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-lime-400"
+                        disabled={isSaving}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                          isSaved
+                            ? "border-emerald-400 bg-emerald-500 text-white"
+                            : "border-lime-400 bg-lime-500 text-slate-950 hover:bg-lime-400"
+                        }`}
                       >
-                        <CheckCircle2 size={14} />
-                        Save
+                        {isSaving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                        {isSaving ? "Saving..." : isSaved ? "Saved" : "Save"}
                       </button>
                       {pendingDelete?.id === suggestion.id ? (
                         <>
@@ -620,10 +671,11 @@ export function AdminSuggestionsModule() {
                     </div>
                   </div>
                 </div>
+                )}
               </article>
             );
           })}
-          {!suggestions.length && (
+          {!sortedSuggestions.length && (
             <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-400">
               No suggestions have been submitted yet.
             </div>
