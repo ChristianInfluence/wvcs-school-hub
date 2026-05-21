@@ -145,7 +145,8 @@ function getSubstituteCalendarPdfFileName(monthKey) {
 function buildPdfAbsenceBlock(absence) {
   const uncovered = getUncoveredPeriods(absence);
   const coverageRows = (absence.coverage || []).map((coverage) => `
-    <div class="person-line covering-line">
+    <div class="pdf-line covering-line">
+      <span class="line-label">Sub:</span>
       <span class="person-name">${escapeHtml(coverage.substituteName)}</span>
       <span class="person-period">P${escapeHtml(formatPeriodRange(coverage.periods))}</span>
     </div>
@@ -153,18 +154,13 @@ function buildPdfAbsenceBlock(absence) {
 
   return `
     <div class="entry">
-      <div class="entry-column">
-        <div class="column-label absent-label">Absent</div>
-        <div class="person-line absent-line">
-          <span class="person-name">${escapeHtml(absence.staffName)}</span>
-          <span class="person-period">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
-        </div>
+      <div class="pdf-line absent-line">
+        <span class="line-label">Absent:</span>
+        <span class="person-name">${escapeHtml(absence.staffName)}</span>
+        <span class="person-period">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
       </div>
-      <div class="entry-column">
-        <div class="column-label covering-label">Substitute</div>
-        ${coverageRows || `<div class="person-line missing-line"><span class="person-name">Open</span><span class="person-period">--</span></div>`}
-        ${uncovered.length ? `<div class="person-line missing-line"><span class="person-name">Needs</span><span class="person-period">P${escapeHtml(formatPeriodRange(uncovered))}</span></div>` : ""}
-      </div>
+      ${coverageRows || `<div class="pdf-line missing-line"><span class="line-label">Sub:</span><span class="person-name">Open</span><span class="person-period">--</span></div>`}
+      ${uncovered.length ? `<div class="pdf-line missing-line"><span class="line-label">Need:</span><span class="person-name">Coverage</span><span class="person-period">P${escapeHtml(formatPeriodRange(uncovered))}</span></div>` : ""}
     </div>
   `;
 }
@@ -284,7 +280,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           border-top: 1px solid #cbd5e1;
         }
         .sub-calendar-pdf .day {
-          height: ${printableDays.length > 25 ? "79px" : "96px"};
+          height: ${printableDays.length > 25 ? "80px" : "98px"};
           border-right: 1px solid #cbd5e1;
           border-bottom: 1px solid #cbd5e1;
           background: rgba(255, 255, 255, 0.92);
@@ -304,38 +300,18 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         .sub-calendar-pdf .entry {
           margin-top: 2px;
           border-top: 1px solid #e2e8f0;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 5px;
           padding-top: 2px;
-          font-size: 7.2px;
-          line-height: 1.05;
+          font-size: 8px;
+          line-height: 1.28;
           overflow: hidden;
         }
-        .sub-calendar-pdf .entry-column {
-          min-width: 0;
-        }
-        .sub-calendar-pdf .column-label {
-          margin-bottom: 0;
-          font-size: 5.8px;
-          font-weight: 800;
-          letter-spacing: 0.4px;
-          line-height: 1;
-          text-transform: uppercase;
-        }
-        .sub-calendar-pdf .absent-label {
-          color: #991b1b;
-        }
-        .sub-calendar-pdf .covering-label {
-          color: #166534;
-        }
-        .sub-calendar-pdf .person-line {
+        .sub-calendar-pdf .pdf-line {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-columns: 28px minmax(0, 1fr) auto;
           align-items: baseline;
-          gap: 3px;
+          gap: 4px;
           margin-top: 1px;
-          min-height: 0;
+          min-height: 10px;
         }
         .sub-calendar-pdf .absent-line {
           color: #7f1d1d;
@@ -346,17 +322,22 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         .sub-calendar-pdf .missing-line {
           color: #9a3412;
         }
+        .sub-calendar-pdf .line-label {
+          font-size: 6.6px;
+          font-weight: 800;
+          text-transform: uppercase;
+        }
         .sub-calendar-pdf .person-name {
           min-width: 0;
-          white-space: normal;
+          white-space: nowrap;
           overflow: hidden;
+          text-overflow: ellipsis;
           font-weight: 800;
-          overflow-wrap: anywhere;
         }
         .sub-calendar-pdf .person-period {
           white-space: nowrap;
           font-weight: 800;
-          font-size: 6.4px;
+          font-size: 7px;
         }
       </style>
       <img class="watermark" src="${warriorHeadNew}" alt="">
