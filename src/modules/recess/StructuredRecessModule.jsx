@@ -814,6 +814,181 @@ function EntryCard({ entry, onComplete, onNotServed, onEdit, onDelete }) {
   );
 }
 
+function EntryEditCard({
+  editDraft,
+  rosterGrades,
+  studentOptions,
+  durationOptions,
+  onChange,
+  onGradeChange,
+  onEntryTypeChange,
+  onRecessTypeChange,
+  onSave,
+  onCancel,
+}) {
+  return (
+    <div className="rounded-lg border border-sky-400/50 bg-sky-500/10 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-sky-100">
+          <Pencil size={16} />
+          Edit Entry
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <div className="grid gap-3">
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Date
+          <input
+            type="date"
+            value={editDraft.date}
+            onChange={(event) => onChange({ date: event.target.value })}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          />
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-sm font-medium text-slate-200">
+            Grade
+            <select
+              value={editDraft.studentGrade}
+              onChange={(event) => onGradeChange(event.target.value)}
+              disabled={!rosterGrades.length}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {rosterGrades.length ? rosterGrades.map((grade) => (
+                <option key={grade} value={grade}>{grade}</option>
+              )) : <option value={editDraft.studentGrade}>{editDraft.studentGrade || "Roster loading..."}</option>}
+            </select>
+          </label>
+
+          {studentOptions.length ? (
+            <label className="space-y-1 text-sm font-medium text-slate-200">
+              Student
+              <select
+                value={editDraft.studentName}
+                onChange={(event) => onChange({ studentName: event.target.value })}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+              >
+                <option value="">Choose student...</option>
+                {studentOptions.map((studentName) => (
+                  <option key={studentName} value={studentName}>{formatStudentDisplayName(studentName)}</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="space-y-1 text-sm font-medium text-slate-200">
+              Student
+              <input
+                value={editDraft.studentName}
+                onChange={(event) => onChange({ studentName: event.target.value })}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+              />
+            </label>
+          )}
+        </div>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Teacher Placing Student
+          <input
+            value={editDraft.teacherName}
+            onChange={(event) => onChange({ teacherName: event.target.value })}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          />
+        </label>
+
+        <div className="grid gap-2">
+          <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={editDraft.needsStructuredRecess}
+              onChange={(event) => onEntryTypeChange({ needsStructuredRecess: event.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+            />
+            <span>Structured Recess</span>
+          </label>
+          <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={editDraft.needsWorkTime}
+              onChange={(event) => onEntryTypeChange({ needsWorkTime: event.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-fuchsia-500"
+            />
+            <span>Finish Work</span>
+          </label>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          {Object.entries(recessOptions).map(([id, option]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onRecessTypeChange(id)}
+              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                editDraft.recessType === id
+                  ? option.tone
+                  : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          {editDraft.needsWorkTime ? "Work/assignment length" : "Length"}
+          <select
+            value={editDraft.duration}
+            onChange={(event) =>
+              onChange({ duration: event.target.value === "ALL" ? "ALL" : Number(event.target.value) })
+            }
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          >
+            {durationOptions.map((duration) => (
+              <option key={duration} value={duration}>
+                {formatDuration(duration)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Reason <span className="text-xs font-normal text-slate-500">(optional)</span>
+          <input
+            value={editDraft.reason}
+            onChange={(event) => onChange({ reason: event.target.value })}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none placeholder:text-slate-600 focus:border-sky-400"
+          />
+        </label>
+
+        <label className="space-y-1 text-sm font-medium text-slate-200">
+          Notes for Aide
+          <textarea
+            value={editDraft.notes}
+            onChange={(event) => onChange({ notes: event.target.value })}
+            className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!editDraft.studentName || !editDraft.teacherName.trim() || (!editDraft.needsStructuredRecess && !editDraft.needsWorkTime)}
+          className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Save Changes
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AideCompactRow({ entry, staged, onStageChange }) {
   return (
     <div
@@ -1996,6 +2171,53 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     });
   }
 
+  function changeEditDraft(patch) {
+    setEditDraft((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function changeEditGrade(grade) {
+    const nextGroup = roster.find((group) => group.grade === grade);
+    setEditDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        studentGrade: grade,
+        studentName: nextGroup?.students.includes(current.studentName) ? current.studentName : "",
+      };
+    });
+  }
+
+  function renderEntryCard(entry) {
+    if (editDraft?.id === entry.id) {
+      return (
+        <EntryEditCard
+          key={entry.id}
+          editDraft={editDraft}
+          rosterGrades={rosterGrades}
+          studentOptions={editStudentOptions}
+          durationOptions={editDurationOptions}
+          onChange={changeEditDraft}
+          onGradeChange={changeEditGrade}
+          onEntryTypeChange={updateEditEntryType}
+          onRecessTypeChange={setEditRecessType}
+          onSave={saveEditedEntry}
+          onCancel={() => setEditDraft(null)}
+        />
+      );
+    }
+
+    return (
+      <EntryCard
+        key={entry.id}
+        entry={entry}
+        onComplete={(id) => updateStatus(id, "complete")}
+        onNotServed={markEntryNotServed}
+        onEdit={beginEditEntry}
+        onDelete={removeEntry}
+      />
+    );
+  }
+
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-[1500px] px-5 py-6">
@@ -2080,190 +2302,6 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         ) : (
         <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
           <aside className="min-w-0 space-y-4">
-            {editDraft && (
-              <CollapsibleSection
-                id="edit-entry"
-                title="Edit Structured Recess Entry"
-                icon={Pencil}
-                summary={formatStudentDisplayName(editDraft.studentName) || "Editing entry"}
-                collapsed={Boolean(collapsedSections["edit-entry"])}
-                onToggle={toggleStructuredSection}
-              >
-                <div className="space-y-4 p-4">
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    Date
-                    <input
-                      type="date"
-                      value={editDraft.date}
-                      onChange={(event) => setEditDraft({ ...editDraft, date: event.target.value })}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                    />
-                  </label>
-
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    Grade
-                    <select
-                      value={editDraft.studentGrade}
-                      onChange={(event) => {
-                        const nextGroup = roster.find((group) => group.grade === event.target.value);
-                        setEditDraft({
-                          ...editDraft,
-                          studentGrade: event.target.value,
-                          studentName: nextGroup?.students.includes(editDraft.studentName) ? editDraft.studentName : "",
-                        });
-                      }}
-                      disabled={!rosterGrades.length}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {rosterGrades.length ? rosterGrades.map((grade) => (
-                        <option key={grade} value={grade}>{grade}</option>
-                      )) : <option value={editDraft.studentGrade}>{editDraft.studentGrade || "Roster loading..."}</option>}
-                    </select>
-                  </label>
-
-                  {editStudentOptions.length ? (
-                    <label className="space-y-1 text-sm font-medium text-slate-200">
-                      Student
-                      <select
-                        value={editDraft.studentName}
-                        onChange={(event) => setEditDraft({ ...editDraft, studentName: event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                      >
-                        <option value="">Choose student...</option>
-                        {editStudentOptions.map((studentName) => (
-                          <option key={studentName} value={studentName}>{formatStudentDisplayName(studentName)}</option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <label className="space-y-1 text-sm font-medium text-slate-200">
-                      Student
-                      <input
-                        value={editDraft.studentName}
-                        onChange={(event) => setEditDraft({ ...editDraft, studentName: event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                      />
-                    </label>
-                  )}
-
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    Teacher Placing Student
-                    <input
-                      value={editDraft.teacherName}
-                      onChange={(event) => setEditDraft({ ...editDraft, teacherName: event.target.value })}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                    />
-                  </label>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium text-slate-200">Assignment</div>
-                    <div className="grid gap-2">
-                      <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={editDraft.needsStructuredRecess}
-                          onChange={(event) => updateEditEntryType({ needsStructuredRecess: event.target.checked })}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
-                        />
-                        <span>
-                          Structured Recess
-                          <span className="block text-xs font-normal text-slate-500">Supervised physical activity with limited options.</span>
-                        </span>
-                      </label>
-                      <label className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={editDraft.needsWorkTime}
-                          onChange={(event) => updateEditEntryType({ needsWorkTime: event.target.checked })}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-fuchsia-500"
-                        />
-                        <span>
-                          Finish Work
-                          <span className="block text-xs font-normal text-slate-500">Policy limit: 5 min first recess, 10 min lunch recess.</span>
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium text-slate-200">Recess Time</div>
-                    <div className="grid gap-2">
-                      {Object.entries(recessOptions).map(([id, option]) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setEditRecessType(id)}
-                          className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                            editDraft.recessType === id
-                              ? option.tone
-                              : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    {editDraft.needsWorkTime ? "Work/assignment length" : "Length"}
-                    <select
-                      value={editDraft.duration}
-                      onChange={(event) =>
-                        setEditDraft({
-                          ...editDraft,
-                          duration: event.target.value === "ALL" ? "ALL" : Number(event.target.value),
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                    >
-                      {editDurationOptions.map((duration) => (
-                        <option key={duration} value={duration}>
-                          {formatDuration(duration)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    Reason <span className="text-xs font-normal text-slate-500">(optional)</span>
-                    <input
-                      value={editDraft.reason}
-                      onChange={(event) => setEditDraft({ ...editDraft, reason: event.target.value })}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none placeholder:text-slate-600 focus:border-sky-400"
-                    />
-                  </label>
-
-                  <label className="space-y-1 text-sm font-medium text-slate-200">
-                    Notes for Aide
-                    <textarea
-                      value={editDraft.notes}
-                      onChange={(event) => setEditDraft({ ...editDraft, notes: event.target.value })}
-                      className="min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                    />
-                  </label>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={saveEditedEntry}
-                      disabled={!editDraft.studentName || !editDraft.teacherName.trim() || (!editDraft.needsStructuredRecess && !editDraft.needsWorkTime)}
-                      className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Save Changes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditDraft(null)}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </CollapsibleSection>
-            )}
-
             <CollapsibleSection
               id="add-student"
               title="Add Student for Today"
@@ -2497,16 +2535,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                     <span className="text-sm text-slate-500">{earlyEntries.length} students</span>
                   </div>
                   {earlyEntries.length ? (
-                    earlyEntries.map((entry) => (
-                      <EntryCard
-                        key={entry.id}
-                        entry={entry}
-                        onComplete={(id) => updateStatus(id, "complete")}
-                        onNotServed={markEntryNotServed}
-                        onEdit={beginEditEntry}
-                        onDelete={removeEntry}
-                      />
-                    ))
+                    earlyEntries.map(renderEntryCard)
                   ) : (
                     <EmptyState>No students currently listed for first recess.</EmptyState>
                   )}
@@ -2518,16 +2547,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                     <span className="text-sm text-slate-500">{bothEntries.length} students</span>
                   </div>
                   {bothEntries.length ? (
-                    bothEntries.map((entry) => (
-                      <EntryCard
-                        key={entry.id}
-                        entry={entry}
-                        onComplete={(id) => updateStatus(id, "complete")}
-                        onNotServed={markEntryNotServed}
-                        onEdit={beginEditEntry}
-                        onDelete={removeEntry}
-                      />
-                    ))
+                    bothEntries.map(renderEntryCard)
                   ) : (
                     <EmptyState>No students currently listed for both recesses.</EmptyState>
                   )}
@@ -2539,16 +2559,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                     <span className="text-sm text-slate-500">{lunchEntries.length} students</span>
                   </div>
                   {lunchEntries.length ? (
-                    lunchEntries.map((entry) => (
-                      <EntryCard
-                        key={entry.id}
-                        entry={entry}
-                        onComplete={(id) => updateStatus(id, "complete")}
-                        onNotServed={markEntryNotServed}
-                        onEdit={beginEditEntry}
-                        onDelete={removeEntry}
-                      />
-                    ))
+                    lunchEntries.map(renderEntryCard)
                   ) : (
                     <EmptyState>No students currently listed for lunch recess.</EmptyState>
                   )}
@@ -2566,16 +2577,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             >
               <div className="grid gap-3 p-4 md:grid-cols-2">
                 {unconfirmedPastEntries.length ? (
-                  unconfirmedPastEntries.map((entry) => (
-                    <EntryCard
-                      key={entry.id}
-                      entry={entry}
-                      onComplete={(id) => updateStatus(id, "complete")}
-                      onNotServed={markEntryNotServed}
-                      onEdit={beginEditEntry}
-                      onDelete={removeEntry}
-                    />
-                  ))
+                  unconfirmedPastEntries.map(renderEntryCard)
                 ) : (
                   <div className="md:col-span-2">
                     <EmptyState>No past structured recess entries are waiting for confirmation.</EmptyState>
@@ -2625,16 +2627,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             >
               <div className="grid gap-3 p-4 md:grid-cols-2">
                 {historyEntries.length ? (
-                  historyEntries.map((entry) => (
-                    <EntryCard
-                      key={entry.id}
-                      entry={entry}
-                      onComplete={(id) => updateStatus(id, "complete")}
-                      onNotServed={markEntryNotServed}
-                      onEdit={beginEditEntry}
-                      onDelete={removeEntry}
-                    />
-                  ))
+                  historyEntries.map(renderEntryCard)
                 ) : (
                   <div className="md:col-span-2">
                     <EmptyState>No structured recess entries logged for this date.</EmptyState>
