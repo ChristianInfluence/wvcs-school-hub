@@ -5,6 +5,8 @@ import { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField, PDFDocument } fr
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Download,
   Eye,
@@ -2131,6 +2133,7 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
   const [editingId, setEditingId] = useState("");
   const [importStatus, setImportStatus] = useState("");
   const [templateToDelete, setTemplateToDelete] = useState(null);
+  const [expandedTemplateIds, setExpandedTemplateIds] = useState({});
   const editingTemplate = state.templates.find((template) => template.id === editingId);
 
   function addTemplate(template) {
@@ -2192,6 +2195,15 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
       })
       .catch((error) => setSyncStatus(`Template deleted locally. Shared sync failed: ${error.message}`));
     setTemplateToDelete(null);
+    setExpandedTemplateIds((current) => {
+      const next = { ...current };
+      delete next[templateId];
+      return next;
+    });
+  }
+
+  function toggleTemplateExpanded(templateId) {
+    setExpandedTemplateIds((current) => ({ ...current, [templateId]: !current[templateId] }));
   }
 
   async function importFillablePdf(event) {
@@ -2250,7 +2262,17 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
   }
 
   return (
-    <div className="grid gap-4 2xl:grid-cols-[520px_minmax(720px,1fr)]">
+    <div className="grid gap-4 2xl:grid-cols-[minmax(720px,1fr)_420px]">
+      <div>
+        <TemplateEditorPanel
+          key="new-template"
+          settings={state.settings}
+          template={null}
+          onCancel={() => setEditingId("")}
+          onSave={addTemplate}
+        />
+      </div>
+
       <div className="rounded-lg border border-slate-800 bg-slate-900">
         <div className="border-b border-slate-800 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2269,80 +2291,86 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
           </div>
         </div>
         <div className="grid gap-3 p-4">
-          {state.templates.map((template) => (
-            <div key={template.id} className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">{template.title}</div>
-                  <div className="mt-1 text-xs text-slate-500">{template.category || "Uncategorized"}</div>
-                </div>
-                <Badge status={template.active ? "Approved" : "Draft"}>{template.active ? "Active" : "Inactive"}</Badge>
-              </div>
-              <p className="mt-3 min-h-10 text-sm text-slate-400">{template.description}</p>
-              <div className="mt-4 grid gap-2 text-xs text-slate-400">
-                <div>PDF: <span className="text-slate-200">{template.pdfName}</span></div>
-                {template.source === "fillable-pdf" && (
-                  <div>Source: <span className="text-slate-200">Fillable PDF import</span></div>
-                )}
-                <div>Approver: <span className="text-slate-200">{template.approver}</span></div>
-                <div>
-                  Completed PDF recipients:{" "}
-                  <span className="text-slate-200">
-                    {(template.finalCopyRecipients?.length
-                      ? template.finalCopyRecipients
-                      : state.settings.finalCopyRecipients || []
-                    ).join(", ") || "Submitter only"}
-                  </span>
-                </div>
-                <div>Fields: <span className="text-slate-200">{template.fields.length}</span></div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
+          {state.templates.map((template) => {
+            const isExpanded = Boolean(expandedTemplateIds[template.id]);
+            return (
+              <article key={template.id} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
                 <button
                   type="button"
-                  onClick={() => previewSubmissionPdf(getSampleSubmission(template), template, state.settings)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                  onClick={() => toggleTemplateExpanded(template.id)}
+                  className="flex w-full items-start justify-between gap-3 p-4 text-left transition hover:bg-slate-900"
                 >
-                  <Eye size={14} />
-                  Preview PDF
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      {isExpanded ? <ChevronDown size={16} className="shrink-0 text-sky-300" /> : <ChevronRight size={16} className="shrink-0 text-slate-500" />}
+                      <div className="truncate text-sm font-semibold text-white">{template.title}</div>
+                    </div>
+                    <div className="mt-1 truncate pl-6 text-xs text-slate-500">
+                      {template.category || "Uncategorized"} · {template.fields.length} field{template.fields.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <Badge status={template.active ? "Approved" : "Draft"}>{template.active ? "Active" : "Inactive"}</Badge>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingId(template.id)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-sky-950/30 transition hover:bg-sky-400"
-                >
-                  <Settings size={14} />
-                  Edit Template
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleTemplate(template.id)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
-                >
-                  <RefreshCw size={14} />
-                  {template.active ? "Deactivate" : "Activate"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTemplateToDelete(template)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/25"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="2xl:order-last">
-        <TemplateEditorPanel
-          key="new-template"
-          settings={state.settings}
-          template={null}
-          onCancel={() => setEditingId("")}
-          onSave={addTemplate}
-        />
+                {isExpanded && (
+                  <div className="border-t border-slate-800 p-4">
+                    <p className="text-sm text-slate-400">{template.description}</p>
+                    <div className="mt-4 grid gap-2 text-xs text-slate-400">
+                      <div>PDF: <span className="text-slate-200">{template.pdfName}</span></div>
+                      {template.source === "fillable-pdf" && (
+                        <div>Source: <span className="text-slate-200">Fillable PDF import</span></div>
+                      )}
+                      <div>Approver: <span className="text-slate-200">{template.approver}</span></div>
+                      <div>
+                        Completed PDF recipients:{" "}
+                        <span className="text-slate-200">
+                          {(template.finalCopyRecipients?.length
+                            ? template.finalCopyRecipients
+                            : state.settings.finalCopyRecipients || []
+                          ).join(", ") || "Submitter only"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => previewSubmissionPdf(getSampleSubmission(template), template, state.settings)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                      >
+                        <Eye size={14} />
+                        Preview PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(template.id)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-sky-950/30 transition hover:bg-sky-400"
+                      >
+                        <Settings size={14} />
+                        Edit Template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleTemplate(template.id)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                      >
+                        <RefreshCw size={14} />
+                        {template.active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateToDelete(template)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/25"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
       </div>
 
       {templateToDelete && (
