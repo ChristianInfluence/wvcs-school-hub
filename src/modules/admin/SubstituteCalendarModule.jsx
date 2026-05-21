@@ -145,7 +145,7 @@ function getSubstituteCalendarPdfFileName(monthKey) {
 function buildPdfAbsenceBlock(absence) {
   const uncovered = getUncoveredPeriods(absence);
   const coverageRows = (absence.coverage || []).map((coverage) => `
-    <div class="person-row covering-row">
+    <div class="person-line covering-line">
       <span class="person-name">${escapeHtml(coverage.substituteName)}</span>
       <span class="person-period">P${escapeHtml(formatPeriodRange(coverage.periods))}</span>
     </div>
@@ -155,15 +155,15 @@ function buildPdfAbsenceBlock(absence) {
     <div class="entry">
       <div class="entry-column">
         <div class="column-label absent-label">Absent</div>
-        <div class="person-row absent-row">
+        <div class="person-line absent-line">
           <span class="person-name">${escapeHtml(absence.staffName)}</span>
           <span class="person-period">P${escapeHtml(formatPeriodRange(absence.periods))}</span>
         </div>
       </div>
       <div class="entry-column">
         <div class="column-label covering-label">Substitute</div>
-        ${coverageRows || `<div class="person-row missing-row"><span class="person-name">Open</span><span class="person-period">--</span></div>`}
-        ${uncovered.length ? `<div class="person-row missing-row"><span class="person-name">Needs</span><span class="person-period">P${escapeHtml(formatPeriodRange(uncovered))}</span></div>` : ""}
+        ${coverageRows || `<div class="person-line missing-line"><span class="person-name">Open</span><span class="person-period">--</span></div>`}
+        ${uncovered.length ? `<div class="person-line missing-line"><span class="person-name">Needs</span><span class="person-period">P${escapeHtml(formatPeriodRange(uncovered))}</span></div>` : ""}
       </div>
     </div>
   `;
@@ -184,9 +184,9 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
       <style>
         .sub-calendar-pdf {
           width: 1040px;
-          min-height: 760px;
+          height: 650px;
           box-sizing: border-box;
-          padding: 22px 24px 18px;
+          padding: 14px 18px;
           color: #0f172a;
           background: #ffffff;
           font-family: Arial, Helvetica, sans-serif;
@@ -210,12 +210,12 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 18px;
+          gap: 14px;
           border: 1px solid #cbd5e1;
           border-bottom: 4px solid #475569;
           background: #f8fafc;
           border-radius: 8px 8px 0 0;
-          padding: 10px 14px;
+          padding: 8px 12px;
         }
         .sub-calendar-pdf .brand {
           display: flex;
@@ -223,8 +223,8 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           gap: 12px;
         }
         .sub-calendar-pdf .logo {
-          width: 54px;
-          height: 54px;
+          width: 46px;
+          height: 46px;
           object-fit: contain;
         }
         .sub-calendar-pdf .school {
@@ -236,33 +236,24 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         }
         .sub-calendar-pdf h1 {
           margin: 3px 0 0;
-          font-size: 24px;
+          font-size: 21px;
           color: #020617;
+        }
+        .sub-calendar-pdf .header-stats {
+          margin-top: 4px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          color: #475569;
+          font-size: 8.5px;
+          font-weight: 800;
+          text-transform: uppercase;
         }
         .sub-calendar-pdf .meta {
           text-align: right;
-          font-size: 10px;
+          font-size: 9px;
           line-height: 1.35;
           color: #475569;
-        }
-        .sub-calendar-pdf .stats {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-          font-size: 10px;
-        }
-        .sub-calendar-pdf .stat {
-          border: 1px solid #cbd5e1;
-          border-radius: 6px;
-          background: #ffffff;
-          padding: 7px 9px;
-        }
-        .sub-calendar-pdf .stat strong {
-          display: block;
-          margin-top: 2px;
-          font-size: 15px;
-          color: #020617;
         }
         .sub-calendar-pdf .weekday-row,
         .sub-calendar-pdf .calendar {
@@ -270,7 +261,7 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           grid-template-columns: repeat(5, 1fr);
         }
         .sub-calendar-pdf .weekday-row {
-          margin-top: 10px;
+          margin-top: 8px;
           border: 1px solid #cbd5e1;
           border-bottom: 0;
           background: #e2e8f0;
@@ -293,11 +284,11 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           border-top: 1px solid #cbd5e1;
         }
         .sub-calendar-pdf .day {
-          height: ${printableDays.length > 25 ? "96px" : "116px"};
+          height: ${printableDays.length > 25 ? "79px" : "96px"};
           border-right: 1px solid #cbd5e1;
           border-bottom: 1px solid #cbd5e1;
           background: rgba(255, 255, 255, 0.92);
-          padding: 5px;
+          padding: 4px;
           box-sizing: border-box;
           overflow: hidden;
         }
@@ -305,30 +296,28 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
           background: rgba(241, 245, 249, 0.72);
         }
         .sub-calendar-pdf .date {
-          margin-bottom: 3px;
+          margin-bottom: 2px;
           font-size: 10px;
           font-weight: 800;
           color: #0f172a;
         }
         .sub-calendar-pdf .entry {
-          margin-top: 3px;
-          border: 1px solid #e2e8f0;
-          border-radius: 4px;
-          background: rgba(248, 250, 252, 0.96);
+          margin-top: 2px;
+          border-top: 1px solid #e2e8f0;
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 3px;
-          padding: 3px;
-          font-size: 6.9px;
-          line-height: 1.02;
+          gap: 5px;
+          padding-top: 2px;
+          font-size: 7.2px;
+          line-height: 1.05;
           overflow: hidden;
         }
         .sub-calendar-pdf .entry-column {
           min-width: 0;
         }
         .sub-calendar-pdf .column-label {
-          margin-bottom: 1px;
-          font-size: 5.7px;
+          margin-bottom: 0;
+          font-size: 5.8px;
           font-weight: 800;
           letter-spacing: 0.4px;
           line-height: 1;
@@ -340,52 +329,34 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
         .sub-calendar-pdf .covering-label {
           color: #166534;
         }
-        .sub-calendar-pdf .person-row {
+        .sub-calendar-pdf .person-line {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 2px;
+          align-items: baseline;
+          gap: 3px;
           margin-top: 1px;
-          border-radius: 3px;
-          padding: 1px 2px;
-          min-height: 10px;
+          min-height: 0;
         }
-        .sub-calendar-pdf .person-row:first-child {
-          margin-top: 0;
-        }
-        .sub-calendar-pdf .absent-row {
-          background: #fee2e2;
+        .sub-calendar-pdf .absent-line {
           color: #7f1d1d;
-          border: 1px solid #fecaca;
         }
-        .sub-calendar-pdf .covering-row {
-          background: #dcfce7;
+        .sub-calendar-pdf .covering-line {
           color: #14532d;
-          border: 1px solid #bbf7d0;
         }
-        .sub-calendar-pdf .missing-row {
-          background: #fff7ed;
+        .sub-calendar-pdf .missing-line {
           color: #9a3412;
-          border: 1px solid #fed7aa;
         }
         .sub-calendar-pdf .person-name {
           min-width: 0;
-          white-space: nowrap;
+          white-space: normal;
           overflow: hidden;
-          text-overflow: ellipsis;
           font-weight: 800;
+          overflow-wrap: anywhere;
         }
         .sub-calendar-pdf .person-period {
           white-space: nowrap;
           font-weight: 800;
-          font-size: 6.1px;
-        }
-        .sub-calendar-pdf footer {
-          margin-top: 8px;
-          display: flex;
-          justify-content: space-between;
-          color: #64748b;
-          font-size: 8.5px;
+          font-size: 6.4px;
         }
       </style>
       <img class="watermark" src="${warriorHeadNew}" alt="">
@@ -396,6 +367,11 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
             <div>
               <div class="school">Willamette Valley Christian School</div>
               <h1>Substitute Calendar</h1>
+              <div class="header-stats">
+                <span>${monthAbsences.length} staff absences</span>
+                <span>${uncoveredCount} uncovered needs</span>
+                <span>Generated ${escapeHtml(formatDate(getTodayKey()))}</span>
+              </div>
             </div>
           </div>
           <div class="meta">
@@ -404,12 +380,6 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
             TEL: 503-393-5236
           </div>
         </header>
-
-        <section class="stats">
-          <div class="stat">Staff Absences<strong>${monthAbsences.length}</strong></div>
-          <div class="stat">Uncovered Needs<strong>${uncoveredCount}</strong></div>
-          <div class="stat">Generated<strong>${escapeHtml(formatDate(getTodayKey()))}</strong></div>
-        </section>
 
         <div class="weekday-row">
           ${["Mon", "Tue", "Wed", "Thu", "Fri"].map((day) => `<div>${day}</div>`).join("")}
@@ -425,10 +395,6 @@ async function generateSubstituteCalendarPdfBlob({ monthKey, absencesByDate, mon
             `;
           }).join("")}
         </section>
-        <footer>
-          <span>Compact monthly view. Full notes remain available inside WVCS School Hub.</span>
-          <span>Covered entries are green; uncovered needs are red.</span>
-        </footer>
       </div>
     </div>
   `;
