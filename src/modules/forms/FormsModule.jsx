@@ -885,6 +885,12 @@ function StaffFormsModule({ currentUserEmail = "" }) {
     (submission) => submission.submitterEmail?.toLowerCase() === submitterEmail
   );
 
+  function startAnotherSubmission(nextTemplateId = selectedTemplate?.id) {
+    if (nextTemplateId) setSelectedId(nextTemplateId);
+    setAnswers({});
+    setSubmissionFeedback(null);
+  }
+
   async function uploadSubmissionFiles(submissionId) {
     const nextAnswers = { ...answers };
     const fileFields = selectedTemplate.fields.filter((field) => field.type === "file" && nextAnswers[field.id]?.dataUrl);
@@ -978,7 +984,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
       setSubmissionFeedback({
         tone: "success",
         title: "Form sent for approval",
-        message: "Administration has been notified, and your submission is now in the approval queue.",
+        message: "Administration has been notified, and your submission is now in the approval queue. You can start another form now.",
       });
     } catch (error) {
       const emailPatch = { emailStatus: `Submission saved; email failed: ${error.message}` };
@@ -1033,8 +1039,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                   key={template.id}
                   type="button"
                   onClick={() => {
-                    setSelectedId(template.id);
-                    setAnswers({});
+                    startAnotherSubmission(template.id);
                   }}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     selectedTemplate?.id === template.id
@@ -1114,9 +1119,19 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                         ) : (
                           <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
                         )}
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <div className="text-sm font-bold">{submissionFeedback.title}</div>
                           <div className="mt-1 text-sm opacity-90">{submissionFeedback.message}</div>
+                          {submissionFeedback.tone === "success" && (
+                            <button
+                              type="button"
+                              onClick={() => startAnotherSubmission()}
+                              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-400/15 px-3 py-1.5 text-xs font-bold text-emerald-50 transition hover:bg-emerald-400/25"
+                            >
+                              <Plus size={14} />
+                              Start Another Form
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
