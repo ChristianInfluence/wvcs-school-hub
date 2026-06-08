@@ -1749,6 +1749,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const refreshTimerRef = useRef(null);
   const [editDraft, setEditDraft] = useState(null);
   const [draft, setDraft] = useState({
+    date: getTodayKey(),
     studentGrade: "",
     studentNames: [],
     teacherName: currentUserEmail,
@@ -1979,9 +1980,10 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
 
   function addEntry() {
     if (!draft.studentNames.length || !draft.teacherName.trim() || (!draft.needsStructuredRecess && !draft.needsWorkTime)) return;
+    const assignmentDate = draft.date || today;
     const newEntries = draft.studentNames.map((studentName) => ({
       id: crypto.randomUUID(),
-      date: today,
+      date: assignmentDate,
       studentGrade: draft.studentGrade,
       studentName,
       teacherName: draft.teacherName.trim(),
@@ -2000,7 +2002,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         if (results.some((result) => result.saved)) setSharedDataStatus("Shared database connected.");
       })
       .catch(noteSharedSaveError);
-    setHistoryDate(today);
+    setHistoryDate(assignmentDate);
     setDraft((current) => ({ ...current, studentNames: [], reason: "", notes: "" }));
   }
 
@@ -2304,13 +2306,26 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
           <aside className="min-w-0 space-y-4">
             <CollapsibleSection
               id="add-student"
-              title="Add Student for Today"
+              title="Add Structured Recess"
               icon={Plus}
-              summary={`${draft.studentNames.length} selected`}
+              summary={`${draft.studentNames.length} selected · ${formatDate(draft.date || today)}`}
               collapsed={Boolean(collapsedSections["add-student"])}
               onToggle={toggleStructuredSection}
             >
               <div className="space-y-4 p-4">
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  Assignment Date
+                  <input
+                    type="date"
+                    value={draft.date || today}
+                    onChange={(event) => setDraft({ ...draft, date: event.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                  />
+                  <span className="block text-xs font-normal text-slate-500">
+                    Choose today or another school day this week.
+                  </span>
+                </label>
+
                 <label className="space-y-1 text-sm font-medium text-slate-200">
                   Grade
                   <select
@@ -2466,7 +2481,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={16} />
-                  Add {draft.studentNames.length || ""} to Today&apos;s Board
+                  Add {draft.studentNames.length || ""} to {draft.date === today ? "Today" : formatDate(draft.date || today)}
                 </button>
               </div>
             </CollapsibleSection>
