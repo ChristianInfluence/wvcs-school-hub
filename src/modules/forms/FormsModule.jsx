@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import html2pdf from "html2pdf.js";
 import { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField, PDFDocument } from "pdf-lib";
@@ -1664,12 +1664,44 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
 
 function ApprovalQueue({ state, updateState, setSyncStatus }) {
   const [selectedId, setSelectedId] = useState(state.submissions[0]?.id || "");
-  const selected = state.submissions.find((submission) => submission.id === selectedId) || state.submissions[0];
-  const template = state.templates.find((item) => item.id === selected?.templateId);
+  const [selectedTemplateFilter, setSelectedTemplateFilter] = useState(
+    state.submissions[0]?.templateId || state.templates[0]?.id || ""
+  );
   const [notes, setNotes] = useState("");
   const [signatureName, setSignatureName] = useState(loadApprovalSignature);
   const [reviewFeedback, setReviewFeedback] = useState("");
   const [sendingId, setSendingId] = useState("");
+  const templateGroups = useMemo(() => {
+    const templateIdsWithSubmissions = new Set(state.submissions.map((submission) => submission.templateId));
+    const archivedGroups = state.submissions
+      .filter((submission) => !state.templates.some((item) => item.id === submission.templateId))
+      .reduce((groups, submission) => {
+        if (!groups.some((group) => group.id === submission.templateId)) {
+          groups.push({
+            id: submission.templateId,
+            title: submission.templateTitle || "Archived Form",
+            category: "Archived",
+          });
+        }
+        return groups;
+      }, []);
+    return [...state.templates.filter((item) => templateIdsWithSubmissions.has(item.id)), ...archivedGroups];
+  }, [state.submissions, state.templates]);
+  const effectiveTemplateFilter = templateGroups.some((group) => group.id === selectedTemplateFilter)
+    ? selectedTemplateFilter
+    : templateGroups[0]?.id || "";
+  const visibleSubmissions = state.submissions.filter((submission) => submission.templateId === effectiveTemplateFilter);
+  const selected =
+    visibleSubmissions.find((submission) => submission.id === selectedId) ||
+    visibleSubmissions[0] ||
+    state.submissions[0];
+  const template = state.templates.find((item) => item.id === selected?.templateId);
+
+  function selectTemplateGroup(templateId) {
+    setSelectedTemplateFilter(templateId);
+    const firstSubmission = state.submissions.find((submission) => submission.templateId === templateId);
+    setSelectedId(firstSubmission?.id || "");
+  }
 
   async function sendSubmissionEmail(submissionToSend, options = {}) {
     if (!submissionToSend) return;
@@ -1849,35 +1881,83 @@ function ApprovalQueue({ state, updateState, setSyncStatus }) {
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
       <div className="rounded-lg border border-slate-800 bg-slate-900">
         <div className="border-b border-slate-800 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <ClipboardCheck size={16} className="text-sky-300" />
-            Approval Queue
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <ClipboardCheck size={16} className="text-sky-300" />
+              Submissions by Form
+            </div>
+            <div className="text-xs text-slate-500">Choose a form to review its submissions.</div>
           </div>
         </div>
         <div className="max-h-[620px] overflow-auto p-2">
-          {state.submissions.map((submission) => (
-            <button
-              key={submission.id}
-              type="button"
-              onClick={() => setSelectedId(submission.id)}
-              className={`mb-2 w-full rounded-lg border p-3 text-left transition ${
-                selected?.id === submission.id
-                  ? submission.status === "Approved"
-                    ? "border-emerald-400 bg-emerald-500/15"
-                    : "border-sky-400 bg-sky-500/15"
-                  : "border-slate-800 bg-slate-950 hover:border-slate-600"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">{submission.templateTitle}</div>
-                  <div className="mt-1 text-xs text-slate-400">{submission.submitterName}</div>
-                </div>
-                <Badge status={submission.status}>{submission.status}</Badge>
+          {templateGroups.length ? (
+            <>
+              <div className="mb-3 grid gap-2">
+                {templateGroups.map((group) => {
+                  const groupSubmissions = state.submissions.filter((submission) => submission.templateId === group.id);
+                  const pendingCount = groupSubmissions.filter((submission) => submission.status === "Submitted").length;
+                  const isActive = effectiveTemplateFilter === group.id;
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => selectTemplateGroup(group.id)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                        isActive
+                          ? "border-sky-400 bg-sky-500/15"
+                          : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-white">{group.title}</div>
+                          <div className="mt-1 text-xs text-slate-500">{group.category || "Form"}</div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-sm font-bold text-slate-100">{groupSubmissions.length}</div>
+                          <div className={`text-xs font-semibold ${pendingCount ? "text-amber-300" : "text-slate-500"}`}>
+                            {pendingCount} pending
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="mt-2 text-xs text-slate-500">{formatDate(submission.submittedAt)}</div>
-            </button>
-          ))}
+
+              <div className="border-t border-slate-800 pt-3">
+                <div className="mb-2 flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <span>Selected Form</span>
+                  <span>{visibleSubmissions.length} total</span>
+                </div>
+                {visibleSubmissions.map((submission) => (
+                  <button
+                    key={submission.id}
+                    type="button"
+                    onClick={() => setSelectedId(submission.id)}
+                    className={`mb-2 w-full rounded-lg border p-3 text-left transition ${
+                      selected?.id === submission.id
+                        ? submission.status === "Approved" || submission.status === "Sent"
+                          ? "border-emerald-400 bg-emerald-500/15"
+                          : "border-sky-400 bg-sky-500/15"
+                        : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-white">{submission.submitterName}</div>
+                        <div className="mt-1 truncate text-xs text-slate-400">{submission.submitterEmail}</div>
+                      </div>
+                      <Badge status={submission.status}>{submission.status}</Badge>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">{formatDate(submission.submittedAt)}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="p-4 text-sm text-slate-400">No submissions yet.</div>
+          )}
         </div>
       </div>
 
