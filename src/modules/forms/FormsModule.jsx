@@ -876,8 +876,12 @@ function StaffFormsModule({ currentUserEmail = "" }) {
   const [selectedId, setSelectedId] = useState(activeTemplates[0]?.id || "");
   const selectedTemplate = activeTemplates.find((template) => template.id === selectedId) || activeTemplates[0];
   const [submitter, setSubmitter] = useState({ name: "", email: "" });
+  const [preparedForOther, setPreparedForOther] = useState(false);
   const loggedInEmail = currentUserEmail.trim().toLowerCase();
-  const submitterEmail = loggedInEmail || submitter.email.trim().toLowerCase();
+  const submitterEmail = preparedForOther
+    ? submitter.email.trim().toLowerCase()
+    : loggedInEmail || submitter.email.trim().toLowerCase();
+  const displayedSubmitterEmail = preparedForOther || !loggedInEmail ? submitter.email : loggedInEmail;
   const [answers, setAnswers] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState(null);
@@ -933,6 +937,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
       templateTitle: selectedTemplate.title,
       submitterName: submitter.name.trim(),
       submitterEmail,
+      preparedByEmail: preparedForOther && loggedInEmail ? loggedInEmail : "",
       submittedAt: new Date().toISOString(),
       status: "Submitted",
       reviewer: "",
@@ -1077,7 +1082,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                 <div className="space-y-5 p-5">
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="space-y-1 text-sm font-medium text-slate-200">
-                      Your Name
+                      {preparedForOther ? "Staff Member Name" : "Your Name"}
                       <input
                         value={submitter.name}
                         onChange={(event) => setSubmitter({ ...submitter, name: event.target.value })}
@@ -1085,21 +1090,43 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                       />
                     </label>
                     <label className="space-y-1 text-sm font-medium text-slate-200">
-                      Your Email
+                      {preparedForOther ? "Staff Member Email" : "Your Email"}
                       <input
                         type="email"
-                        value={submitterEmail}
+                        value={displayedSubmitterEmail}
                         onChange={(event) => setSubmitter({ ...submitter, email: event.target.value })}
-                        readOnly={Boolean(loggedInEmail)}
+                        readOnly={Boolean(loggedInEmail) && !preparedForOther}
                         className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 read-only:cursor-not-allowed read-only:border-slate-800 read-only:bg-slate-900 read-only:text-slate-300"
                       />
-                      {loggedInEmail && (
+                      {loggedInEmail && !preparedForOther && (
                         <span className="block text-xs font-normal text-slate-500">
                           Pulled from your signed-in WVCS account.
                         </span>
                       )}
+                      {preparedForOther && loggedInEmail && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          Prepared by {loggedInEmail}.
+                        </span>
+                      )}
                     </label>
                   </div>
+
+                  {loggedInEmail && (
+                    <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={preparedForOther}
+                        onChange={(event) => setPreparedForOther(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                      />
+                      <span>
+                        This form is prepared for another staff member
+                        <span className="block text-xs font-normal text-slate-500">
+                          Use this when the approval should be tied to someone else&apos;s email.
+                        </span>
+                      </span>
+                    </label>
+                  )}
 
                   {submissionFeedback && (
                     <div
