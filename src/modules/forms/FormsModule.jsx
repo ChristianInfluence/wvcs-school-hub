@@ -855,12 +855,15 @@ export function PublicSharedFormPage({ token }) {
 
               <div className="grid gap-4">
                 {template.fields.map((field) => (
-                  <FieldInput
-                    key={field.id}
-                    field={field}
-                    value={answers[field.id]}
-                    onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
-                  />
+                  <label key={field.id} className="space-y-1 text-sm font-medium text-slate-200">
+                    {field.label}
+                    {field.required && <span className="text-rose-300"> *</span>}
+                    <FieldInput
+                      field={field}
+                      value={answers[field.id]}
+                      onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                    />
+                  </label>
                 ))}
               </div>
 
