@@ -8,10 +8,12 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  Copy,
   Download,
   Eye,
   FilePlus2,
   FileText,
+  Link2,
   Mail,
   Plus,
   RefreshCw,
@@ -22,7 +24,7 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
-import { sendFormNotification } from "../../lib/formNotifications.js";
+import { handleFormApprovalAction, handleFormShareLink, sendFormNotification } from "../../lib/formNotifications.js";
 import {
   deleteFormTemplate,
   createStoredFileUrl,
@@ -262,6 +264,14 @@ function getPdfFileName(submission) {
 
 function uniqueEmails(values) {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean)));
+}
+
+function getApprovalBaseUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function getPublicShareBaseUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
 }
 
 function dataUrlToAttachment(file) {
@@ -554,6 +564,322 @@ function AttachmentLink({ attachment, label = "View Attachment" }) {
       <Download size={14} />
       {label}
     </a>
+  );
+}
+
+export function FormApprovalActionPage({ token }) {
+  const [preview, setPreview] = useState({ loading: true, data: null, error: "" });
+  const [notes, setNotes] = useState("");
+  const [result, setResult] = useState({ loading: false, data: null, error: "" });
+
+  useEffect(() => {
+    let active = true;
+    handleFormApprovalAction({ token, operation: "preview" })
+      .then((data) => {
+        if (active) setPreview({ loading: false, data, error: data.reason && !data.valid ? data.reason : "" });
+      })
+      .catch((error) => {
+        if (active) setPreview({ loading: false, data: null, error: error.message });
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  async function resolveAction() {
+    setResult({ loading: true, data: null, error: "" });
+    try {
+      const data = await handleFormApprovalAction({ token, operation: "resolve", notes });
+      if (!data.ok) throw new Error(data.reason || data.error || "The approval action could not be completed.");
+      setResult({ loading: false, data, error: "" });
+    } catch (error) {
+      setResult({ loading: false, data: null, error: error.message });
+    }
+  }
+
+  const data = preview.data;
+  const action = data?.action || "";
+  const approving = action === "Approved";
+  const valid = Boolean(data?.valid) && !result.data;
+
+  return (
+    <section className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100">
+      <div className="mx-auto max-w-3xl">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+          <div className="flex items-center gap-3">
+            <div className={`flex h-11 w-11 items-center justify-center rounded-lg border ${
+              approving ? "border-emerald-400 bg-emerald-500/15 text-emerald-100" : "border-rose-400 bg-rose-500/15 text-rose-100"
+            }`}>
+              {approving ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">WVCS Form Review</div>
+              <h1 className="text-2xl font-bold text-white">
+                {action ? `${approving ? "Approve" : "Reject"} Form` : "Form Approval Link"}
+              </h1>
+            </div>
+          </div>
+
+          {preview.loading && <div className="mt-6 text-sm text-slate-300">Loading approval details...</div>}
+
+          {!preview.loading && preview.error && (
+            <div className="mt-6 rounded-lg border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+              {preview.error}
+            </div>
+          )}
+
+          {data?.submission && (
+            <div className="mt-6 space-y-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Form</div>
+                  <div className="mt-2 text-sm font-semibold text-white">{data.submission.templateTitle}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Submitted By</div>
+                  <div className="mt-2 text-sm font-semibold text-white">{data.submission.submitterName}</div>
+                  <div className="mt-1 text-xs text-slate-400">{data.submission.submitterEmail}</div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-800">
+                {(data.answers || []).map((answer) => (
+                  <div key={answer.label} className="grid gap-0 border-b border-slate-800 last:border-b-0 md:grid-cols-[220px_1fr]">
+                    <div className="bg-slate-950 px-4 py-3 text-sm font-semibold text-slate-300">{answer.label}</div>
+                    <div className="px-4 py-3 text-sm text-slate-100">{renderAnswerValue(answer.value)}</div>
+                  </div>
+                ))}
+              </div>
+
+              {valid && (
+                <>
+                  <label className="space-y-1 text-sm font-medium text-slate-200">
+                    Notes
+                    <textarea
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      placeholder={approving ? "Optional approval note" : "Optional rejection reason"}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={resolveAction}
+                    disabled={result.loading}
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                      approving
+                        ? "border-emerald-400 bg-emerald-500 hover:bg-emerald-400"
+                        : "border-rose-400 bg-rose-500 hover:bg-rose-400"
+                    }`}
+                  >
+                    {approving ? <CheckCircle2 size={17} /> : <XCircle size={17} />}
+                    {result.loading ? "Saving..." : `${approving ? "Approve" : "Reject"} This Form`}
+                  </button>
+                </>
+              )}
+
+              {result.data && (
+                <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                  {result.data.message || `The form was ${result.data.status?.toLowerCase()}.`}
+                  {result.data.emailWarning && (
+                    <div className="mt-2 text-amber-100">Status email warning: {result.data.emailWarning}</div>
+                  )}
+                </div>
+              )}
+
+              {result.error && (
+                <div className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100">
+                  {result.error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function PublicSharedFormPage({ token }) {
+  const [shareState, setShareState] = useState({ loading: true, template: null, error: "" });
+  const [submitter, setSubmitter] = useState({ name: "", email: "" });
+  const [answers, setAnswers] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    handleFormShareLink({ operation: "preview", token })
+      .then((data) => {
+        if (!active) return;
+        if (!data.ok) throw new Error(data.reason || data.error || "This shared form is not available.");
+        setShareState({ loading: false, template: data.template, error: "" });
+      })
+      .catch((error) => {
+        if (active) setShareState({ loading: false, template: null, error: error.message });
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  async function uploadPublicFiles(submissionId, template) {
+    const nextAnswers = { ...answers };
+    const fileFields = template.fields.filter((field) => field.type === "file" && nextAnswers[field.id]?.dataUrl);
+    for (const field of fileFields) {
+      const result = await uploadFormAnswerFile({
+        submissionId,
+        fieldId: field.id,
+        file: nextAnswers[field.id],
+      });
+      if (result.uploaded) {
+        nextAnswers[field.id] = result.file;
+      }
+    }
+    return nextAnswers;
+  }
+
+  async function submitSharedForm() {
+    const template = shareState.template;
+    const submitterEmail = submitter.email.trim().toLowerCase();
+    if (!template || !submitter.name.trim() || !submitterEmail) return;
+    if (template.fields.some((field) => !hasRequiredAnswer(field, answers))) return;
+
+    setIsSubmitting(true);
+    setFeedback({ tone: "info", title: "Submitting form...", message: "Saving your form and notifying WVCS." });
+
+    const submissionId = uid("sub");
+    try {
+      const submissionAnswers = await uploadPublicFiles(submissionId, template);
+      const result = await handleFormShareLink({
+        operation: "submit",
+        token,
+        submissionId,
+        submitterName: submitter.name,
+        submitterEmail,
+        answers: submissionAnswers,
+        shareBaseUrl: getPublicShareBaseUrl(),
+        approvalBaseUrl: getApprovalBaseUrl(),
+      });
+
+      if (!result.ok) throw new Error(result.error || result.reason || "The shared form could not be submitted.");
+
+      setFeedback({
+        tone: result.emailWarning ? "warning" : "success",
+        title: result.emailWarning ? "Form saved, but notification needs attention" : "Form submitted",
+        message: result.emailWarning || "Your form was sent to WVCS for approval. You will receive approval or denial notifications at the email you entered.",
+      });
+      setAnswers({});
+    } catch (error) {
+      setFeedback({ tone: "warning", title: "Form could not be submitted", message: error.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const template = shareState.template;
+  const canSubmit =
+    template &&
+    submitter.name.trim() &&
+    submitter.email.trim() &&
+    template.fields.every((field) => hasRequiredAnswer(field, answers));
+  const feedbackTone = {
+    info: "border-sky-400/40 bg-sky-500/10 text-sky-100",
+    success: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
+    warning: "border-amber-400/40 bg-amber-500/10 text-amber-100",
+  }[feedback?.tone || "info"];
+
+  return (
+    <section className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-5 flex items-center gap-3">
+          <img src={warriorHeadNew} alt="WVCS Warrior" className="h-12 w-12 rounded-lg object-contain" />
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Willamette Valley Christian School</div>
+            <h1 className="text-2xl font-bold text-white">Shared Form</h1>
+          </div>
+        </div>
+
+        {shareState.loading && (
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-sm text-slate-300">
+            Loading shared form...
+          </div>
+        )}
+
+        {!shareState.loading && shareState.error && (
+          <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-5 text-sm text-amber-100">
+            {shareState.error}
+          </div>
+        )}
+
+        {template && (
+          <div className="rounded-lg border border-slate-800 bg-slate-900">
+            <div className="border-b border-slate-800 p-5">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
+                {template.category || "WVCS Form"}
+              </div>
+              <h2 className="mt-2 text-2xl font-bold text-white">{template.title}</h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-400">{template.description}</p>
+            </div>
+
+            <div className="space-y-5 p-5">
+              {feedback && (
+                <div className={`rounded-lg border p-4 text-sm ${feedbackTone}`}>
+                  <div className="font-semibold">{feedback.title}</div>
+                  <div className="mt-1">{feedback.message}</div>
+                </div>
+              )}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  Your Name
+                  <input
+                    value={submitter.name}
+                    onChange={(event) => setSubmitter({ ...submitter, name: event.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                  />
+                </label>
+                <label className="space-y-1 text-sm font-medium text-slate-200">
+                  Your Email
+                  <input
+                    type="email"
+                    value={submitter.email}
+                    onChange={(event) => setSubmitter({ ...submitter, email: event.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                  />
+                  <span className="block text-xs font-normal text-slate-500">
+                    Approval or denial notifications will be sent here.
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid gap-4">
+                {template.fields.map((field) => (
+                  <FieldInput
+                    key={field.id}
+                    field={field}
+                    value={answers[field.id]}
+                    onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                  />
+                ))}
+              </div>
+
+              <div className="flex justify-end border-t border-slate-800 pt-5">
+                <button
+                  type="button"
+                  disabled={!canSubmit || isSubmitting}
+                  onClick={submitSharedForm}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send size={16} />
+                  {isSubmitting ? "Submitting..." : "Submit Form"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -967,6 +1293,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
         notes: "A new form was submitted for approval.",
         recipients,
         attachments: [],
+        approvalBaseUrl: getApprovalBaseUrl(),
       });
 
       if (!sendResult.sent) {
@@ -1490,14 +1817,14 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
             </select>
           </label>
           <label className="space-y-1 text-sm font-medium text-slate-200">
-            Approval Copy Emails
+            Approval / Denial Emails
             <input
               value={draft.recipients}
               onChange={(event) => setDraft({ ...draft, recipients: event.target.value })}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
             />
             <span className="block text-xs font-normal text-slate-500">
-              Receives submission and approval routing notices.
+              Receives submission notices and one-time email links to approve or reject.
             </span>
           </label>
         </div>
@@ -2256,6 +2583,7 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
   const [importStatus, setImportStatus] = useState("");
   const [templateToDelete, setTemplateToDelete] = useState(null);
   const [expandedTemplateIds, setExpandedTemplateIds] = useState({});
+  const [shareStatus, setShareStatus] = useState({ templateId: "", message: "", tone: "info" });
   const editingTemplate = state.templates.find((template) => template.id === editingId);
 
   function addTemplate(template) {
@@ -2341,6 +2669,30 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
       setImportStatus(`Imported ${template.fields.length} fields from ${file.name}. Review and activate when ready.`);
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Unable to import this PDF.");
+    }
+  }
+
+  async function createShareLink(template) {
+    setShareStatus({ templateId: template.id, message: "Creating share link...", tone: "info" });
+    try {
+      const result = await handleFormShareLink({
+        operation: "create",
+        templateId: template.id,
+        shareBaseUrl: getPublicShareBaseUrl(),
+      });
+      if (!result.ok || !result.url) throw new Error(result.error || result.reason || "Unable to create share link.");
+
+      try {
+        await navigator.clipboard.writeText(result.url);
+        setShareStatus({ templateId: template.id, message: "Share link copied.", tone: "success" });
+      } catch {
+        setShareStatus({ templateId: template.id, message: result.url, tone: "success" });
+      }
+      window.setTimeout(() => {
+        setShareStatus((current) => (current.templateId === template.id ? { templateId: "", message: "", tone: "info" } : current));
+      }, 5000);
+    } catch (error) {
+      setShareStatus({ templateId: template.id, message: error.message, tone: "warning" });
     }
   }
 
@@ -2472,6 +2824,14 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
                       </button>
                       <button
                         type="button"
+                        onClick={() => createShareLink(template)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-violet-500/60 bg-violet-500/15 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-500/25"
+                      >
+                        {shareStatus.templateId === template.id && shareStatus.message === "Share link copied." ? <Copy size={14} /> : <Link2 size={14} />}
+                        Share Fillable Link
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => toggleTemplate(template.id)}
                         className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
                       >
@@ -2487,6 +2847,17 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
                         Delete
                       </button>
                     </div>
+                    {shareStatus.templateId === template.id && shareStatus.message && (
+                      <div
+                        className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                          shareStatus.tone === "warning"
+                            ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                            : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                        }`}
+                      >
+                        {shareStatus.message}
+                      </div>
+                    )}
                   </div>
                 )}
               </article>

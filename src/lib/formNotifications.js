@@ -13,3 +13,28 @@ export async function sendFormNotification(payload) {
   return data || { sent: true };
 }
 
+export async function handleFormApprovalAction({ token, operation = "preview", notes = "" }) {
+  if (!isSupabaseConfigured) {
+    return { ok: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("form-approval-action", {
+    body: { token, operation, notes },
+  });
+
+  if (error) throw error;
+  return data || { ok: true };
+}
+
+export async function handleFormShareLink(payload) {
+  if (!isSupabaseConfigured) {
+    return { ok: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("form-share-link", {
+    body: payload,
+  });
+
+  if (error) throw error;
+  return data || { ok: true };
+}

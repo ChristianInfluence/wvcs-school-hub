@@ -17,7 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
-import StaffFormsModule, { AdminFormsModule } from "./modules/forms/FormsModule.jsx";
+import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
@@ -145,6 +145,30 @@ function getRouteFromHash(hash = window.location.hash) {
   if (permissionMatch) {
     return {
       parentSigningToken: decodeURIComponent(permissionMatch[1]),
+      formApprovalToken: "",
+      formShareToken: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  const formApprovalMatch = hash.match(/^#\/form-approval\/(.+)$/);
+  if (formApprovalMatch) {
+    return {
+      parentSigningToken: "",
+      formApprovalToken: decodeURIComponent(formApprovalMatch[1]),
+      formShareToken: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  const formShareMatch = hash.match(/^#\/form-share\/(.+)$/);
+  if (formShareMatch) {
+    return {
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: decodeURIComponent(formShareMatch[1]),
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -153,6 +177,8 @@ function getRouteFromHash(hash = window.location.hash) {
   if (hash === "#/structured-recess/aide") {
     return {
       parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
       moduleId: "structured-recess",
       structuredRecessView: "aide",
     };
@@ -162,6 +188,8 @@ function getRouteFromHash(hash = window.location.hash) {
   const moduleId = moduleMatch?.[1];
   return {
     parentSigningToken: "",
+    formApprovalToken: "",
+    formShareToken: "",
     moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
     structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
   };
@@ -549,6 +577,8 @@ export default function App() {
   const [activeModule, setActiveModule] = useState(initialRoute.moduleId);
   const [structuredRecessView, setStructuredRecessView] = useState(initialRoute.structuredRecessView);
   const [parentSigningToken, setParentSigningToken] = useState(initialRoute.parentSigningToken);
+  const [formApprovalToken, setFormApprovalToken] = useState(initialRoute.formApprovalToken);
+  const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
     [activeModule]
@@ -559,6 +589,8 @@ export default function App() {
     function handleHashRoute() {
       const route = getRouteFromHash();
       setParentSigningToken(route.parentSigningToken);
+      setFormApprovalToken(route.formApprovalToken);
+      setFormShareToken(route.formShareToken);
       setActiveModule(route.moduleId);
       setStructuredRecessView(route.structuredRecessView);
     }
@@ -570,16 +602,28 @@ export default function App() {
 
   function openModule(moduleId) {
     setParentSigningToken("");
+    setFormApprovalToken("");
+    setFormShareToken("");
     setModuleHash(moduleId, "full");
   }
 
   function openStructuredRecessAideView() {
     setParentSigningToken("");
+    setFormApprovalToken("");
+    setFormShareToken("");
     setModuleHash("structured-recess", "aide");
   }
 
   if (parentSigningToken) {
     return <ParentPermissionSigningPage token={parentSigningToken} />;
+  }
+
+  if (formApprovalToken) {
+    return <FormApprovalActionPage token={formApprovalToken} />;
+  }
+
+  if (formShareToken) {
+    return <PublicSharedFormPage token={formShareToken} />;
   }
 
   return (
