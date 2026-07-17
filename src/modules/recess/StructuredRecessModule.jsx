@@ -101,12 +101,38 @@ function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDaysKey(dateKey, days) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getSchoolWeekDates(todayKey) {
+  const dates = [];
+  let offset = 0;
+  while (dates.length < 5) {
+    const dateKey = addDaysKey(todayKey, offset);
+    const day = new Date(`${dateKey}T12:00:00`).getDay();
+    if (day !== 0 && day !== 6) dates.push(dateKey);
+    offset += 1;
+  }
+  return dates;
+}
+
 function formatDate(value) {
   return new Date(`${value}T12:00:00`).toLocaleDateString([], {
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+function formatShortDate(value) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -1047,7 +1073,7 @@ function AideRecessColumn({ type, entries, stagedCompleteIds, onStageChange }) {
   );
 }
 
-function AideCompactView({ entries, stagedCompleteIds, onStageChange, onConfirmComplete }) {
+function AideCompactView({ entries, date, stagedCompleteIds, onStageChange, onConfirmComplete }) {
   const groupedEntries = {
     early: entries.filter((entry) => entry.recessType === "early"),
     both: entries.filter((entry) => entry.recessType === "both"),
@@ -1063,7 +1089,7 @@ function AideCompactView({ entries, stagedCompleteIds, onStageChange, onConfirmC
             Aide View
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Compact checklist for today&apos;s structured recess students.
+            Compact checklist for {formatDate(date)} structured recess students.
           </p>
         </div>
         <div className="text-sm font-semibold text-slate-300">
@@ -1101,7 +1127,7 @@ function AideCompactView({ entries, stagedCompleteIds, onStageChange, onConfirmC
         </>
       ) : (
         <div className="p-4">
-          <EmptyState>No active structured recess students for today.</EmptyState>
+          <EmptyState>No active structured recess students for {formatDate(date)}.</EmptyState>
         </div>
       )}
     </div>
@@ -1736,6 +1762,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   const [isLoadingRoster, setIsLoadingRoster] = useState(false);
   const [sharedDataStatus, setSharedDataStatus] = useState("Connecting to shared database...");
   const [attendanceDate, setAttendanceDate] = useState(getTodayKey());
+  const [targetDate, setTargetDate] = useState(getTodayKey());
   const [selectedAttendanceRecess, setSelectedAttendanceRecess] = useState("early");
   const [collapsedGrades, setCollapsedGrades] = useState({});
   const [expandedAttendanceSlots, setExpandedAttendanceSlots] = useState({});
@@ -1762,9 +1789,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
   });
 
   const today = getTodayKey();
-  const todayEntries = useMemo(
-    () => entries.filter((entry) => entry.date === today && isEntryUnconfirmed(entry)),
-    [entries, today]
+  const schoolWeekDates = useMemo(() => getSchoolWeekDates(today), [today]);
+  const displayedEntries = useMemo(
+    () => entries.filter((entry) => entry.date === targetDate && isEntryUnconfirmed(entry)),
+    [entries, targetDate]
+  );
+  const attendanceActiveEntries = useMemo(
+    () => entries.filter((entry) => entry.date === attendanceDate && isEntryUnconfirmed(entry)),
+    [entries, attendanceDate]
   );
   const historyEntries = useMemo(
     () => entries.filter((entry) => entry.date === historyDate),
@@ -1776,9 +1808,9 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       .sort((a, b) => b.date.localeCompare(a.date) || compareStudentsByFirstName(a.studentName, b.studentName)),
     [entries, today]
   );
-  const earlyEntries = todayEntries.filter((entry) => entry.recessType === "early");
-  const bothEntries = todayEntries.filter((entry) => entry.recessType === "both");
-  const lunchEntries = todayEntries.filter((entry) => entry.recessType === "lunch");
+  const earlyEntries = displayedEntries.filter((entry) => entry.recessType === "early");
+  const bothEntries = displayedEntries.filter((entry) => entry.recessType === "both");
+  const lunchEntries = displayedEntries.filter((entry) => entry.recessType === "lunch");
   const logDates = [...new Set(entries.map((entry) => entry.date))].sort().reverse();
   const attendanceDates = getAttendanceDates(attendance, today);
   const structuredRecessLog = getStructuredRecessLog(entries, roster);
@@ -1814,6 +1846,12 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     // Load once on mount so any existing local records can seed the shared database safely.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setStagedCompleteIds((current) =>
+      current.filter((entryId) => displayedEntries.some((entry) => entry.id === entryId))
+    );
+  }, [displayedEntries]);
 
   useEffect(() => {
     const subscription = subscribeToRecessDataChanges(() => {
@@ -2003,6 +2041,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       })
       .catch(noteSharedSaveError);
     setHistoryDate(assignmentDate);
+    chooseBoardDate(assignmentDate);
     setDraft((current) => ({ ...current, studentNames: [], reason: "", notes: "" }));
   }
 
@@ -2079,6 +2118,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
       })
       .catch(noteSharedSaveError);
     setHistoryDate(updatedEntry.date);
+    chooseBoardDate(updatedEntry.date);
     setEditDraft(null);
   }
 
@@ -2189,6 +2229,11 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     });
   }
 
+  function chooseBoardDate(date) {
+    setTargetDate(date);
+    setAttendanceDate(date);
+  }
+
   function renderEntryCard(entry) {
     if (editDraft?.id === entry.id) {
       return (
@@ -2230,7 +2275,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
             </div>
             <h1 className="mt-2 text-2xl font-bold text-white">Structured Recess Board</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-400">
-              Teachers can add students for today. Recess aides can see who needs structured recess, finish-work time, or both.
+              Teachers can add students for today, tomorrow, or another school day this week. Recess aides can switch days to see who needs structured recess, finish-work time, or both.
             </p>
             <div className="mt-3 inline-flex rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
               {sharedDataStatus}
@@ -2240,8 +2285,8 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-4 gap-2 rounded-lg border border-slate-800 bg-slate-900 p-3 text-center">
               <div>
-                <div className="text-2xl font-bold text-white">{todayEntries.length}</div>
-                <div className="text-xs text-slate-500">Current</div>
+                <div className="text-2xl font-bold text-white">{displayedEntries.length}</div>
+                <div className="text-xs text-slate-500">Selected</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-sky-200">{earlyEntries.length}</div>
@@ -2254,6 +2299,33 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               <div>
                 <div className="text-2xl font-bold text-amber-200">{lunchEntries.length}</div>
                 <div className="text-xs text-slate-500">Lunch</div>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Board Date
+                <input
+                  type="date"
+                  value={targetDate}
+                  onChange={(event) => chooseBoardDate(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                />
+              </label>
+              <div className="mt-2 grid grid-cols-5 gap-1">
+                {schoolWeekDates.map((date) => (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => chooseBoardDate(date)}
+                    className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${
+                      targetDate === date
+                        ? "border-sky-400 bg-sky-500 text-white"
+                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    {new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: "short" })}
+                  </button>
+                ))}
               </div>
             </div>
             <button
@@ -2277,7 +2349,8 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         {viewMode === "aide" ? (
           <div className="space-y-5">
             <AideCompactView
-              entries={todayEntries}
+              entries={displayedEntries}
+              date={targetDate}
               stagedCompleteIds={stagedCompleteIds}
               onStageChange={stageCompletion}
               onConfirmComplete={confirmStagedComplete}
@@ -2286,7 +2359,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               date={attendanceDate}
               selectedRecessId={selectedAttendanceRecess}
               roster={roster}
-              activeEntries={todayEntries}
+              activeEntries={attendanceActiveEntries}
               attendance={attendance}
               attendanceDates={attendanceDates}
               collapsedGrades={collapsedGrades}
@@ -2318,13 +2391,36 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
                   <input
                     type="date"
                     value={draft.date || today}
-                    onChange={(event) => setDraft({ ...draft, date: event.target.value })}
+                    onChange={(event) => {
+                      setDraft({ ...draft, date: event.target.value });
+                      chooseBoardDate(event.target.value);
+                    }}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
                   />
                   <span className="block text-xs font-normal text-slate-500">
                     Choose today or another school day this week.
                   </span>
                 </label>
+                <div className="grid grid-cols-5 gap-1">
+                  {schoolWeekDates.map((date) => (
+                    <button
+                      key={date}
+                      type="button"
+                      onClick={() => {
+                        setDraft({ ...draft, date });
+                        chooseBoardDate(date);
+                      }}
+                      className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${
+                        (draft.date || today) === date
+                          ? "border-sky-400 bg-sky-500 text-white"
+                          : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                      }`}
+                      title={formatDate(date)}
+                    >
+                      {formatShortDate(date).split(",")[0]}
+                    </button>
+                  ))}
+                </div>
 
                 <label className="space-y-1 text-sm font-medium text-slate-200">
                   Grade
@@ -2521,13 +2617,14 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
               id="aide-checklist"
               title="Aide Checklist"
               icon={CheckCircle2}
-              summary={`${todayEntries.length} active student${todayEntries.length === 1 ? "" : "s"}`}
+              summary={`${displayedEntries.length} active student${displayedEntries.length === 1 ? "" : "s"} on ${formatShortDate(targetDate)}`}
               collapsed={Boolean(collapsedSections["aide-checklist"])}
               onToggle={toggleStructuredSection}
             >
               <div className="p-4">
                 <AideCompactView
-                  entries={todayEntries}
+                  entries={displayedEntries}
+                  date={targetDate}
                   stagedCompleteIds={stagedCompleteIds}
                   onStageChange={stageCompletion}
                   onConfirmComplete={confirmStagedComplete}
@@ -2537,9 +2634,9 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
 
             <CollapsibleSection
               id="current-recess"
-              title={`Current Structured Recess: ${formatDate(today)}`}
+              title={`Structured Recess: ${formatDate(targetDate)}`}
               icon={Users}
-              summary={`${todayEntries.length} current · ${earlyEntries.length} first · ${bothEntries.length} both · ${lunchEntries.length} lunch`}
+              summary={`${displayedEntries.length} active · ${earlyEntries.length} first · ${bothEntries.length} both · ${lunchEntries.length} lunch`}
               collapsed={Boolean(collapsedSections["current-recess"])}
               onToggle={toggleStructuredSection}
             >
