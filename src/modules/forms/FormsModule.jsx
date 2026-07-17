@@ -714,9 +714,72 @@ export function FormApprovalActionPage({ token }) {
                 </>
               )}
 
+              {!valid && !result.data && !preview.loading && (
+                <div className="rounded-lg border border-slate-700 bg-slate-950 p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-200">
+                      <CheckCircle2 size={20} />
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-white">Submission Status Recorded</div>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        {preview.error || data.reason || "This approval link is no longer waiting for a decision."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm md:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Current Status</div>
+                      <div className="mt-1 font-semibold text-white">{data.submission.status}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Submitted</div>
+                      <div className="mt-1 font-semibold text-white">{formatDate(data.submission.submittedAt)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {result.data && (
-                <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-                  {result.data.message || `The form was ${result.data.status?.toLowerCase()}.`}
+                <div className={`rounded-lg border p-5 text-sm ${
+                  result.data.status === "Rejected"
+                    ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                    : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${
+                      result.data.status === "Rejected"
+                        ? "border-rose-300/50 bg-rose-400/20"
+                        : "border-emerald-300/50 bg-emerald-400/20"
+                    }`}>
+                      {result.data.status === "Rejected" ? <XCircle size={22} /> : <CheckCircle2 size={22} />}
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-white">Decision Recorded</div>
+                      <p className="mt-2 leading-6">
+                        {result.data.message || `The form was ${result.data.status?.toLowerCase()}.`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-3 rounded-lg border border-white/10 bg-slate-950/50 p-4 md:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] opacity-80">Recorded Decision</div>
+                      <div className="mt-1 font-semibold text-white">{result.data.status}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] opacity-80">Recorded At</div>
+                      <div className="mt-1 font-semibold text-white">{formatDate(result.data.reviewedAt)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] opacity-80">Form</div>
+                      <div className="mt-1 font-semibold text-white">{data.submission.templateTitle}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] opacity-80">Submitted By</div>
+                      <div className="mt-1 font-semibold text-white">{data.submission.submitterName}</div>
+                      <div className="mt-1 break-words text-xs opacity-80">{data.submission.submitterEmail}</div>
+                    </div>
+                  </div>
                   {result.data.emailWarning && (
                     <div className="mt-2 text-amber-100">Status email warning: {result.data.emailWarning}</div>
                   )}
