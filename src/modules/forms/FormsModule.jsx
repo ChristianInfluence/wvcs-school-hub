@@ -4,6 +4,7 @@ import html2pdf from "html2pdf.js";
 import { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField, PDFDocument } from "pdf-lib";
 import {
   AlertCircle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -255,6 +256,113 @@ function formatDate(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function sanitizeCalendarText(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+function compactCalendarDate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("");
+}
+
+function compactCalendarDateTime(date) {
+  return `${compactCalendarDate(date)}T${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}00`;
+}
+
+function parseLocalDateTime(dateValue, timeValue = "") {
+  const dateText = String(dateValue || "").trim();
+  if (!dateText) return null;
+  const dateMatch = dateText.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateMatch) {
+    const parsed = new Date(dateText);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const timeMatch = String(timeValue || "").match(/(\d{1,2}):(\d{2})/);
+  return new Date(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    timeMatch ? Number(timeMatch[1]) : 9,
+    timeMatch ? Number(timeMatch[2]) : 0
+  );
+}
+
+function getApprovalCalendarEvent(data) {
+  const answers = data?.answers || [];
+  const submission = data?.submission;
+  const dateAnswer = answers.find((answer) => {
+    const label = String(answer.label || "").toLowerCase();
+    return answer.type === "date" || label.includes("date") || label.includes("day");
+  });
+  if (!dateAnswer?.value) return null;
+
+  const timeAnswer = answers.find((answer) => {
+    const label = String(answer.label || "").toLowerCase();
+    return answer.type === "time" || label.includes("time") || label.includes("start");
+  });
+  const start = parseLocalDateTime(dateAnswer.value, timeAnswer?.value);
+  if (!start) return null;
+  const hasTime = Boolean(timeAnswer?.value);
+  const end = hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const answerLines = answers.map((answer) => `${answer.label}: ${renderAnswerValue(answer.value)}`).join("\n");
+  return {
+    title: submission?.templateTitle || "WVCS Approved Form",
+    start,
+    end,
+    allDay: !hasTime,
+    description: [
+      `Approved WVCS form: ${submission?.templateTitle || "Form"}`,
+      `Submitted by: ${submission?.submitterName || ""} <${submission?.submitterEmail || ""}>`,
+      "",
+      answerLines,
+    ].join("\n"),
+  };
+}
+
+function downloadCalendarEvent(event) {
+  if (!event) return;
+  const now = compactCalendarDateTime(new Date());
+  const uid = `wvcs-form-${crypto.randomUUID()}@wvcshub.org`;
+  const startLine = event.allDay
+    ? `DTSTART;VALUE=DATE:${compactCalendarDate(event.start)}`
+    : `DTSTART:${compactCalendarDateTime(event.start)}`;
+  const endLine = event.allDay
+    ? `DTEND;VALUE=DATE:${compactCalendarDate(event.end)}`
+    : `DTEND:${compactCalendarDateTime(event.end)}`;
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//WVCS School Hub//Form Approval//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${now}`,
+    startLine,
+    endLine,
+    `SUMMARY:${sanitizeCalendarText(event.title)}`,
+    `DESCRIPTION:${sanitizeCalendarText(event.description)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "wvcs-form-event"}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
 }
 
 function getPdfFileName(submission) {
@@ -626,6 +734,7 @@ export function FormApprovalActionPage({ token }) {
   const action = data?.action || "";
   const approving = action === "Approved";
   const valid = Boolean(data?.valid) && !result.data;
+  const calendarEvent = result.data?.status === "Approved" ? getApprovalCalendarEvent(data) : null;
 
   return (
     <section className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100">
@@ -780,6 +889,24 @@ export function FormApprovalActionPage({ token }) {
                       <div className="mt-1 break-words text-xs opacity-80">{data.submission.submitterEmail}</div>
                     </div>
                   </div>
+                  {result.data.status === "Approved" && (
+                    <div className="mt-4">
+                      {calendarEvent ? (
+                        <button
+                          type="button"
+                          onClick={() => downloadCalendarEvent(calendarEvent)}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400 sm:w-auto"
+                        >
+                          <CalendarClock size={17} />
+                          Add to Calendar
+                        </button>
+                      ) : (
+                        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+                          Add to Calendar is available when the approved form includes a date field.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {result.data.emailWarning && (
                     <div className="mt-2 text-amber-100">Status email warning: {result.data.emailWarning}</div>
                   )}
