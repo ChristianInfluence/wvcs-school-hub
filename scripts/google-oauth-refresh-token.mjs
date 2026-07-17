@@ -4,7 +4,10 @@ const clientId = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const port = Number(process.env.GOOGLE_OAUTH_PORT || 8787);
 const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
-const scope = "https://www.googleapis.com/auth/gmail.send";
+const scope = [
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/gmail.modify",
+].join(" ");
 
 if (!clientId || !clientSecret) {
   console.error("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET before running this script.");
@@ -97,4 +100,3 @@ server.listen(port, "127.0.0.1", () => {
   console.log("");
   console.log(`Waiting for Google to redirect to ${redirectUri} ...`);
 });
-

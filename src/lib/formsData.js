@@ -143,6 +143,7 @@ function mapSubmissionFromDatabase(row) {
     generatedPdfName: row.generated_pdf_name || row.submission?.generatedPdfName,
     generatedPdfAt: row.generated_pdf_at || row.submission?.generatedPdfAt,
     approvalSignature: row.approval_signature || row.submission?.approvalSignature,
+    source: row.submission?.source || "",
   };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bell,
   CalendarClock,
   CalendarDays,
   ClipboardCheck,
@@ -17,16 +18,19 @@ import {
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
-import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
+import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicFormsDirectoryPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
 import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
+import HubMessages from "./modules/messages/HubMessages.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
+import { fetchFormSubmissions } from "./lib/formsData.js";
+import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
 import warriorHeadNew from "./assets/warrior-head-new.png";
 
@@ -147,6 +151,7 @@ function getRouteFromHash(hash = window.location.hash) {
       parentSigningToken: decodeURIComponent(permissionMatch[1]),
       formApprovalToken: "",
       formShareToken: "",
+      publicFormsDirectory: false,
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -158,6 +163,7 @@ function getRouteFromHash(hash = window.location.hash) {
       parentSigningToken: "",
       formApprovalToken: decodeURIComponent(formApprovalMatch[1]),
       formShareToken: "",
+      publicFormsDirectory: false,
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -169,6 +175,7 @@ function getRouteFromHash(hash = window.location.hash) {
       parentSigningToken: "",
       formApprovalToken: "",
       formShareToken: decodeURIComponent(formShareMatch[1]),
+      publicFormsDirectory: false,
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -179,8 +186,20 @@ function getRouteFromHash(hash = window.location.hash) {
       parentSigningToken: "",
       formApprovalToken: "",
       formShareToken: "",
+      publicFormsDirectory: false,
       moduleId: "structured-recess",
       structuredRecessView: "aide",
+    };
+  }
+
+  if (hash === "#/public-forms") {
+    return {
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: true,
+      moduleId: "dashboard",
+      structuredRecessView: "full",
     };
   }
 
@@ -190,6 +209,7 @@ function getRouteFromHash(hash = window.location.hash) {
     parentSigningToken: "",
     formApprovalToken: "",
     formShareToken: "",
+    publicFormsDirectory: false,
     moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
     structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
   };
@@ -273,9 +293,20 @@ const moduleStyles = {
   },
 };
 
-function DashboardModule({ access, onSelectModule, onOpenAideView }) {
+function formatActivityDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpenAideView }) {
   const launchModules = modules.filter((module) => module.id !== "dashboard" && !module.topLevelOnly);
   const featured = launchModules.find((module) => module.id === "structured-recess");
+  const [activity, setActivity] = useState({ loading: true, submissions: [], messages: [], error: "" });
 
   function isLocked(module) {
     if (module.id === "admin") return !access.canUseAdmin;
@@ -283,6 +314,31 @@ function DashboardModule({ access, onSelectModule, onOpenAideView }) {
     if (module.id === "permission-slips") return !access.canUseAdmin && !access.canUseDigitalSlips;
     return false;
   }
+
+  useEffect(() => {
+    let active = true;
+    async function loadActivity() {
+      try {
+        const [formsResult, messagesResult] = await Promise.all([
+          fetchFormSubmissions(),
+          currentUserEmail ? fetchHubMessageThreads(currentUserEmail) : Promise.resolve({ loaded: true, threads: [] }),
+        ]);
+        if (!active) return;
+        setActivity({
+          loading: false,
+          submissions: formsResult.loaded ? formsResult.submissions.slice(0, 5) : [],
+          messages: messagesResult.loaded ? messagesResult.threads.slice(0, 5) : [],
+          error: formsResult.reason || messagesResult.reason || "",
+        });
+      } catch (error) {
+        if (active) setActivity({ loading: false, submissions: [], messages: [], error: error.message });
+      }
+    }
+    loadActivity();
+    return () => {
+      active = false;
+    };
+  }, [currentUserEmail]);
 
   return (
     <section className="min-h-[560px] bg-slate-950 text-slate-100">
@@ -357,12 +413,144 @@ function DashboardModule({ access, onSelectModule, onOpenAideView }) {
             );
           })}
         </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">Recently Used</div>
+                <div className="mt-1 text-xs text-slate-500">Latest form activity and Hub conversations.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onSelectModule("forms")}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Forms
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {activity.loading && <div className="text-sm text-slate-400">Loading recent activity...</div>}
+              {!activity.loading && activity.error && <div className="text-sm text-amber-200">{activity.error}</div>}
+              {!activity.loading && !activity.error && !activity.submissions.length && (
+                <div className="text-sm text-slate-400">No recent form activity yet.</div>
+              )}
+              {activity.submissions.map((submission) => (
+                <button
+                  key={submission.id}
+                  type="button"
+                  onClick={() => onSelectModule(access.canUseAdmin ? "admin" : "forms")}
+                  className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-left hover:border-slate-600"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">{submission.templateTitle}</div>
+                      <div className="mt-1 truncate text-xs text-slate-400">
+                        {submission.submitterName} · {formatActivityDate(submission.submittedAt)}
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-300">
+                      {submission.status}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="text-sm font-semibold text-white">Recent Messages</div>
+            <div className="mt-1 text-xs text-slate-500">Unread and recent conversations stay close at hand.</div>
+            <div className="mt-4 grid gap-2">
+              {activity.loading && <div className="text-sm text-slate-400">Loading messages...</div>}
+              {!activity.loading && !activity.messages.length && (
+                <div className="text-sm text-slate-400">No recent Hub messages yet.</div>
+              )}
+              {activity.messages.map((thread) => (
+                <div key={thread.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">{thread.subject}</div>
+                      <div className="mt-1 truncate text-xs text-slate-400">
+                        {thread.latestPost?.senderName || thread.latestPost?.senderEmail || "Message"} · {formatActivityDate(thread.latestPostAt)}
+                      </div>
+                    </div>
+                    {thread.unread && (
+                      <span className="shrink-0 rounded-full border border-sky-400 bg-sky-500/15 px-2 py-1 text-[11px] font-semibold text-sky-100">
+                        New
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-function AdminModule() {
+function FormNotificationBadge({ access, onOpenAdmin }) {
+  const [notice, setNotice] = useState({ loading: true, pending: 0, publicCount: 0, error: "" });
+
+  useEffect(() => {
+    if (!access.canUseAdmin) return undefined;
+    let active = true;
+    async function loadNotice() {
+      try {
+        const result = await fetchFormSubmissions();
+        if (!active) return;
+        if (!result.loaded) {
+          setNotice({ loading: false, pending: 0, publicCount: 0, error: result.reason || "" });
+          return;
+        }
+        const pending = result.submissions.filter((submission) => submission.status === "Submitted");
+        setNotice({
+          loading: false,
+          pending: pending.length,
+          publicCount: pending.filter((submission) => submission.source === "public-share-link").length,
+          error: "",
+        });
+      } catch (error) {
+        if (active) setNotice({ loading: false, pending: 0, publicCount: 0, error: error.message });
+      }
+    }
+    loadNotice();
+    const interval = window.setInterval(loadNotice, 45000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [access.canUseAdmin]);
+
+  if (!access.canUseAdmin) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenAdmin}
+      className={`relative inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+        notice.pending
+          ? "border-amber-400 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+          : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+      }`}
+      title={notice.error || "Form notifications"}
+    >
+      <Bell size={16} />
+      Forms
+      {notice.pending > 0 && (
+        <span className="rounded-full bg-amber-300 px-1.5 py-0.5 text-[11px] font-black text-slate-950">
+          {notice.pending}
+        </span>
+      )}
+      {notice.publicCount > 0 && <span className="sr-only">{notice.publicCount} public submissions pending</span>}
+      {notice.loading && <span className="sr-only">Loading</span>}
+    </button>
+  );
+}
+
+function AdminModule({ currentUserEmail = "" }) {
   const [adminView, setAdminView] = useState("forms");
 
   return (
@@ -395,7 +583,7 @@ function AdminModule() {
       {adminView === "infrastructure" && <InfrastructureModule />}
       {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "meetings" && <AdminMeetingsModule />}
-      {adminView === "forms" && <AdminFormsModule />}
+      {adminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
       {adminView === "documents" && <AdminDocumentsModule />}
       {adminView === "suggestions" && <AdminSuggestionsModule />}
       {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}
@@ -539,7 +727,7 @@ function AuthGate({ children }) {
   if (!authState.user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
-        <div className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="w-full max-w-lg rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
           <div className="flex items-center gap-3">
             <img src={warriorHeadNew} alt="WVCS Warrior" className="h-12 w-12 rounded-lg object-contain" />
             <div>
@@ -564,6 +752,68 @@ function AuthGate({ children }) {
             Sign in with Google
           </button>
           <div className="mt-3 text-xs text-slate-500">Only @{WVCS_DOMAIN} accounts are allowed.</div>
+
+          <div className="mt-6 border-t border-slate-800 pt-5 text-sm leading-6 text-slate-400">
+            <p>
+              WVCS School Hub is an official service of Willamette Valley Christian School. Visit our main school website at{" "}
+              <a
+                href="https://wvcs.org"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-sky-300 underline-offset-4 hover:underline"
+              >
+                wvcs.org
+              </a>
+              .
+            </p>
+
+            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+              <div className="font-semibold text-slate-100">Willamette Valley Christian School</div>
+              <div>9075 Pueblo Ave. NE, Brooks, OR 97305</div>
+              <a href="tel:15033935236" className="font-semibold text-sky-300 underline-offset-4 hover:underline">
+                503-393-5236
+              </a>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold">
+              <a
+                href="https://wvcs.org"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sky-300 underline-offset-4 hover:underline"
+              >
+                Official school site
+              </a>
+              <a
+                href="#/public-forms"
+                className="text-sky-300 underline-offset-4 hover:underline"
+              >
+                Public Forms
+              </a>
+              <a
+                href="https://www.wvcs.org/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sky-300 underline-offset-4 hover:underline"
+              >
+                Privacy Policy
+              </a>
+              <a
+                href="https://www.wvcs.org/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sky-300 underline-offset-4 hover:underline"
+              >
+                SMS Terms and Conditions
+              </a>
+              <a
+                href="mailto:office@wvcs.org?subject=WVCS%20School%20Hub%20Text%20Messaging%20Enrollment"
+                className="text-sky-300 underline-offset-4 hover:underline"
+              >
+                Text Messaging Enrollment
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -579,6 +829,7 @@ export default function App() {
   const [parentSigningToken, setParentSigningToken] = useState(initialRoute.parentSigningToken);
   const [formApprovalToken, setFormApprovalToken] = useState(initialRoute.formApprovalToken);
   const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
+  const [publicFormsDirectory, setPublicFormsDirectory] = useState(initialRoute.publicFormsDirectory);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
     [activeModule]
@@ -591,6 +842,7 @@ export default function App() {
       setParentSigningToken(route.parentSigningToken);
       setFormApprovalToken(route.formApprovalToken);
       setFormShareToken(route.formShareToken);
+      setPublicFormsDirectory(route.publicFormsDirectory);
       setActiveModule(route.moduleId);
       setStructuredRecessView(route.structuredRecessView);
     }
@@ -604,6 +856,7 @@ export default function App() {
     setParentSigningToken("");
     setFormApprovalToken("");
     setFormShareToken("");
+    setPublicFormsDirectory(false);
     setModuleHash(moduleId, "full");
   }
 
@@ -611,6 +864,7 @@ export default function App() {
     setParentSigningToken("");
     setFormApprovalToken("");
     setFormShareToken("");
+    setPublicFormsDirectory(false);
     setModuleHash("structured-recess", "aide");
   }
 
@@ -624,6 +878,10 @@ export default function App() {
 
   if (formShareToken) {
     return <PublicSharedFormPage token={formShareToken} />;
+  }
+
+  if (publicFormsDirectory) {
+    return <PublicFormsDirectoryPage />;
   }
 
   return (
@@ -667,6 +925,11 @@ export default function App() {
               );
             })}
             <div className="hidden h-8 w-px bg-slate-800 sm:block" />
+            <HubMessages
+              currentUserEmail={user.email}
+              currentUserName={user.user_metadata?.full_name || user.email}
+            />
+            <FormNotificationBadge access={access} onOpenAdmin={() => openModule("admin")} />
             <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300">
               {user.email}
             </div>
@@ -688,7 +951,12 @@ export default function App() {
       </header>
 
       {activeModule === "dashboard" && (
-        <DashboardModule access={access} onSelectModule={openModule} onOpenAideView={openStructuredRecessAideView} />
+        <DashboardModule
+          access={access}
+          currentUserEmail={user.email}
+          onSelectModule={openModule}
+          onOpenAideView={openStructuredRecessAideView}
+        />
       )}
 
       {activeModule === "scheduler" && access.canUseScheduler && <SchedulerModule />}
@@ -730,7 +998,7 @@ export default function App() {
       )}
 
       {activeModule === "admin" && access.canUseAdmin && (
-        <AdminModule />
+        <AdminModule currentUserEmail={user.email} />
       )}
     </div>
       )}

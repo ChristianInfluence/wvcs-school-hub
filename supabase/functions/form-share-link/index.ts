@@ -71,6 +71,25 @@ function publicTemplate(template: Record<string, any>) {
   };
 }
 
+function publicDirectoryTemplate(template: Record<string, any>, token: string, baseUrl: string) {
+  const item = publicTemplate(template);
+  return {
+    ...item,
+    token,
+    url: baseUrl ? `${baseUrl}#/form-share/${encodeURIComponent(token)}` : "",
+  };
+}
+
+function staticTokenForTemplate(templateId: string) {
+  const safeId = String(templateId || "")
+    .trim()
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  if (!safeId) throw new Error("Missing templateId.");
+  return `static-${safeId}`;
+}
+
 async function loadSharedTemplate(supabase: ReturnType<typeof createClient>, token: string) {
   const { data: share, error: shareError } = await supabase
     .from("form_share_links")
@@ -109,6 +128,46 @@ async function loadSharedTemplate(supabase: ReturnType<typeof createClient>, tok
       fields: templateRow.fields || templateRow.template?.fields || [],
     },
   };
+}
+
+async function loadPublicDirectory(supabase: ReturnType<typeof createClient>, baseUrl: string) {
+  const { data: shares, error: sharesError } = await supabase
+    .from("form_share_links")
+    .select("*")
+    .eq("active", true)
+    .is("expires_at", null)
+    .order("created_at", { ascending: false });
+
+  if (sharesError) throw sharesError;
+  const activeShares = shares || [];
+  const templateIds = Array.from(new Set(activeShares.map((share) => share.template_id).filter(Boolean)));
+  if (!templateIds.length) return [];
+
+  const { data: templates, error: templateError } = await supabase
+    .from("form_templates")
+    .select("*")
+    .in("id", templateIds)
+    .eq("active", true);
+
+  if (templateError) throw templateError;
+  const templateById = new Map((templates || []).map((row) => [row.id, row]));
+
+  return activeShares
+    .map((share) => {
+      const templateRow = templateById.get(share.template_id);
+      if (!templateRow) return null;
+      const template = {
+        ...(templateRow.template || {}),
+        id: templateRow.id,
+        title: templateRow.title,
+        category: templateRow.category || "",
+        description: templateRow.description || "",
+        pdfName: templateRow.pdf_name || templateRow.template?.pdfName || "",
+        fields: templateRow.fields || templateRow.template?.fields || [],
+      };
+      return publicDirectoryTemplate(template, share.token, baseUrl);
+    })
+    .filter(Boolean);
 }
 
 async function requireAdmin(request: Request, supabase: ReturnType<typeof createClient>) {
@@ -177,6 +236,12 @@ Deno.serve(async (request) => {
     const operation = payload.operation || "preview";
     const supabase = serviceClient();
 
+    if (operation === "directory") {
+      const baseUrl = String(payload.shareBaseUrl || "").replace(/\/$/, "");
+      const forms = await loadPublicDirectory(supabase, baseUrl);
+      return response({ ok: true, forms });
+    }
+
     if (operation === "create") {
       const creatorEmail = await requireAdmin(request, supabase);
       const templateId = String(payload.templateId || "").trim();
@@ -191,15 +256,16 @@ Deno.serve(async (request) => {
       if (templateError) throw templateError;
       if (!template) throw new Error("Form template not found.");
 
-      const token = crypto.randomUUID();
+      const token = payload.static === false ? crypto.randomUUID() : staticTokenForTemplate(templateId);
       const { error: insertError } = await supabase
         .from("form_share_links")
-        .insert({
+        .upsert({
           token,
           template_id: templateId,
           created_by_email: creatorEmail,
-          expires_at: payload.expiresAt || null,
-        });
+          expires_at: payload.static === false ? payload.expiresAt || null : null,
+          active: true,
+        }, { onConflict: "token" });
 
       if (insertError) throw insertError;
 

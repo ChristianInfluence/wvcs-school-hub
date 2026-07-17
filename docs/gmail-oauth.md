@@ -16,13 +16,14 @@ Use the Google account that should manage the Gmail sender authorization.
 2. Set the app name to `WVCS School Hub`.
 3. Use a WVCS support email.
 4. Add your own account as a test user if the app is in testing mode.
-5. If Google shows a **Data Access**, **Scopes**, or **Scopes for Google APIs** section, add this scope:
+5. If Google shows a **Data Access**, **Scopes**, or **Scopes for Google APIs** section, add these scopes:
 
 ```text
 https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/gmail.modify
 ```
 
-If you do not see a place to add scopes, continue anyway. The local token helper requests the `gmail.send` scope directly in the Google authorization URL.
+If you do not see a place to add scopes, continue anyway. The local token helper requests the Gmail scopes directly in the Google authorization URL.
 
 ## 3. Create an OAuth Client
 

@@ -77,6 +77,16 @@ function buildApprovalUrl(payload: Record<string, any>, token: string) {
   return `${baseUrl}#/form-approval/${encodeURIComponent(token)}`;
 }
 
+function getApproverLabel(submission: Record<string, any>, template: Record<string, any> | null | undefined, status: string) {
+  if (status === "Submitted") return template?.approver || "Administration";
+  return (
+    submission?.approvalSignature?.value ||
+    submission?.reviewer ||
+    template?.approver ||
+    "Administration"
+  );
+}
+
 function buildHtmlEmail({
   payload,
   intro,
@@ -95,6 +105,7 @@ function buildHtmlEmail({
   notesText: string;
 }) {
   const { submission, template, status } = payload;
+  const approverLabel = getApproverLabel(submission, template, status);
   const statusColor =
     status === "Submitted"
       ? "#0369a1"
@@ -157,7 +168,7 @@ function buildHtmlEmail({
                   </tr>
                   <tr>
                     <td style="padding: 12px 14px; background: #f8fafc; color: #475569; font-size: 13px; font-weight: 700;">Approver</td>
-                    <td style="padding: 12px 14px; color: #0f172a; font-size: 14px;">${escapeHtml(template?.approver || submission.reviewer || "Administration")}</td>
+                    <td style="padding: 12px 14px; color: #0f172a; font-size: 14px;">${escapeHtml(approverLabel)}</td>
                   </tr>
                 </table>
                 ${actionButtons}
@@ -190,6 +201,7 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
   const boundary = `wvcs-form-${crypto.randomUUID()}`;
   const altBoundary = `wvcs-form-alt-${crypto.randomUUID()}`;
   const { submission, template, status, notes, attachments = [] } = payload;
+  const approverLabel = getApproverLabel(submission, template, status);
   const approved = status === "Approved" || status === "Sent";
   const submitted = status === "Submitted";
   const hasAttachments = attachments.length > 0;
@@ -224,7 +236,7 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
     `Form: ${submission.templateTitle}`,
     `Submitter: ${submission.submitterName} <${submission.submitterEmail}>`,
     `Status: ${status}`,
-    `Approver: ${template?.approver || submission.reviewer || "Administration"}`,
+    `Approver: ${approverLabel}`,
     "",
     "Submitted information:",
     ...(answerLines.length ? answerLines : ["No submitted field information was included."]),

@@ -42,6 +42,13 @@ function uniqueEmails(values: string[]) {
   return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
 }
 
+function formatApproverIdentity(name: string, email: string) {
+  const trimmedName = String(name || "").trim();
+  const trimmedEmail = String(email || "").trim();
+  if (trimmedName && trimmedEmail) return `${trimmedName} <${trimmedEmail}>`;
+  return trimmedName || trimmedEmail || "Administration";
+}
+
 async function sendStatusNotification({
   submission,
   template,
@@ -173,15 +180,20 @@ Deno.serve(async (request) => {
     }
 
     const reviewedAt = new Date().toISOString();
+    const approverName = String(payload.signerName || "").trim();
+    const approverEmail = loaded.action.recipient_email;
+    const approverIdentity = formatApproverIdentity(approverName, approverEmail);
     const reviewNotes =
       String(payload.notes || "").trim() ||
-      `${loaded.action.action} from email by ${loaded.action.recipient_email}.`;
+      `${loaded.action.action} from email by ${approverIdentity}.`;
     const approvalSignature =
       loaded.action.action === "Approved"
         ? {
             type: "email-action",
-            value: loaded.action.recipient_email,
+            value: approverIdentity,
             signedAt: reviewedAt,
+            signerName: approverName || null,
+            signerEmail: approverEmail,
             signerRole: loaded.template?.approver || "Administration",
           }
         : loaded.submissionRow.approval_signature || loaded.submission.approvalSignature || null;
@@ -195,7 +207,7 @@ Deno.serve(async (request) => {
       submittedAt: loaded.submission.submittedAt,
       answers: loaded.submission.answers,
       status: loaded.action.action,
-      reviewer: loaded.action.recipient_email,
+      reviewer: approverIdentity,
       reviewedAt,
       reviewNotes,
       emailStatus:
@@ -209,7 +221,7 @@ Deno.serve(async (request) => {
       .from("form_submissions")
       .update({
         status: loaded.action.action,
-        reviewer: loaded.action.recipient_email,
+        reviewer: approverIdentity,
         reviewed_at: reviewedAt,
         review_notes: reviewNotes,
         email_status: nextSubmission.emailStatus,
