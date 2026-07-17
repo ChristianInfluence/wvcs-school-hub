@@ -612,6 +612,12 @@ create policy "Users can update meeting requests"
   using (public.current_user_can_manage_meetings())
   with check (public.current_user_can_manage_meetings());
 
+drop policy if exists "Meeting managers can delete meeting requests" on public.meeting_requests;
+create policy "Meeting managers can delete meeting requests"
+  on public.meeting_requests for delete
+  to authenticated
+  using (public.current_user_can_manage_meetings());
+
 drop policy if exists "Users can read notification settings" on public.notification_settings;
 create policy "Users can read notification settings"
   on public.notification_settings for select

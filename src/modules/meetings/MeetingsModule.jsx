@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import {
+  deleteMeetingRequest,
   saveMeetingRequest,
   sendMeetingCancellationEmail,
   sendMeetingDeclineEmail,
@@ -879,6 +880,8 @@ export function AdminMeetingsModule() {
   const [cancellingId, setCancellingId] = useState("");
   const [cancelNote, setCancelNote] = useState("");
   const [releaseSlot, setReleaseSlot] = useState(true);
+  const [deletingId, setDeletingId] = useState("");
+  const [deleteFeedback, setDeleteFeedback] = useState("");
   const editingAdmin = state.administrators.find((admin) => admin.id === editingId);
 
   async function saveAdministrator(nextAdministrator) {
@@ -1085,6 +1088,27 @@ export function AdminMeetingsModule() {
     }
   }
 
+  async function deleteRecentRequest(request) {
+    if (!request) return;
+    setConfirmingId(request.id);
+    setDeleteFeedback("");
+    try {
+      const result = await deleteMeetingRequest(request.id);
+      if (!result.saved) throw new Error(result.reason || "Meeting request could not be deleted.");
+      updateState((current) => ({
+        ...current,
+        requests: current.requests.filter((item) => item.id !== request.id),
+      }));
+      setDeletingId("");
+      setDeleteFeedback("Meeting request deleted.");
+      window.setTimeout(() => setDeleteFeedback(""), 2600);
+    } catch (error) {
+      setDeleteFeedback(`Unable to delete meeting request: ${error.message}`);
+    } finally {
+      setConfirmingId("");
+    }
+  }
+
   return (
     <Shell>
       <div className="mb-5">
@@ -1148,9 +1172,16 @@ export function AdminMeetingsModule() {
 
           <div className="rounded-lg border border-slate-800 bg-slate-900">
             <div className="border-b border-slate-800 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Mail size={16} className="text-violet-300" />
-                Recent Meeting Requests
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Mail size={16} className="text-violet-300" />
+                  Recent Meeting Requests
+                </div>
+                {deleteFeedback && (
+                  <div className={`text-xs font-semibold ${deleteFeedback.startsWith("Unable") ? "text-amber-200" : "text-emerald-200"}`}>
+                    {deleteFeedback}
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid gap-3 p-4">
@@ -1257,8 +1288,41 @@ export function AdminMeetingsModule() {
                               Mark Sent
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setDeletingId(request.id)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/25"
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </button>
                         </div>
                       </div>
+                      {deletingId === request.id && (
+                        <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3">
+                          <div className="text-sm font-semibold text-rose-50">Delete this meeting request?</div>
+                          <p className="mt-1 text-xs leading-5 text-rose-100/80">
+                            This removes it from Recent Meeting Requests and frees the time if it was only held by this request.
+                          </p>
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDeletingId("")}
+                              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            >
+                              Keep Request
+                            </button>
+                            <button
+                              type="button"
+                              disabled={confirmingId === request.id}
+                              onClick={() => deleteRecentRequest(request)}
+                              className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {confirmingId === request.id ? "Deleting..." : "Delete Request"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {decliningId === request.id && (
                         <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3">
                           <label className="space-y-1 text-sm font-medium text-rose-50">
