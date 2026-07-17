@@ -190,6 +190,42 @@ async function requireAdmin(request: Request, supabase: ReturnType<typeof create
   return email;
 }
 
+async function loadAdminShareLinks(supabase: ReturnType<typeof createClient>, baseUrl: string) {
+  const { data: templates, error: templateError } = await supabase
+    .from("form_templates")
+    .select("id, title, category, description, active, fields")
+    .order("title", { ascending: true });
+
+  if (templateError) throw templateError;
+
+  const { data: shares, error: shareError } = await supabase
+    .from("form_share_links")
+    .select("*")
+    .is("expires_at", null);
+
+  if (shareError) throw shareError;
+  const shareByTemplateId = new Map((shares || []).map((share) => [share.template_id, share]));
+
+  return (templates || []).map((template) => {
+    const share = shareByTemplateId.get(template.id);
+    const token = share?.token || staticTokenForTemplate(template.id);
+    return {
+      templateId: template.id,
+      title: template.title,
+      category: template.category || "",
+      description: template.description || "",
+      templateActive: template.active !== false,
+      publicActive: Boolean(share?.active),
+      token,
+      url: baseUrl ? `${baseUrl}#/form-share/${encodeURIComponent(token)}` : "",
+      directoryUrl: baseUrl ? `${baseUrl}#/public-forms` : "",
+      fieldCount: (template.fields || []).length,
+      createdAt: share?.created_at || "",
+      updatedAt: share?.updated_at || "",
+    };
+  });
+}
+
 async function sendSubmissionNotice({
   submission,
   template,
@@ -240,6 +276,26 @@ Deno.serve(async (request) => {
       const baseUrl = String(payload.shareBaseUrl || "").replace(/\/$/, "");
       const forms = await loadPublicDirectory(supabase, baseUrl);
       return response({ ok: true, forms });
+    }
+
+    if (operation === "manage") {
+      await requireAdmin(request, supabase);
+      const baseUrl = String(payload.shareBaseUrl || "").replace(/\/$/, "");
+      const links = await loadAdminShareLinks(supabase, baseUrl);
+      return response({ ok: true, links });
+    }
+
+    if (operation === "disable") {
+      await requireAdmin(request, supabase);
+      const templateId = String(payload.templateId || "").trim();
+      if (!templateId) throw new Error("Missing templateId.");
+      const token = staticTokenForTemplate(templateId);
+      const { error: disableError } = await supabase
+        .from("form_share_links")
+        .update({ active: false })
+        .eq("token", token);
+      if (disableError) throw disableError;
+      return response({ ok: true, token });
     }
 
     if (operation === "create") {

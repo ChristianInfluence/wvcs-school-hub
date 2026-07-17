@@ -742,6 +742,7 @@ export function PublicSharedFormPage({ token }) {
   const [answers, setAnswers] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [receipt, setReceipt] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -805,6 +806,14 @@ export function PublicSharedFormPage({ token }) {
         title: result.emailWarning ? "Form saved, but notification needs attention" : "Form submitted",
         message: result.emailWarning || "Your form was sent to WVCS for approval. You will receive approval or denial notifications at the email you entered.",
       });
+      setReceipt({
+        submissionId,
+        submittedAt: new Date().toISOString(),
+        submitterName: submitter.name,
+        submitterEmail,
+        templateTitle: template.title,
+        emailWarning: result.emailWarning || "",
+      });
       setAnswers({});
     } catch (error) {
       setFeedback({ tone: "warning", title: "Form could not be submitted", message: error.message });
@@ -859,6 +868,64 @@ export function PublicSharedFormPage({ token }) {
             </div>
 
             <div className="space-y-5 p-5">
+              {receipt ? (
+                <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-5 text-emerald-100">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg border border-emerald-300/50 bg-emerald-400/20 p-2">
+                      <CheckCircle2 size={22} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold text-white">WVCS received your submission</div>
+                      <p className="mt-2 text-sm leading-6 text-emerald-50/90">
+                        Thank you. Your form has been sent to Willamette Valley Christian School for review.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-3 rounded-lg border border-emerald-300/20 bg-slate-950/60 p-4 text-sm md:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">Form</div>
+                      <div className="mt-1 font-semibold text-white">{receipt.templateTitle}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">Submitted</div>
+                      <div className="mt-1 font-semibold text-white">{formatDate(receipt.submittedAt)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">Name</div>
+                      <div className="mt-1 font-semibold text-white">{receipt.submitterName}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">Email</div>
+                      <div className="mt-1 break-words font-semibold text-white">{receipt.submitterEmail}</div>
+                    </div>
+                  </div>
+                  {receipt.emailWarning && (
+                    <div className="mt-4 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+                      Saved successfully, but the notification email needs attention: {receipt.emailWarning}
+                    </div>
+                  )}
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <a
+                      href="#/public-forms"
+                      className="inline-flex items-center justify-center rounded-lg border border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-400"
+                    >
+                      View Public Forms
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceipt(null);
+                        setSubmitter({ name: "", email: "" });
+                        setFeedback(null);
+                      }}
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                    >
+                      Submit Another
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
               {feedback && (
                 <div className={`rounded-lg border p-4 text-sm ${feedbackTone}`}>
                   <div className="font-semibold">{feedback.title}</div>
@@ -914,6 +981,8 @@ export function PublicSharedFormPage({ token }) {
                   {isSubmitting ? "Submitting..." : "Submit Form"}
                 </button>
               </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -2381,7 +2450,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
             <div className="text-xs text-slate-500">Choose a form to review its submissions.</div>
           </div>
         </div>
-        <div className="max-h-[620px] overflow-auto p-2">
+        <div className="max-h-[360px] overflow-auto p-2 xl:max-h-[620px]">
           {templateGroups.length ? (
             <>
               <div className="mb-3 grid gap-2">
@@ -2453,7 +2522,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-800 bg-slate-900">
+      <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
         {selected ? (
           <>
             {reviewFeedback && (
@@ -2477,7 +2546,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
               </div>
             </div>
 
-            <div className="space-y-5 p-5">
+            <div className="space-y-4 p-3 sm:p-5">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                   <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Approver</div>
@@ -2568,11 +2637,11 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 </div>
               </div>
 
-              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-5">
+              <div className="grid grid-cols-2 gap-2 border-t border-slate-800 pt-4 sm:flex sm:flex-wrap sm:justify-end sm:pt-5">
                 <button
                   type="button"
                   onClick={() => previewSubmissionPdf(selected, template, state.settings)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
                 >
                   <Eye size={16} />
                   Preview PDF
@@ -2580,7 +2649,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 <button
                   type="button"
                   onClick={() => downloadSubmissionPdf(selected, template, state.settings)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
                 >
                   <Download size={16} />
                   Download PDF
@@ -2588,7 +2657,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 <button
                   type="button"
                   onClick={() => review("Rejected")}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-400 bg-rose-500/15 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-500/25"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-400 bg-rose-500/15 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-500/25"
                 >
                   <XCircle size={16} />
                   Reject
@@ -2596,7 +2665,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 <button
                   type="button"
                   onClick={() => review("Approved")}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold text-white transition ${
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold text-white transition ${
                     selected.status === "Approved"
                       ? "border-emerald-300 bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.22)]"
                       : "border-emerald-400 bg-emerald-500 hover:bg-emerald-400"
@@ -2609,7 +2678,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                   type="button"
                   disabled={sendingId === selected.id || !["Approved", "Rejected", "Sent"].includes(selected.status)}
                   onClick={sendSelectedEmail}
-                  className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400"
+                  className="col-span-2 inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 sm:col-span-1"
                 >
                   <Mail size={16} />
                   {sendingId === selected.id ? "Sending..." : selected.status === "Approved" || selected.status === "Sent" ? "Send PDF Email" : "Send Status Email"}
@@ -2749,9 +2818,30 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
   const [templateToDelete, setTemplateToDelete] = useState(null);
   const [expandedTemplateIds, setExpandedTemplateIds] = useState({});
   const [shareStatus, setShareStatus] = useState({ templateId: "", message: "", tone: "info" });
+  const [publicLinks, setPublicLinks] = useState([]);
+  const [publicLinksLoading, setPublicLinksLoading] = useState(true);
   const editingTemplate = state.templates.find((template) => template.id === editingId);
-  const activeTemplates = state.templates.filter((template) => template.active);
   const publicDirectoryUrl = `${getPublicShareBaseUrl()}#/public-forms`;
+
+  async function loadPublicLinks() {
+    setPublicLinksLoading(true);
+    try {
+      const result = await handleFormShareLink({
+        operation: "manage",
+        shareBaseUrl: getPublicShareBaseUrl(),
+      });
+      if (!result.ok) throw new Error(result.error || result.reason || "Unable to load public form links.");
+      setPublicLinks(result.links || []);
+    } catch (error) {
+      setShareStatus({ templateId: "manager", message: error.message, tone: "warning" });
+    } finally {
+      setPublicLinksLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPublicLinks();
+  }, [state.templates.length]);
 
   function addTemplate(template) {
     updateState((current) => ({
@@ -2859,8 +2949,40 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
       window.setTimeout(() => {
         setShareStatus((current) => (current.templateId === template.id ? { templateId: "", message: "", tone: "info" } : current));
       }, 5000);
+      await loadPublicLinks();
     } catch (error) {
       setShareStatus({ templateId: template.id, message: error.message, tone: "warning" });
+    }
+  }
+
+  async function copyPublicLink(link) {
+    if (!link.publicActive) {
+      const template = state.templates.find((item) => item.id === link.templateId);
+      if (template) {
+        await createShareLink(template);
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setShareStatus({ templateId: link.templateId, message: "Public form link copied.", tone: "success" });
+    } catch {
+      setShareStatus({ templateId: link.templateId, message: link.url, tone: "success" });
+    }
+  }
+
+  async function disablePublicLink(link) {
+    setShareStatus({ templateId: link.templateId, message: "Disabling public link...", tone: "info" });
+    try {
+      const result = await handleFormShareLink({
+        operation: "disable",
+        templateId: link.templateId,
+      });
+      if (!result.ok) throw new Error(result.error || result.reason || "Unable to disable public link.");
+      setShareStatus({ templateId: link.templateId, message: "Public link disabled.", tone: "success" });
+      await loadPublicLinks();
+    } catch (error) {
+      setShareStatus({ templateId: link.templateId, message: error.message, tone: "warning" });
     }
   }
 
@@ -2933,10 +3055,10 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Link2 size={16} className="text-violet-200" />
-                Public Form Links
+                Public Forms Manager
               </div>
               <p className="mt-1 text-xs leading-5 text-violet-100/80">
-                Create static links for public forms and share the directory with families or outside guests.
+                Control which templates are visible outside the Hub and copy links for sharing.
               </p>
             </div>
             <button
@@ -2949,29 +3071,82 @@ function TemplateLibrary({ state, updateState, setSyncStatus }) {
             </button>
           </div>
           <div className="mt-4 grid gap-2">
-            {activeTemplates.length ? (
-              activeTemplates.slice(0, 5).map((template) => (
-                <div key={template.id} className="flex items-center justify-between gap-3 rounded-lg border border-violet-400/20 bg-slate-950/70 p-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold text-white">{template.title}</div>
-                    <div className="truncate text-[11px] text-violet-100/70">{template.category || "Uncategorized"}</div>
+            {publicLinksLoading && (
+              <div className="rounded-lg border border-violet-400/20 bg-slate-950/70 p-3 text-xs text-violet-100/80">
+                Loading public form links...
+              </div>
+            )}
+            {!publicLinksLoading && publicLinks.length ? (
+              publicLinks.map((link) => (
+                <div key={link.templateId} className="rounded-lg border border-violet-400/20 bg-slate-950/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-white">{link.title}</div>
+                      <div className="mt-1 truncate text-[11px] text-violet-100/70">
+                        {link.category || "Uncategorized"} · {link.fieldCount} field{link.fieldCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold ${
+                      link.publicActive
+                        ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                        : "border-slate-600 bg-slate-900 text-slate-300"
+                    }`}>
+                      {link.publicActive ? "Public" : "Private"}
+                    </span>
                   </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => createShareLink(template)}
+                    onClick={() => copyPublicLink(link)}
                     className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-violet-400/60 bg-violet-500/15 px-2 py-1 text-[11px] font-semibold text-violet-100 hover:bg-violet-500/25"
                   >
                     <Link2 size={12} />
-                    Copy
+                    {link.publicActive ? "Copy Link" : "Make Public"}
                   </button>
+                    {link.publicActive && (
+                      <>
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                        >
+                          <Eye size={12} />
+                          Open
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => disablePublicLink(link)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-500/60 bg-rose-500/15 px-2 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/25"
+                        >
+                          <XCircle size={12} />
+                          Disable
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {shareStatus.templateId === link.templateId && shareStatus.message && (
+                    <div className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                      shareStatus.tone === "warning"
+                        ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                        : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                    }`}>
+                      {shareStatus.message}
+                    </div>
+                  )}
                 </div>
               ))
-            ) : (
+            ) : !publicLinksLoading ? (
               <div className="rounded-lg border border-violet-400/20 bg-slate-950/70 p-3 text-xs text-violet-100/80">
-                Activate a template to make a public link.
+                No templates are available yet.
               </div>
-            )}
+            ) : null}
           </div>
+          {shareStatus.templateId === "manager" && shareStatus.message && (
+            <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+              {shareStatus.message}
+            </div>
+          )}
           {shareStatus.templateId === "directory" && shareStatus.message && (
             <div className="mt-3 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100">
               {shareStatus.message}

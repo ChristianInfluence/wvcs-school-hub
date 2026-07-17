@@ -128,6 +128,22 @@ export default function HubMessages({ currentUserEmail = "", currentUserName = "
   }, [currentEmail]);
 
   useEffect(() => {
+    const baseTitle = "WVCS School Hub";
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [unreadCount]);
+
+  useEffect(() => {
+    function handleOpenMessage(event) {
+      if (event.detail?.threadId) openThread(event.detail.threadId);
+    }
+    window.addEventListener("wvcs-open-message", handleOpenMessage);
+    return () => window.removeEventListener("wvcs-open-message", handleOpenMessage);
+  }, [threads.length]);
+
+  useEffect(() => {
     const linkedThreadId = getMessageLinkThreadId();
     if (linkedThreadId) openThread(linkedThreadId);
   }, [threads.length]);

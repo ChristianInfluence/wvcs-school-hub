@@ -12,9 +12,11 @@ import {
   Lock,
   LogOut,
   NotebookPen,
+  Search,
   ShieldAlert,
   Settings,
   Sparkles,
+  X,
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
@@ -550,11 +552,176 @@ function FormNotificationBadge({ access, onOpenAdmin }) {
   );
 }
 
-function AdminModule({ currentUserEmail = "" }) {
+function GlobalSearch({ access, currentUserEmail = "", onSelectModule }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [data, setData] = useState({ loading: false, submissions: [], messages: [], error: "" });
+  const needle = query.trim().toLowerCase();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    async function loadSearchData() {
+      setData((current) => ({ ...current, loading: true, error: "" }));
+      try {
+        const [formsResult, messagesResult] = await Promise.all([
+          fetchFormSubmissions(),
+          currentUserEmail ? fetchHubMessageThreads(currentUserEmail) : Promise.resolve({ loaded: true, threads: [] }),
+        ]);
+        if (!active) return;
+        setData({
+          loading: false,
+          submissions: formsResult.loaded ? formsResult.submissions : [],
+          messages: messagesResult.loaded ? messagesResult.threads : [],
+          error: formsResult.reason || messagesResult.reason || "",
+        });
+      } catch (error) {
+        if (active) setData({ loading: false, submissions: [], messages: [], error: error.message });
+      }
+    }
+    loadSearchData();
+    return () => {
+      active = false;
+    };
+  }, [open, currentUserEmail]);
+
+  const results = useMemo(() => {
+    if (!needle) return [];
+    const moduleResults = modules
+      .filter((module) => {
+        if (module.id === "admin" && !access.canUseAdmin) return false;
+        if (module.id === "scheduler" && !access.canUseScheduler) return false;
+        if (module.id === "permission-slips" && !access.canUseAdmin && !access.canUseDigitalSlips) return false;
+        return `${module.label} ${module.description} ${module.callout || ""}`.toLowerCase().includes(needle);
+      })
+      .map((module) => ({
+        id: `module-${module.id}`,
+        type: "Hub Area",
+        title: module.label,
+        detail: module.description,
+        action: () => onSelectModule(module.id),
+      }));
+
+    const formResults = data.submissions
+      .filter((submission) =>
+        `${submission.templateTitle} ${submission.submitterName} ${submission.submitterEmail} ${submission.status}`.toLowerCase().includes(needle)
+      )
+      .slice(0, 6)
+      .map((submission) => ({
+        id: `form-${submission.id}`,
+        type: "Form",
+        title: submission.templateTitle,
+        detail: `${submission.submitterName} · ${submission.status} · ${formatActivityDate(submission.submittedAt)}`,
+        action: () => onSelectModule(access.canUseAdmin ? "admin" : "forms"),
+      }));
+
+    const messageResults = data.messages
+      .filter((thread) => {
+        const posts = (thread.posts || []).map((post) => `${post.senderName} ${post.senderEmail} ${post.body}`).join(" ");
+        const people = (thread.participants || []).map((participant) => participant.email).join(" ");
+        return `${thread.subject} ${people} ${posts}`.toLowerCase().includes(needle);
+      })
+      .slice(0, 6)
+      .map((thread) => ({
+        id: `message-${thread.id}`,
+        type: "Message",
+        title: thread.subject,
+        detail: `${thread.latestPost?.senderName || thread.latestPost?.senderEmail || "Message"} · ${formatActivityDate(thread.latestPostAt)}`,
+        action: () => window.dispatchEvent(new CustomEvent("wvcs-open-message", { detail: { threadId: thread.id } })),
+      }));
+
+    return [...moduleResults, ...formResults, ...messageResults].slice(0, 12);
+  }, [access, data.messages, data.submissions, needle, onSelectModule]);
+
+  function runAction(result) {
+    result.action();
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+      >
+        <Search size={16} />
+        Search
+      </button>
+      {open && (
+        <div className="fixed inset-x-4 top-20 z-50 rounded-lg border border-slate-700 bg-slate-950 shadow-2xl shadow-slate-950/60 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[420px]">
+          <div className="flex items-center gap-2 border-b border-slate-800 p-3">
+            <Search size={16} className="text-sky-300" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none"
+              placeholder="Search Hub areas, forms, messages"
+            />
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-lg border border-slate-700 bg-slate-900 p-1.5 text-slate-300 hover:bg-slate-800"
+              title="Close search"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="max-h-[420px] overflow-auto p-2">
+            {data.loading && <div className="p-3 text-sm text-slate-400">Loading search...</div>}
+            {!data.loading && data.error && <div className="p-3 text-sm text-amber-200">{data.error}</div>}
+            {!needle && <div className="p-3 text-sm text-slate-400">Type to search across the Hub.</div>}
+            {needle && !results.length && !data.loading && (
+              <div className="p-3 text-sm text-slate-400">No matching Hub results.</div>
+            )}
+            {results.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                onClick={() => runAction(result)}
+                className="mb-2 w-full rounded-lg border border-slate-800 bg-slate-900 p-3 text-left transition last:mb-0 hover:border-slate-600"
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-300">{result.type}</div>
+                <div className="mt-1 truncate text-sm font-semibold text-white">{result.title}</div>
+                <div className="mt-1 truncate text-xs text-slate-400">{result.detail}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getRoleLabels(access) {
+  const roles = [];
+  if (access.canUseAdmin) roles.push("Administrator");
+  if (access.canUseScheduler) roles.push("Scheduler");
+  if (access.canUseDigitalSlips) roles.push("Digital Slips");
+  if (access.canUseHub) roles.push("Hub User");
+  return roles.length ? roles : ["No active role"];
+}
+
+function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
   const [adminView, setAdminView] = useState("forms");
 
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-5 pt-6 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Admin Access</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {getRoleLabels(access).map((role) => (
+              <span key={role} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-200">
+                {role}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="text-xs text-slate-500">{currentUserEmail}</div>
+      </div>
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
           ["infrastructure", "Infrastructure", Settings],
@@ -925,6 +1092,7 @@ export default function App() {
               );
             })}
             <div className="hidden h-8 w-px bg-slate-800 sm:block" />
+            <GlobalSearch access={access} currentUserEmail={user.email} onSelectModule={openModule} />
             <HubMessages
               currentUserEmail={user.email}
               currentUserName={user.user_metadata?.full_name || user.email}
@@ -998,7 +1166,7 @@ export default function App() {
       )}
 
       {activeModule === "admin" && access.canUseAdmin && (
-        <AdminModule currentUserEmail={user.email} />
+        <AdminModule currentUserEmail={user.email} access={access} />
       )}
     </div>
       )}
