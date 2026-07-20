@@ -2230,6 +2230,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 if (id === "slips" && sendEvents[0] && !sendEvents.some((event) => event.id === selectedEventId)) {
                   setSelectedEventId(sendEvents[0].id);
                 }
+                if (id === "slips") setWorkflowStep("students");
               }}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition ${
                 activeWorkspace === id
@@ -2548,7 +2549,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 <FileSignature size={18} />
                 Start From a Field Trip Form
               </div>
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_190px] lg:items-end">
                 <label className="text-sm font-semibold text-slate-300">
                   Field trip form
                   <select
@@ -2571,6 +2572,14 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 >
                   <Plus size={16} />
                   Start New Send
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkflowStep("students")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/20"
+                >
+                  <Users size={16} />
+                  Choose Students
                 </button>
               </div>
             </div>
@@ -2635,8 +2644,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {[
                     ["Email active", "Automatic email sending is ready now.", true],
-                    ["SMS pending A2P", "SMS stays in preview mode until Twilio approval is turned on.", false],
-                    ["SMS preview available", "Staff can preview and record SMS text before launch.", true],
+                    ["A2P verified", "Twilio approved the campaign and live SMS sending is enabled.", true],
+                    ["SMS live", "The SMS button now sends real texts through the WVCS messaging service.", true],
                     ["Opt-out language included", "SMS templates include STOP and rate-language requirements.", true],
                   ].map(([title, detail, ready]) => (
                     <div key={title} className={`rounded-lg border p-3 ${ready ? "border-emerald-500/30 bg-emerald-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
@@ -3208,7 +3217,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Send size={15} className={sendingRecipientIds.includes(recipient.id) ? "animate-pulse" : ""} />
-                        {sendingRecipientIds.includes(recipient.id) ? "Preparing..." : "Preview SMS"}
+                        {sendingRecipientIds.includes(recipient.id) ? "Sending..." : "Send SMS"}
                       </button>
                       <button type="button" onClick={() => deleteRecipient(recipient.id)} className="ml-auto inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100">
                         <Trash2 size={15} />
