@@ -22,6 +22,15 @@ function sanitizeHeader(value: string) {
   return String(value || "").replace(/[\r\n]/g, " ").trim();
 }
 
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function firstName(value: string) {
   return String(value || "").trim().split(/\s+/)[0] || "your student";
 }
@@ -49,6 +58,15 @@ function formatDate(value: string) {
 
 function renderTemplate(template: string, values: Record<string, string>) {
   return String(template || "").replace(/\{(\w+)\}/g, (match, key) => values[key] || match);
+}
+
+function textToHtmlParagraphs(value: string) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p style="margin:0 0 14px;color:#334155;font-size:15px;line-height:1.65;">${escapeHtml(line)}</p>`)
+    .join("");
 }
 
 function buildSigningUrl(payload: Record<string, any>, recipient: Record<string, any>) {
@@ -85,16 +103,79 @@ function buildMessage({
   };
   const subject = renderTemplate(template.subject, values);
   const textBody = renderTemplate(template.body, values);
+  const boundary = `wvcs-permission-${crypto.randomUUID()}`;
+  const htmlBody = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;margin:0;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="background:#0f172a;padding:24px 28px;">
+                <div style="color:#93c5fd;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;">WVCS School Hub</div>
+                <h1 style="margin:8px 0 0;color:#ffffff;font-size:24px;line-height:1.25;">Permission Slip Ready</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;">
+                <div style="margin:0 0 20px;padding:16px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;">
+                  <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1d4ed8;">Field Trip</div>
+                  <div style="margin-top:6px;font-size:20px;font-weight:700;color:#0f172a;">${escapeHtml(eventTitle)}</div>
+                  <div style="margin-top:8px;color:#475569;font-size:14px;line-height:1.6;">
+                    <strong>Student:</strong> ${escapeHtml(values.studentName)}<br>
+                    <strong>Date:</strong> ${escapeHtml(values.eventDate)}<br>
+                    <strong>Destination:</strong> ${escapeHtml(values.destination)}
+                  </div>
+                </div>
+                ${textToHtmlParagraphs(textBody)}
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
+                  <tr>
+                    <td style="border-radius:10px;background:#0284c7;">
+                      <a href="${escapeHtml(signingUrl)}" style="display:inline-block;padding:13px 20px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;border-radius:10px;">Review &amp; Sign Permission Slip</a>
+                    </td>
+                  </tr>
+                </table>
+                <div style="margin-top:18px;padding:14px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+                  <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;">Secure Link</div>
+                  <a href="${escapeHtml(signingUrl)}" style="display:block;margin-top:6px;color:#0369a1;font-size:13px;line-height:1.5;word-break:break-all;">${escapeHtml(signingUrl)}</a>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;line-height:1.6;">
+                Willamette Valley Christian School<br>
+                9075 Pueblo Ave NE, Brooks, OR 97305<br>
+                503-393-5236
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
   return [
     `From: WVCS School Hub <${senderEmail}>`,
     `To: ${recipient.parent_email}`,
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: 7bit",
     "",
     textBody,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    htmlBody,
+    "",
+    `--${boundary}--`,
   ].join("\r\n");
 }
 
