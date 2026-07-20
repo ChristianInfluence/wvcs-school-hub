@@ -974,7 +974,9 @@ function AuthGate({ children }) {
                 SMS Terms and Conditions
               </a>
               <a
-                href="mailto:office@wvcs.org?subject=WVCS%20School%20Hub%20Text%20Messaging%20Enrollment"
+                href="https://www.wvcs.org/text-messaging"
+                target="_blank"
+                rel="noreferrer"
                 className="text-sky-300 underline-offset-4 hover:underline"
               >
                 Text Messaging Enrollment
