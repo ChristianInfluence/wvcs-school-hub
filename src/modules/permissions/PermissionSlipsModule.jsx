@@ -18,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import html2pdf from "html2pdf.js";
+import { PDFDocument } from "pdf-lib";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 import {
   deletePermissionRecipient,
@@ -397,6 +398,13 @@ function getSigningUrl(token) {
 function formatDate(value) {
   if (!value) return "Not set";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value}T12:00:00`));
+}
+
+function splitPersonName(fullName) {
+  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts.at(-1) };
 }
 
 function escapeHtml(value) {
@@ -1372,6 +1380,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [lastSendResult, setLastSendResult] = useState(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [studentStatusFilter, setStudentStatusFilter] = useState("all");
+  const [trackSearch, setTrackSearch] = useState("");
   const [workflowStep, setWorkflowStep] = useState("details");
   const [activeTemplateKey, setActiveTemplateKey] = useState("initial");
   const [testEmail, setTestEmail] = useState(currentUserEmail || "");
@@ -1463,6 +1472,44 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     ["SMS Failed", smsProblemRecipients.length],
     ["No Contact", missingContactRecipients.length],
   ];
+  const trackRows = eventRecipients
+    .map((recipient) => {
+      const studentKey = getStudentKey(recipient);
+      const submission = submissionsForEvent.find((item) => getStudentKey(item) === studentKey);
+      const studentName = recipient.studentName || submission?.studentName || "Student";
+      const parentName = recipient.parentName || submission?.parentName || submission?.signerName || "";
+      const studentParts = splitPersonName(studentName);
+      const parentParts = splitPersonName(parentName);
+      const signed = Boolean(submission);
+      const searchText = [
+        studentName,
+        parentName,
+        recipient.parentEmail,
+        recipient.parentPhone,
+        recipient.grade,
+        signed ? "signed" : "not signed",
+      ].join(" ").toLowerCase();
+
+      return {
+        id: recipient.id,
+        recipient,
+        submission,
+        signed,
+        studentName,
+        parentName,
+        studentFirstName: studentParts.firstName,
+        studentLastName: studentParts.lastName,
+        parentFirstName: parentParts.firstName,
+        parentLastName: parentParts.lastName,
+        signedAt: submission?.signedAt || recipient.signedAt || "",
+        searchText,
+      };
+    })
+    .filter((row) => {
+      const search = trackSearch.trim().toLowerCase();
+      return !search || row.searchText.includes(search);
+    })
+    .sort((a, b) => a.studentName.localeCompare(b.studentName) || a.parentName.localeCompare(b.parentName));
 
   useEffect(() => {
     let active = true;
@@ -1689,11 +1736,24 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
       setSyncStatus("There are no signed PDFs to download yet.");
       return;
     }
-    setSyncStatus(`Preparing ${submissionsForEvent.length} signed PDF download${submissionsForEvent.length === 1 ? "" : "s"}...`);
+    setSyncStatus(`Combining ${submissionsForEvent.length} signed PDF${submissionsForEvent.length === 1 ? "" : "s"}...`);
+    const mergedPdf = await PDFDocument.create();
     for (const submission of submissionsForEvent) {
-      await downloadSignedPdf(submission);
+      const recipient = selectedEvent.recipients.find((item) => item.id === submission.recipientId);
+      const blob = await createSignedPermissionPdfBlob({ event: selectedEvent, recipient, submission });
+      const sourcePdf = await PDFDocument.load(await blob.arrayBuffer());
+      const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      pages.forEach((page) => mergedPdf.addPage(page));
     }
-    setSyncStatus(`Prepared ${submissionsForEvent.length} signed PDF download${submissionsForEvent.length === 1 ? "" : "s"}.`);
+    const mergedBytes = await mergedPdf.save();
+    const blob = new Blob([mergedBytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(selectedEvent.title || "permission-slip").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-all-signed-permission-slips.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setSyncStatus(`Downloaded one combined PDF with ${submissionsForEvent.length} signed permission slip${submissionsForEvent.length === 1 ? "" : "s"}.`);
   }
 
   function moveField(fieldId, targetFieldId) {
@@ -3272,72 +3332,159 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             )}
 
             {activeWorkspace === "slips" && workflowStep === "track" && (
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
-                <ShieldCheck size={18} />
-                Signed Submissions
+            <div className="rounded-lg border border-slate-800 bg-white p-4 text-slate-950">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-lg font-bold text-slate-950">
+                    <ShieldCheck size={18} />
+                    Track Records
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {signedCount} signed, {Math.max(eventRecipients.length - signedCount, 0)} waiting, {eventRecipients.length} parent contact{eventRecipients.length === 1 ? "" : "s"} total.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={exportSignedList}
+                    disabled={!submissionsForEvent.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download size={15} />
+                    Export Signed List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadAllSignedPdfs}
+                    disabled={!submissionsForEvent.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download size={15} />
+                    Download All Signed PDFs
+                  </button>
+                </div>
               </div>
-              {submissionsForEvent.length ? (
-                <div className="grid gap-4">
-                  {submissionsForEvent.map((submission) => {
-                    const recipient = selectedEvent.recipients.find((item) => item.id === submission.recipientId);
-                    const isExpanded = expandedSubmissionIds.includes(submission.id);
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,420px)]">
+                <label className="text-sm font-semibold text-slate-700">
+                  Form
+                  <select
+                    value={selectedEvent.id}
+                    onChange={(event) => setSelectedEventId(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                  >
+                    {sendEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.title || "Untitled Permission Slip"}{event.eventDate ? ` (${formatDate(event.eventDate)})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Search
+                  <input
+                    value={trackSearch}
+                    onChange={(event) => setTrackSearch(event.target.value)}
+                    placeholder="Search student, parent, phone, email, status"
+                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+                <div className="grid min-w-[1180px] grid-cols-[170px_170px_170px_170px_150px_105px_130px_140px_125px] gap-4 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
+                  <div>Student First Name</div>
+                  <div>Student Last Name</div>
+                  <div>Parent First Name</div>
+                  <div>Parent Last Name</div>
+                  <div>Mobile Phone #</div>
+                  <div>View Slip</div>
+                  <div>Date Signed</div>
+                  <div>Status</div>
+                  <div>Parent Copy</div>
+                </div>
+                {trackRows.length ? (
+                  trackRows.map((row) => {
+                    const isExpanded = row.submission && expandedSubmissionIds.includes(row.submission.id);
+                    const rowTone = row.signed
+                      ? "border-emerald-200 bg-lime-200/90 text-slate-700"
+                      : "border-rose-200 bg-rose-100 text-slate-700";
                     return (
-                      <div key={submission.id} className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-                        <div>
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                            <div>
-                              <div className="text-lg font-bold text-white">{recipient?.studentName || "Student"}</div>
-                              <div className="mt-1 text-sm text-slate-400">Signed by {submission.signerName} on {new Date(submission.signedAt).toLocaleString()}</div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => toggleSubmissionPreview(submission.id)}
-                              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-100 transition hover:bg-slate-800"
-                            >
-                              <FileSignature size={15} />
-                              {isExpanded ? "Hide Preview" : "View Preview"}
-                            </button>
+                      <div key={row.id}>
+                        <div className={`grid min-w-[1180px] grid-cols-[170px_170px_170px_170px_150px_105px_130px_140px_125px] gap-4 border-t px-4 py-4 text-sm font-semibold ${rowTone}`}>
+                          <div>{row.studentFirstName || row.studentName}</div>
+                          <div>{row.studentLastName || "-"}</div>
+                          <div>{row.parentFirstName || row.parentName || "-"}</div>
+                          <div>{row.parentLastName || "-"}</div>
+                          <div>{row.recipient.parentPhone || "-"}</div>
+                          <div>
+                            {row.submission ? (
+                              <button
+                                type="button"
+                                onClick={() => viewSignedPdf(row.submission)}
+                                title="View signed PDF"
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-rose-600 text-white shadow-sm transition hover:bg-rose-500"
+                              >
+                                <FileSignature size={20} />
+                              </button>
+                            ) : (
+                              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-rose-300 bg-white/60 text-rose-700">
+                                -
+                              </span>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => viewSignedPdf(submission)}
-                            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-emerald-400"
-                          >
-                            <Download size={15} />
-                            View Signed PDF
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openSignedParentEmail(submission)}
-                            disabled={!recipient?.parentEmail}
-                            className="mt-3 ml-2 inline-flex items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Mail size={15} />
-                            Email Parent Copy
-                          </button>
-                          <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-300">
-                            <div><strong>Phone:</strong> {submission.audit.parentPhone || "Not recorded"}</div>
-                            <div><strong>Parent copy email:</strong> {submission.parentCopyEmailStatus || "Ready to send"}</div>
-                            <div><strong>Timezone:</strong> {submission.audit.timezone}</div>
-                            <div><strong>Device:</strong> {submission.audit.userAgent}</div>
-                            <div><strong>Prepared by:</strong> {currentUserEmail || "WVCS staff"}</div>
+                          <div>{row.signedAt ? new Date(row.signedAt).toLocaleDateString() : "Not signed"}</div>
+                          <div>
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.signed ? "bg-emerald-700 text-white" : "bg-rose-600 text-white"}`}>
+                              {row.signed ? "Signed" : "Not Signed"}
+                            </span>
+                          </div>
+                          <div>
+                            {row.submission ? (
+                              <button
+                                type="button"
+                                onClick={() => openSignedParentEmail(row.submission)}
+                                disabled={!row.recipient.parentEmail}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-2 py-1 text-xs font-bold text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <Mail size={13} />
+                                Email
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-600">Waiting</span>
+                            )}
                           </div>
                         </div>
-                        {isExpanded && (
-                          <div className="mt-4">
-                            <PermissionPreview event={selectedEvent} recipient={recipient} submission={submission} />
+                        {row.submission && (
+                          <div className="border-t border-slate-200 bg-white px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                              <span><strong>Signed by:</strong> {row.submission.signerName}</span>
+                              <span><strong>Email:</strong> {row.recipient.parentEmail || row.submission.parentEmail || "Not recorded"}</span>
+                              <span><strong>Copy:</strong> {row.submission.parentCopyEmailStatus || "Ready to send"}</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleSubmissionPreview(row.submission.id)}
+                                className="ml-auto rounded-lg border border-slate-300 bg-slate-50 px-2 py-1 font-bold text-slate-700 transition hover:bg-slate-100"
+                              >
+                                {isExpanded ? "Hide Preview" : "Preview"}
+                              </button>
+                            </div>
+                            {isExpanded && (
+                              <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                                <PermissionPreview event={selectedEvent} recipient={row.recipient} submission={row.submission} />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
                     );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-6 text-sm text-slate-400">
-                  No signed submissions yet. Open or copy a parent signing link to test the mobile flow.
-                </div>
-              )}
+                  })
+                ) : (
+                  <div className="border-t border-slate-200 bg-white p-6 text-sm text-slate-500">
+                    {eventRecipients.length ? "No records match the current search." : "No students have been sent this permission slip yet."}
+                  </div>
+                )}
+              </div>
             </div>
             )}
           </div>
