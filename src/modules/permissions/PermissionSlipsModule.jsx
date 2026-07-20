@@ -53,6 +53,39 @@ const defaultParentIntro =
 const defaultMedicalRelease =
   "I grant permission for my student to participate in the above field trip. As a parent and/or guardian, I do herewith authorize the treatment of the following minor by a qualified and licensed physician in the event of a medical emergency which, in the opinion of the attending physician, may endanger his/her life, cause disfigurement, physical impairment or undue discomfort if delayed. This authority is granted only after a reasonable effort has been made to reach us.";
 
+const defaultMessageTemplates = {
+  initial: {
+    label: "Initial Request",
+    subject: "WVCS Permission Slip: {eventTitle}",
+    body:
+      "Dear {parentName},\n\nWillamette Valley Christian School has a permission slip for {studentName} for {eventTitle} on {eventDate}.\n\nPlease review and sign here: {signingUrl}\n\nThank you,\nWillamette Valley Christian School",
+  },
+  reminder: {
+    label: "Reminder",
+    subject: "Reminder: WVCS Permission Slip for {studentName}",
+    body:
+      "Dear {parentName},\n\nThis is a friendly reminder that {studentName}'s permission slip for {eventTitle} is still waiting for a signature.\n\nPlease review and sign here: {signingUrl}\n\nThank you,\nWillamette Valley Christian School",
+  },
+  finalReminder: {
+    label: "Final Reminder",
+    subject: "Final Reminder: Permission Slip Needed for {eventTitle}",
+    body:
+      "Dear {parentName},\n\nWe still need a signed permission slip for {studentName} for {eventTitle}. Please complete it as soon as possible so your student can participate.\n\nSign here: {signingUrl}\n\nThank you,\nWillamette Valley Christian School",
+  },
+  signedConfirmation: {
+    label: "Signed Confirmation",
+    subject: "Signed WVCS Permission Slip: {eventTitle}",
+    body:
+      "Dear {parentName},\n\nThank you for signing the WVCS permission slip for {studentName}. A signed copy has been recorded by the school.\n\nWillamette Valley Christian School",
+  },
+  sms: {
+    label: "SMS Preview",
+    subject: "",
+    body:
+      "Willamette Valley Christian School: A permission slip for {studentName} is ready for {eventTitle}. Review and sign: {signingUrl} Reply STOP to opt out. Msg & data rates may apply.",
+  },
+};
+
 const sampleStudents = [
   {
     id: "stu-avery-martin",
@@ -122,6 +155,7 @@ const sampleEvent = {
   ],
   selectedGrades: ["5"],
   selectedStudentIds: ["stu-avery-martin", "stu-ella-thompson"],
+  messageTemplates: defaultMessageTemplates,
   recipients: [
     {
       id: "recipient-demo",
@@ -166,6 +200,7 @@ function normalizeEvent(event, rosterStudents = sampleStudents) {
     ...event,
     parentIntro: event.parentIntro || defaultParentIntro,
     medicalRelease: event.medicalRelease || defaultMedicalRelease,
+    messageTemplates: getEventMessageTemplates(event),
     selectedGrades: event.selectedGrades || [],
     selectedStudentIds: event.selectedStudentIds || [],
     recipients: (event.recipients || []).map((recipient) => {
@@ -241,6 +276,7 @@ function createBlankEvent() {
     ],
     selectedGrades: [],
     selectedStudentIds: [],
+    messageTemplates: defaultMessageTemplates,
     recipients: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -379,24 +415,50 @@ function getStudentSubmissions(submissions, eventId, studentId) {
   return submissions.filter((submission) => submission.eventId === eventId && getStudentKey(submission) === studentId);
 }
 
-function getPermissionEmail({ event, recipient }) {
+function getEventMessageTemplates(event = {}) {
+  const savedTemplates = event.messageTemplates || {};
+  return Object.fromEntries(
+    Object.entries(defaultMessageTemplates).map(([key, template]) => [
+      key,
+      {
+        ...template,
+        ...(savedTemplates[key] || {}),
+      },
+    ])
+  );
+}
+
+function renderPermissionTemplate(template, { event, recipient, signingUrl }) {
+  const replacements = {
+    parentName: recipient.parentName || "Parent/Guardian",
+    studentName: recipient.studentName || "your student",
+    eventTitle: event.title || "Field Trip",
+    eventDate: formatDate(event.eventDate),
+    destination: event.destination || "WVCS field trip",
+    signingUrl,
+    schoolName: "Willamette Valley Christian School",
+  };
+  return String(template || "").replace(/\{(\w+)\}/g, (match, key) => replacements[key] || match);
+}
+
+function getPermissionEmail({ event, recipient, templateKey = "initial" }) {
   const url = getSigningUrl(recipient.token);
-  const subject = `WVCS Permission Slip: ${event.title || "Field Trip"}`;
-  const body = [
-    `Dear ${recipient.parentName || "Parent/Guardian"},`,
-    "",
-    `Willamette Valley Christian School has a permission slip for ${recipient.studentName || "your student"} for ${event.title || "an upcoming field trip"}.`,
-    "",
-    `Please review and sign here: ${url}`,
-    "",
-    "Thank you,",
-    "Willamette Valley Christian School",
-  ].join("\n");
+  const templates = getEventMessageTemplates(event);
+  const template = templates[templateKey] || templates.initial;
+  const subject = renderPermissionTemplate(template.subject, { event, recipient, signingUrl: url });
+  const body = renderPermissionTemplate(template.body, { event, recipient, signingUrl: url });
   return {
     subject,
     body,
     mailto: `mailto:${encodeURIComponent(recipient.parentEmail || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
   };
+}
+
+function getPermissionSmsPreview({ event, recipient, templateKey = "sms" }) {
+  const url = getSigningUrl(recipient.token);
+  const templates = getEventMessageTemplates(event);
+  const template = templates[templateKey] || templates.sms;
+  return renderPermissionTemplate(template.body, { event, recipient, signingUrl: url });
 }
 
 function getSignedParentEmail({ event, recipient, submission }) {
@@ -1284,6 +1346,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [lastSendResult, setLastSendResult] = useState(null);
   const [studentSearch, setStudentSearch] = useState("");
   const [studentStatusFilter, setStudentStatusFilter] = useState("all");
+  const [workflowStep, setWorkflowStep] = useState("details");
+  const [activeTemplateKey, setActiveTemplateKey] = useState("initial");
   const [draggedFieldId, setDraggedFieldId] = useState("");
   const [addedFieldId, setAddedFieldId] = useState("");
   const selectedEventIdRef = useRef(selectedEventId);
@@ -1323,7 +1387,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     const studentRecipients = selectedEvent?.recipients.filter((recipient) => (recipient.studentId || recipient.studentName) === student.id || recipient.studentName === student.studentName) || [];
     const studentSubmissions = getStudentSubmissions(submissionsForEvent, selectedEvent?.id, student.id);
     const viewed = studentRecipients.some((recipient) => recipient.viewedAt);
-    const sent = studentRecipients.some((recipient) => ["Email Sent", "Viewed", "Signed"].includes(recipient.status));
+    const sent = studentRecipients.some((recipient) => ["Email Sent", "Email + SMS Sent", "SMS Sent", "SMS Previewed", "Viewed", "Signed"].includes(recipient.status));
     const signed = studentSubmissions.length > 0;
 
     if (search && !student.studentName.toLowerCase().includes(search)) return false;
@@ -1337,6 +1401,38 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const selectedStudentIds = selectedEvent?.selectedStudentIds || [];
   const signedStudentIds = new Set(submissionsForEvent.map((submission) => getStudentKey(submission)));
   const signedCount = signedStudentIds.size;
+  const eventRecipients = selectedEvent?.recipients || [];
+  const sentStatusLabels = ["Email Sent", "Email + SMS Sent", "SMS Sent", "SMS Previewed", "Viewed", "Signed"];
+  const sentRecipients = eventRecipients.filter((recipient) => sentStatusLabels.includes(recipient.status) || recipient.sentAt || recipient.emailedAt);
+  const viewedRecipients = eventRecipients.filter((recipient) => recipient.viewedAt);
+  const unsignedRecipients = eventRecipients.filter((recipient) => !signedStudentIds.has(getStudentKey(recipient)));
+  const notSentRecipients = eventRecipients.filter((recipient) => !sentStatusLabels.includes(recipient.status) && !recipient.sentAt && !recipient.emailedAt);
+  const smsProblemRecipients = eventRecipients.filter((recipient) => recipient.smsStatus === "Failed" || recipient.smsError);
+  const missingContactRecipients = eventRecipients.filter((recipient) => !recipient.parentEmail && !recipient.parentPhone);
+  const messageTemplates = getEventMessageTemplates(selectedEvent || {});
+  const previewRecipient = eventRecipients[0] || {
+    ...createBlankRecipient(),
+    parentName: "Parent/Guardian",
+    studentName: "Sample Student",
+    parentEmail: currentUserEmail,
+    token: "sample-preview",
+  };
+  const workflowSteps = [
+    ["details", "Create Trip", selectedEvent?.title && selectedEvent?.eventDate],
+    ["students", "Select Students", selectedStudentIds.length || eventRecipients.length],
+    ["recipients", "Review Recipients", eventRecipients.length],
+    ["track", "Send & Track", sentRecipients.length || signedCount],
+  ];
+  const dashboardMetrics = [
+    ["Students Selected", selectedStudentIds.length],
+    ["Parent Links Ready", eventRecipients.length],
+    ["Sent", sentRecipients.length],
+    ["Viewed", viewedRecipients.length],
+    ["Signed", signedCount],
+    ["Still Missing", unsignedRecipients.length],
+    ["SMS Failed", smsProblemRecipients.length],
+    ["No Contact", missingContactRecipients.length],
+  ];
 
   useEffect(() => {
     let active = true;
@@ -1422,6 +1518,93 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     updateEvent({
       fields: selectedEvent.fields.map((field) => (field.id === fieldId ? { ...field, ...patch } : field)),
     });
+  }
+
+  function updateMessageTemplate(templateKey, patch) {
+    updateEvent({
+      messageTemplates: {
+        ...messageTemplates,
+        [templateKey]: {
+          ...messageTemplates[templateKey],
+          ...patch,
+        },
+      },
+    });
+  }
+
+  function openTestEmailToSelf() {
+    if (!currentUserEmail) {
+      setSyncStatus("Sign in with an email address before sending yourself a test.");
+      return;
+    }
+    const testRecipient = {
+      ...previewRecipient,
+      parentName: "Test Parent",
+      parentEmail: currentUserEmail,
+      studentName: previewRecipient.studentName || "Sample Student",
+    };
+    window.location.href = getPermissionEmail({ event: selectedEvent, recipient: testRecipient }).mailto;
+    setSyncStatus(`Opened a test email draft to ${currentUserEmail}.`);
+  }
+
+  async function sendRecipientBatch(recipients, label) {
+    const emailableRecipients = recipients.filter((recipient) => recipient.parentEmail);
+    if (!emailableRecipients.length) {
+      setSyncStatus(`No ${label.toLowerCase()} recipients have parent email addresses.`);
+      return;
+    }
+    for (const recipient of emailableRecipients) {
+      await resendPermissionEmail(recipient);
+    }
+    setSyncStatus(`${label} complete for ${emailableRecipients.length} parent email${emailableRecipients.length === 1 ? "" : "s"}.`);
+  }
+
+  function copyMissingContacts() {
+    const selectedStudents = rosterStudents.filter((student) => selectedStudentIds.includes(student.id));
+    const rosterRows = selectedStudents.flatMap((student) =>
+      (student.parents.length ? student.parents : [{ parentName: "", parentEmail: "", parentPhone: "" }])
+        .filter((parent) => !parent.parentEmail || !parent.parentPhone)
+        .map((parent) => `${student.studentName},Grade ${student.grade},${parent.parentName || "Parent"},${parent.parentEmail || "missing email"},${parent.parentPhone || "missing phone"}`)
+    );
+    const recipientRows = missingContactRecipients.map((recipient) =>
+      `${recipient.studentName},Grade ${recipient.grade || ""},${recipient.parentName || "Parent"},missing email,missing phone`
+    );
+    const rows = ["Student,Grade,Parent,Email,Phone", ...rosterRows, ...recipientRows];
+    navigator.clipboard.writeText(rows.join("\n"));
+    setSyncStatus(`Copied ${rows.length - 1} missing contact row${rows.length === 2 ? "" : "s"} to the clipboard.`);
+  }
+
+  function exportSignedList() {
+    const rows = [
+      ["Student", "Grade", "Parent", "Parent Email", "Signed At", "Event"].join(","),
+      ...submissionsForEvent.map((submission) => [
+        submission.studentName || "",
+        submission.grade || "",
+        submission.parentName || submission.signerName || "",
+        submission.parentEmail || "",
+        submission.signedAt ? new Date(submission.signedAt).toLocaleString() : "",
+        selectedEvent.title || "",
+      ].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")),
+    ];
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(selectedEvent.title || "permission-slip").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-signed-list.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadAllSignedPdfs() {
+    if (!submissionsForEvent.length) {
+      setSyncStatus("There are no signed PDFs to download yet.");
+      return;
+    }
+    setSyncStatus(`Preparing ${submissionsForEvent.length} signed PDF download${submissionsForEvent.length === 1 ? "" : "s"}...`);
+    for (const submission of submissionsForEvent) {
+      await downloadSignedPdf(submission);
+    }
+    setSyncStatus(`Prepared ${submissionsForEvent.length} signed PDF download${submissionsForEvent.length === 1 ? "" : "s"}.`);
   }
 
   function moveField(fieldId, targetFieldId) {
@@ -2268,18 +2451,91 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
           </aside>
 
           <div className="grid gap-4">
-            <div className="grid gap-4 lg:grid-cols-4">
-              {[
-                ["Recipients", selectedEvent.recipients.length],
-                ["Signed Students", signedCount],
-                ["Viewed", selectedEvent.recipients.filter((recipient) => recipient.viewedAt).length],
-                ["Audit Records", submissionsForEvent.length],
-              ].map(([label, value]) => (
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-slate-400">
+                <CheckCircle2 size={16} />
+                Permission Slip Workflow
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {workflowSteps.map(([id, label, isComplete], index) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setWorkflowStep(id)}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      workflowStep === id
+                        ? "border-sky-400 bg-sky-500/15"
+                        : isComplete
+                          ? "border-emerald-500/40 bg-emerald-500/10"
+                          : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Step {index + 1}</span>
+                      {isComplete ? <CheckCircle2 size={16} className="text-emerald-300" /> : null}
+                    </div>
+                    <div className="mt-1 font-bold text-white">{label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {dashboardMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
                   <div className="mt-2 text-2xl font-bold text-white">{value}</div>
                 </div>
               ))}
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
+                  <ShieldCheck size={18} />
+                  SMS Readiness
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["Email active", "Automatic email sending is ready now.", true],
+                    ["SMS pending A2P", "SMS stays in preview mode until Twilio approval is turned on.", false],
+                    ["SMS preview available", "Staff can preview and record SMS text before launch.", true],
+                    ["Opt-out language included", "SMS templates include STOP and rate-language requirements.", true],
+                  ].map(([title, detail, ready]) => (
+                    <div key={title} className={`rounded-lg border p-3 ${ready ? "border-emerald-500/30 bg-emerald-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+                      <div className="font-bold text-white">{title}</div>
+                      <div className="mt-1 text-xs leading-5 text-slate-300">{detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
+                  <ClipboardList size={18} />
+                  Missing Signatures
+                </div>
+                <div className="grid gap-2">
+                  {[
+                    ["not-sent", "No link sent", notSentRecipients.length],
+                    ["sent-not-viewed", "Sent, not viewed", eventRecipients.filter((recipient) => sentStatusLabels.includes(recipient.status) && !recipient.viewedAt && !signedStudentIds.has(getStudentKey(recipient))).length],
+                    ["viewed-unsigned", "Viewed, unsigned", eventRecipients.filter((recipient) => recipient.viewedAt && !signedStudentIds.has(getStudentKey(recipient))).length],
+                    ["unsigned", "Still unsigned", unsignedRecipients.length],
+                  ].map(([filter, label, count]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => {
+                        setStudentStatusFilter(filter);
+                        setWorkflowStep("students");
+                      }}
+                      className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left text-sm font-bold text-slate-100 transition hover:border-sky-400"
+                    >
+                      {label}
+                      <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">{count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -2403,6 +2659,151 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-lg font-bold text-white">
+                    <Mail size={18} />
+                    Message Templates
+                  </div>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Customize the email and SMS wording once, then reuse it for initial sends and reminders.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openTestEmailToSelf}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/20"
+                >
+                  <Send size={15} />
+                  Send Test to Myself
+                </button>
+              </div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {Object.entries(messageTemplates).map(([key, template]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setActiveTemplateKey(key)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                      activeTemplateKey === key
+                        ? "border-sky-400 bg-sky-500 text-white"
+                        : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="grid gap-3">
+                  {activeTemplateKey !== "sms" && (
+                    <label className="text-sm font-semibold text-slate-300">
+                      Subject
+                      <input
+                        value={messageTemplates[activeTemplateKey]?.subject || ""}
+                        onChange={(event) => updateMessageTemplate(activeTemplateKey, { subject: event.target.value })}
+                        className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-sky-400"
+                      />
+                    </label>
+                  )}
+                  <label className="text-sm font-semibold text-slate-300">
+                    Message
+                    <textarea
+                      rows={activeTemplateKey === "sms" ? 4 : 7}
+                      value={messageTemplates[activeTemplateKey]?.body || ""}
+                      onChange={(event) => updateMessageTemplate(activeTemplateKey, { body: event.target.value })}
+                      className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-sky-400"
+                    />
+                  </label>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Live Preview</div>
+                  {activeTemplateKey !== "sms" && (
+                    <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900 p-2">
+                      <div className="text-xs font-bold text-slate-500">Subject</div>
+                      <div className="mt-1 text-white">{getPermissionEmail({ event: selectedEvent, recipient: previewRecipient, templateKey: activeTemplateKey }).subject}</div>
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-900 p-3 leading-6 text-slate-200">
+                    {activeTemplateKey === "sms"
+                      ? getPermissionSmsPreview({ event: selectedEvent, recipient: previewRecipient })
+                      : getPermissionEmail({ event: selectedEvent, recipient: previewRecipient, templateKey: activeTemplateKey }).body}
+                  </div>
+                  <div className="mt-3 text-xs leading-5 text-slate-500">
+                    Available placeholders: {"{parentName}"}, {"{studentName}"}, {"{eventTitle}"}, {"{eventDate}"}, {"{destination}"}, {"{signingUrl}"}.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
+                  <FileSignature size={18} />
+                  Parent Preview Before Sending
+                </div>
+                <div className="max-h-[520px] overflow-auto rounded-lg border border-slate-800 bg-white p-3">
+                  <PermissionPreview event={selectedEvent} recipient={previewRecipient} />
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
+                  <Send size={18} />
+                  Bulk Actions
+                </div>
+                <div className="grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(notSentRecipients, "Send to all unsent")}
+                    disabled={!notSentRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Send to All Unsent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Resend unsigned")}
+                    disabled={!unsignedRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCcw size={15} />
+                    Resend Unsigned
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyMissingContacts}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-bold text-amber-100 transition hover:bg-amber-500/20"
+                  >
+                    <Copy size={15} />
+                    Copy Missing Contacts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportSignedList}
+                    disabled={!submissionsForEvent.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-bold text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download size={15} />
+                    Export Signed List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadAllSignedPdfs}
+                    disabled={!submissionsForEvent.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-bold text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download size={15} />
+                    Download All Signed PDFs
+                  </button>
+                </div>
+                <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+                  Bulk actions use the current slip only. SMS remains preview-only until Twilio A2P is approved and sending is enabled.
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 text-lg font-bold text-white">
@@ -2508,8 +2909,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 </select>
               </div>
 
-              <div className="mt-4 overflow-hidden rounded-lg border border-slate-800">
-                <div className="grid grid-cols-[44px_90px_minmax(0,1fr)_160px_150px] gap-3 bg-slate-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+              <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800">
+                <div className="grid min-w-[760px] grid-cols-[44px_90px_minmax(0,1fr)_160px_150px] gap-3 bg-slate-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
                   <label className="flex items-center justify-center">
                     <input
                       type="checkbox"
@@ -2542,7 +2943,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     return (
                       <div
                         key={student.id}
-                        className={`grid grid-cols-[44px_90px_minmax(0,1fr)_160px_150px] gap-3 border-t border-slate-800 px-3 py-3 text-sm ${
+                        className={`grid min-w-[760px] grid-cols-[44px_90px_minmax(0,1fr)_160px_150px] gap-3 border-t border-slate-800 px-3 py-3 text-sm ${
                           isSigned ? "bg-emerald-500/10" : "bg-rose-500/10"
                         }`}
                       >

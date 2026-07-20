@@ -26,6 +26,31 @@ function firstName(value: string) {
   return String(value || "").trim().split(/\s+/)[0] || "your student";
 }
 
+const defaultInitialTemplate = {
+  subject: "WVCS Permission Slip: {eventTitle}",
+  body: [
+    "Dear {parentName},",
+    "",
+    "Willamette Valley Christian School has a permission slip for {studentName} for {eventTitle} on {eventDate}.",
+    "",
+    "Please review and sign here: {signingUrl}",
+    "",
+    "Thank you,",
+    "Willamette Valley Christian School",
+    "9075 Pueblo Ave NE, Brooks, OR 97305",
+    "TEL: 503-393-5236",
+  ].join("\r\n"),
+};
+
+function formatDate(value: string) {
+  if (!value) return "Not set";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value}T12:00:00`));
+}
+
+function renderTemplate(template: string, values: Record<string, string>) {
+  return String(template || "").replace(/\{(\w+)\}/g, (match, key) => values[key] || match);
+}
+
 function buildSigningUrl(payload: Record<string, any>, recipient: Record<string, any>) {
   if (payload.signingBaseUrl) {
     return `${String(payload.signingBaseUrl).replace(/\/$/, "")}#/permission-sign/${encodeURIComponent(recipient.signing_token)}`;
@@ -45,24 +70,21 @@ function buildMessage({
   event: Record<string, any>;
   signingUrl: string;
 }) {
-  const studentFirstName = firstName(recipient.student_name);
+  const eventJson = event.event || {};
+  const savedTemplate = eventJson.messageTemplates?.initial || {};
+  const template = { ...defaultInitialTemplate, ...savedTemplate };
   const eventTitle = event.title || "Field Trip";
-  const subject = `WVCS Permission Slip: ${eventTitle}`;
-  const textBody = [
-    `Dear ${recipient.parent_name || "Parent/Guardian"},`,
-    "",
-    `Willamette Valley Christian School has a permission slip for ${studentFirstName} to attend ${eventTitle}.`,
-    "",
-    "Please review and sign the permission slip using this secure link:",
+  const values = {
+    parentName: recipient.parent_name || "Parent/Guardian",
+    studentName: recipient.student_name || firstName(recipient.student_name),
+    eventTitle,
+    eventDate: formatDate(event.event_date || eventJson.eventDate),
+    destination: event.destination || eventJson.destination || "WVCS field trip",
     signingUrl,
-    "",
-    "If you have already completed this permission slip, no further action is needed.",
-    "",
-    "Thank you,",
-    "Willamette Valley Christian School",
-    "9075 Pueblo Ave NE, Brooks, OR 97305",
-    "TEL: 503-393-5236",
-  ].join("\r\n");
+    schoolName: "Willamette Valley Christian School",
+  };
+  const subject = renderTemplate(template.subject, values);
+  const textBody = renderTemplate(template.body, values);
 
   return [
     `From: WVCS School Hub <${senderEmail}>`,

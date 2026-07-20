@@ -23,6 +23,13 @@ function firstName(value: string) {
   return String(value || "").trim().split(/\s+/)[0] || "your student";
 }
 
+const defaultSmsTemplate =
+  "Willamette Valley Christian School: A permission slip for {studentName} is ready for {eventTitle}. Review and sign: {signingUrl} Reply STOP to opt out. Msg & data rates may apply.";
+
+function renderTemplate(template: string, values: Record<string, string>) {
+  return String(template || "").replace(/\{(\w+)\}/g, (match, key) => values[key] || match);
+}
+
 function normalizePhone(value: string) {
   const trimmed = String(value || "").trim();
   if (!trimmed) return "";
@@ -50,13 +57,19 @@ function buildSmsMessage({
   event: Record<string, any>;
   signingUrl: string;
 }) {
+  const eventJson = event.event || {};
+  const savedTemplate = eventJson.messageTemplates?.sms?.body || defaultSmsTemplate;
   const studentFirstName = firstName(recipient.student_name);
   const eventTitle = event.title || "Field Trip";
-  return [
-    `Willamette Valley Christian School: A permission slip for ${studentFirstName} is ready for ${eventTitle}.`,
-    `Please review and sign here: ${signingUrl}`,
-    "Reply STOP to opt out. Msg & data rates may apply.",
-  ].join(" ");
+  return renderTemplate(savedTemplate, {
+    parentName: recipient.parent_name || "Parent/Guardian",
+    studentName: studentFirstName,
+    eventTitle,
+    eventDate: event.event_date || eventJson.eventDate || "",
+    destination: event.destination || eventJson.destination || "WVCS field trip",
+    signingUrl,
+    schoolName: "Willamette Valley Christian School",
+  });
 }
 
 async function sendTwilioSms({ to, body }: { to: string; body: string }) {
