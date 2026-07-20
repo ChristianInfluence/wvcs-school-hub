@@ -765,6 +765,18 @@ async function downloadSignedPermissionPdf({ event, recipient, submission }) {
   URL.revokeObjectURL(url);
 }
 
+async function viewSignedPermissionPdf({ event, recipient, submission }) {
+  const blob = await createSignedPermissionPdfBlob({ event, recipient, submission });
+  const url = URL.createObjectURL(blob);
+  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
+  if (!openedWindow) {
+    await downloadSignedPermissionPdf({ event, recipient, submission });
+    URL.revokeObjectURL(url);
+    return;
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000 * 60);
+}
+
 function FieldRenderer({ field, value, onChange, disabled = false }) {
   if (field.type === "textarea") {
     return (
@@ -1005,15 +1017,16 @@ export function ParentPermissionSigningPage({ token }) {
           submission.token !== token
       )
     : null;
-  const [answers, setAnswers] = useState(existingSubmission?.answers || {});
-  const [signerName, setSignerName] = useState(existingSubmission?.signerName || match?.recipient.parentName || "");
-  const [signatureDataUrl, setSignatureDataUrl] = useState(existingSubmission?.signatureDataUrl || "");
-  const [electronicConsent, setElectronicConsent] = useState(Boolean(existingSubmission?.electronicConsent));
-  const [parentCopyRequested, setParentCopyRequested] = useState(Boolean(existingSubmission?.parentCopyRequested));
+  const alreadyRecordedSubmission = existingSubmission || otherParentSubmission;
+  const [answers, setAnswers] = useState(alreadyRecordedSubmission?.answers || {});
+  const [signerName, setSignerName] = useState(alreadyRecordedSubmission?.signerName || match?.recipient.parentName || "");
+  const [signatureDataUrl, setSignatureDataUrl] = useState(alreadyRecordedSubmission?.signatureDataUrl || "");
+  const [electronicConsent, setElectronicConsent] = useState(Boolean(alreadyRecordedSubmission?.electronicConsent));
+  const [parentCopyRequested, setParentCopyRequested] = useState(Boolean(alreadyRecordedSubmission?.parentCopyRequested));
   const [error, setError] = useState("");
   const [submitStatus, setSubmitStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(Boolean(existingSubmission));
+  const [submitted, setSubmitted] = useState(Boolean(alreadyRecordedSubmission));
 
   useEffect(() => {
     let active = true;
@@ -1069,6 +1082,17 @@ export function ParentPermissionSigningPage({ token }) {
     return () => window.clearTimeout(timeoutId);
   }, [token]);
 
+  useEffect(() => {
+    if (alreadyRecordedSubmission) {
+      setAnswers(alreadyRecordedSubmission.answers || {});
+      setSignerName(alreadyRecordedSubmission.signerName || match?.recipient.parentName || "");
+      setSignatureDataUrl(alreadyRecordedSubmission.signatureDataUrl || "");
+      setElectronicConsent(Boolean(alreadyRecordedSubmission.electronicConsent));
+      setParentCopyRequested(Boolean(alreadyRecordedSubmission.parentCopyRequested));
+      setSubmitted(true);
+    }
+  }, [alreadyRecordedSubmission?.id, match?.recipient.parentName]);
+
   if (!match) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
@@ -1083,6 +1107,7 @@ export function ParentPermissionSigningPage({ token }) {
 
   const { event, recipient } = match;
   const alreadySignedByThisParent = Boolean(existingSubmission);
+  const alreadySignedForStudent = Boolean(alreadyRecordedSubmission);
 
   function updateAnswer(fieldId, value) {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
@@ -1090,6 +1115,11 @@ export function ParentPermissionSigningPage({ token }) {
 
   async function submitSignature() {
     if (isSubmitting) return;
+    if (alreadySignedForStudent) {
+      setSubmitted(true);
+      setError("");
+      return;
+    }
     const missingField = event.fields.find((field) => {
       if (!field.required) return false;
       const value = answers[field.id];
@@ -1230,9 +1260,9 @@ export function ParentPermissionSigningPage({ token }) {
   }
 
   async function downloadParentSignedPdf() {
-    const submission = state.submissions.find((item) => item.token === token) || existingSubmission;
+    const submission = state.submissions.find((item) => item.token === token) || alreadyRecordedSubmission;
     if (!submission) return;
-    await downloadSignedPermissionPdf({ event, recipient, submission });
+    await viewSignedPermissionPdf({ event, recipient, submission });
   }
 
   return (
@@ -1245,7 +1275,9 @@ export function ParentPermissionSigningPage({ token }) {
             <p className="mt-2 text-sm text-slate-600">
               {alreadySignedByThisParent
                 ? "This permission slip has already been signed by you."
-                : `Thank you. WVCS has recorded your electronic signature for ${event.title}.`}
+                : alreadySignedForStudent
+                  ? `This permission slip has already been signed for ${recipient.studentName}. WVCS has the signature on file.`
+                  : `Thank you. WVCS has recorded your electronic signature for ${event.title}.`}
             </p>
             <p className="mt-2 text-xs text-slate-500">
               A parent copy email is ready for the school email delivery step. Automatic sending will be enabled when the backend mail function is connected.
@@ -1256,7 +1288,7 @@ export function ParentPermissionSigningPage({ token }) {
               className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500"
             >
               <Download size={16} />
-              Download Signed PDF
+              View Signed PDF
             </button>
           </div>
         ) : null}
@@ -1268,7 +1300,7 @@ export function ParentPermissionSigningPage({ token }) {
 
         {!submitted && otherParentSubmission && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-            This permission slip has already been signed by another parent/guardian for {recipient.studentName}. You may still sign it as well.
+            This permission slip has already been signed for {recipient.studentName}. WVCS has the signature on file.
           </div>
         )}
 
@@ -2133,6 +2165,11 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   function openEmail(recipient) {
     markSmsReady(recipient.id);
     window.location.href = getPermissionEmail({ event: selectedEvent, recipient }).mailto;
+  }
+
+  async function viewSignedPdf(submission) {
+    const recipient = selectedEvent.recipients.find((item) => item.id === submission.recipientId);
+    await viewSignedPermissionPdf({ event: selectedEvent, recipient, submission });
   }
 
   async function downloadSignedPdf(submission) {
@@ -3140,11 +3177,11 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                               <button
                                 key={submission.id}
                                 type="button"
-                                onClick={() => downloadSignedPdf(submission)}
+                                onClick={() => viewSignedPdf(submission)}
                                 className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-2 py-1 text-xs font-bold text-emerald-100"
                               >
                                 <Download size={13} />
-                                PDF {index + 1}
+                                View PDF {index + 1}
                               </button>
                             ))
                           ) : (
@@ -3271,11 +3308,11 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                           </div>
                           <button
                             type="button"
-                            onClick={() => downloadSignedPdf(submission)}
+                            onClick={() => viewSignedPdf(submission)}
                             className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-emerald-400"
                           >
                             <Download size={15} />
-                            Download Signed PDF
+                            View Signed PDF
                           </button>
                           <button
                             type="button"
