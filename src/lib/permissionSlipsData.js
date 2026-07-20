@@ -20,6 +20,16 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mimeType });
 }
 
+async function blobToBase64(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Could not read PDF."));
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.split(",")[1] || "";
+}
+
 function splitName(fullName) {
   const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return { firstName: "", lastName: "" };
@@ -409,6 +419,38 @@ export async function savePermissionSubmission(submission) {
   return { saved: true };
 }
 
+export async function fetchPermissionSigningData(token) {
+  if (!isSupabaseConfigured) {
+    return { loaded: false, found: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("permission-signing-data", {
+    body: { token },
+  });
+
+  if (error) throw error;
+  return data || { loaded: true, found: false };
+}
+
+export async function submitPermissionSignature({ token, submission, pdfBlob, filename }) {
+  if (!isSupabaseConfigured) {
+    return { saved: false, reason: "Supabase is not configured." };
+  }
+
+  const pdfBase64 = pdfBlob ? await blobToBase64(pdfBlob) : "";
+  const { data, error } = await supabase.functions.invoke("permission-submit-signature", {
+    body: {
+      token,
+      submission,
+      pdfBase64,
+      filename,
+    },
+  });
+
+  if (error) throw error;
+  return data || { saved: true };
+}
+
 export async function logPermissionAudit(entry) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
 
@@ -472,13 +514,24 @@ export async function createPermissionPdfUrl(file) {
   return data?.signedUrl || "";
 }
 
-export async function sendPermissionParentCopyEmail({ submissionId }) {
+export async function createParentPermissionPdfUrl({ token, submissionId }) {
+  if (!isSupabaseConfigured || !token || !submissionId) return "";
+
+  const { data, error } = await supabase.functions.invoke("permission-signed-pdf-url", {
+    body: { token, submissionId },
+  });
+
+  if (error) throw error;
+  return data?.url || "";
+}
+
+export async function sendPermissionParentCopyEmail({ submissionId, token = "" }) {
   if (!isSupabaseConfigured) {
     return { sent: false, reason: "Supabase is not configured." };
   }
 
   const { data, error } = await supabase.functions.invoke("send-permission-parent-copy", {
-    body: { submissionId },
+    body: { submissionId, token },
   });
 
   if (error) throw error;

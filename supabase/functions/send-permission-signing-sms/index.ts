@@ -11,6 +11,27 @@ function requiredEnv(name: string) {
   return value;
 }
 
+async function requireDigitalSlipsStaff(request: Request, supabase: any) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) throw new Error("Authentication required.");
+
+  const { data: userResult, error: userError } = await supabase.auth.getUser(token);
+  if (userError || !userResult?.user?.email) throw new Error("Authentication required.");
+
+  const { data: access, error: accessError } = await supabase
+    .from("staff_access")
+    .select("can_use_hub, can_use_admin, can_use_digital_slips")
+    .eq("email", userResult.user.email.toLowerCase())
+    .maybeSingle();
+  if (accessError) throw accessError;
+  if (!access?.can_use_hub || (!access.can_use_admin && !access.can_use_digital_slips)) {
+    throw new Error("You do not have permission to send digital permission slips.");
+  }
+
+  return userResult.user;
+}
+
 function optionalEnv(name: string) {
   return Deno.env.get(name) || "";
 }
@@ -121,6 +142,7 @@ Deno.serve(async (request) => {
       requiredEnv("SUPABASE_URL"),
       requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
     );
+    const actor = await requireDigitalSlipsStaff(request, supabase);
 
     const { data: event, error: eventError } = await supabase
       .from("permission_events")
@@ -176,6 +198,7 @@ Deno.serve(async (request) => {
             recipient_id: recipient.id,
             action: "permission_signing_sms_previewed",
             actor_label: "WVCS School Hub",
+            actor_email: actor.email,
             details: {
               parentPhone: to,
               studentName: recipient.student_name,
@@ -211,6 +234,7 @@ Deno.serve(async (request) => {
             recipient_id: recipient.id,
             action: "permission_signing_sms_sent",
             actor_label: "WVCS School Hub",
+            actor_email: actor.email,
             details: {
               parentPhone: to,
               studentName: recipient.student_name,

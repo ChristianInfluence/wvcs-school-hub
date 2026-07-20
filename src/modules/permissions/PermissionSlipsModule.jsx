@@ -22,11 +22,12 @@ import warriorHeadNew from "../../assets/warrior-head-new.png";
 import {
   deletePermissionRecipient,
   deletePermissionRosterStudent,
+  fetchPermissionSigningData,
   fetchPermissionEvents,
   fetchPermissionRecipients,
   fetchPermissionRoster,
   fetchPermissionSubmissions,
-  logPermissionAudit,
+  createParentPermissionPdfUrl,
   replacePermissionRosterGrade,
   savePermissionEvent,
   savePermissionRecipients,
@@ -35,7 +36,7 @@ import {
   sendPermissionParentCopyEmail,
   sendPermissionSigningRequestEmail,
   sendPermissionSigningRequestSms,
-  uploadPermissionSignedPdf,
+  submitPermissionSignature,
 } from "../../lib/permissionSlipsData.js";
 
 const STORE_KEY = "wvcs-permission-slips-v1";
@@ -998,7 +999,7 @@ function PermissionPreview({ event, recipient, submission }) {
 }
 
 export function ParentPermissionSigningPage({ token }) {
-  const [state, setState] = useState(loadState);
+  const [state, setState] = useState(() => ({ ...defaultState, events: [], submissions: [] }));
   const [syncStatus, setSyncStatus] = useState("Loading permission slip...");
   let match = null;
   for (const event of state.events) {
@@ -1032,32 +1033,31 @@ export function ParentPermissionSigningPage({ token }) {
     let active = true;
     async function loadRemoteSigningData() {
       try {
-        const [eventsResult, recipientsResult, submissionsResult] = await Promise.all([
-          fetchPermissionEvents(),
-          fetchPermissionRecipients(),
-          fetchPermissionSubmissions(),
-        ]);
-        if (!active || !eventsResult.loaded || !recipientsResult.loaded || !submissionsResult.loaded) {
+        const result = await fetchPermissionSigningData(token);
+        if (!active) return;
+        if (!result.loaded || !result.found || !result.event || !result.recipient) {
           setSyncStatus("");
           return;
         }
         const next = {
-          ...loadState(),
-          events: attachRecipientsToEvents(eventsResult.events, recipientsResult.recipients),
-          submissions: submissionsResult.submissions,
+          ...defaultState,
+          events: [{ ...result.event, recipients: [result.recipient] }],
+          submissions: result.submission ? [result.submission] : [],
         };
-        saveState(next);
         setState(next);
         setSyncStatus("");
       } catch (remoteError) {
-        if (active) setSyncStatus(`Using local signing data. ${remoteError.message}`);
+        if (active) {
+          setError(`Could not load this signing link. ${remoteError.message}`);
+          setSyncStatus("");
+        }
       }
     }
     loadRemoteSigningData();
     return () => {
       active = false;
     };
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1075,7 +1075,6 @@ export function ParentPermissionSigningPage({ token }) {
           })),
         };
         if (!changed) return current;
-        saveState(next);
         return next;
       });
     }, 0);
@@ -1094,12 +1093,23 @@ export function ParentPermissionSigningPage({ token }) {
   }, [alreadyRecordedSubmission?.id, match?.recipient.parentName]);
 
   if (!match) {
+    if (syncStatus) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+          <div className="max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <ShieldCheck className="mx-auto text-slate-400" size={34} />
+            <h1 className="mt-3 text-xl font-bold text-slate-950">Loading Permission Slip</h1>
+            <p className="mt-2 text-sm text-slate-600">{syncStatus}</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
         <div className="max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
           <ShieldCheck className="mx-auto text-slate-400" size={34} />
           <h1 className="mt-3 text-xl font-bold text-slate-950">Permission link unavailable</h1>
-          <p className="mt-2 text-sm text-slate-600">This signing link could not be found on this device.</p>
+          <p className="mt-2 text-sm text-slate-600">{error || "This signing link could not be found."}</p>
         </div>
       </div>
     );
@@ -1177,63 +1187,37 @@ export function ParentPermissionSigningPage({ token }) {
 
     try {
       const pdfBlob = await createSignedPermissionPdfBlob({ event, recipient, submission });
-      setSubmitStatus("Uploading signed PDF...");
-      const uploadResult = await uploadPermissionSignedPdf({
-        submissionId: submission.id,
+      setSubmitStatus("Saving signed permission slip...");
+      const saveResult = await submitPermissionSignature({
+        token,
+        submission,
+        pdfBlob,
         filename: getSignedPermissionFilename({ event, recipient, submission }),
-        blob: pdfBlob,
       });
-      if (uploadResult.uploaded) {
-        submission = {
-          ...submission,
-          signedPdf: {
-            bucket: uploadResult.bucket,
-            path: uploadResult.path,
-            name: getSignedPermissionFilename({ event, recipient, submission }),
-          },
+      submission = saveResult.submission || submission;
+      setState((current) => {
+        const submissions = current.submissions.some((item) => item.id === submission.id || item.token === token)
+          ? current.submissions.map((item) => (item.id === submission.id || item.token === token ? submission : item))
+          : [submission, ...current.submissions];
+        return {
+          ...current,
+          submissions,
+          events: current.events.map((item) =>
+            item.id === event.id
+              ? {
+                  ...item,
+                  recipients: item.recipients.map((entry) =>
+                    entry.id === recipient.id ? { ...entry, status: "Signed", signedAt: submission.signedAt || signedAt } : entry
+                  ),
+                }
+              : item
+          ),
         };
-      }
-    } catch (uploadError) {
-      setError(`Signature saved, but signed PDF upload failed: ${uploadError.message}`);
-    }
-
-    setState((current) => {
-      const submissions = current.submissions.some((item) => item.token === token)
-        ? current.submissions.map((item) => (item.token === token ? submission : item))
-        : [submission, ...current.submissions];
-      const next = {
-        ...current,
-        submissions,
-        events: current.events.map((item) =>
-          item.id === event.id
-            ? {
-                ...item,
-                recipients: item.recipients.map((entry) =>
-                  entry.id === recipient.id ? { ...entry, status: "Signed", signedAt } : entry
-                ),
-              }
-            : item
-        ),
-      };
-      saveState(next);
-      return next;
-    });
-    setSubmitStatus("Saving signature record...");
-    try {
-      await savePermissionSubmission(submission);
-      await savePermissionRecipients(event.id, [{ ...recipient, status: "Signed", signedAt }]);
-      await logPermissionAudit({
-        eventId: event.id,
-        recipientId: recipient.id,
-        submissionId: submission.id,
-        action: "permission_signed",
-        actorLabel: signerName.trim(),
-        details: { ...submission.audit, signedPdf: submission.signedPdf || null },
       });
-      if (parentCopyRequested && submission.parentEmail && submission.signedPdf) {
+      if (parentCopyRequested && submission.parentEmail && submission.signedPdf && !saveResult.parentCopySent) {
         setSubmitStatus("Emailing parent copy...");
         try {
-          const emailResult = await sendPermissionParentCopyEmail({ submissionId: submission.id });
+          const emailResult = await sendPermissionParentCopyEmail({ submissionId: submission.id, token });
           submission = {
             ...submission,
             parentCopyEmailStatus: emailResult.sent ? "Sent" : emailResult.reason || "Not sent",
@@ -1244,7 +1228,6 @@ export function ParentPermissionSigningPage({ token }) {
               ...current,
               submissions: current.submissions.map((item) => (item.id === submission.id ? submission : item)),
             };
-            saveState(next);
             return next;
           });
         } catch (emailError) {
@@ -1252,7 +1235,10 @@ export function ParentPermissionSigningPage({ token }) {
         }
       }
     } catch (remoteError) {
-      setError(`Signed locally, but Supabase save failed: ${remoteError.message}`);
+      setError(`The signature could not be recorded: ${remoteError.message}`);
+      setIsSubmitting(false);
+      setSubmitStatus("");
+      return;
     }
     setSubmitted(true);
     setSubmitStatus("");
@@ -1262,6 +1248,13 @@ export function ParentPermissionSigningPage({ token }) {
   async function downloadParentSignedPdf() {
     const submission = state.submissions.find((item) => item.token === token) || alreadyRecordedSubmission;
     if (!submission) return;
+    if (submission.id) {
+      const url = await createParentPermissionPdfUrl({ token, submissionId: submission.id });
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
     await viewSignedPermissionPdf({ event, recipient, submission });
   }
 

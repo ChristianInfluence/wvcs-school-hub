@@ -11,6 +11,40 @@ function requiredEnv(name: string) {
   return value;
 }
 
+async function isDigitalSlipsStaff(request: Request, supabase: any) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return false;
+
+  const { data: userResult } = await supabase.auth.getUser(token);
+  const email = userResult?.user?.email?.toLowerCase();
+  if (!email) return false;
+
+  const { data: access, error: accessError } = await supabase
+    .from("staff_access")
+    .select("can_use_hub, can_use_admin, can_use_digital_slips")
+    .eq("email", email)
+    .maybeSingle();
+  if (accessError) throw accessError;
+  return Boolean(access?.can_use_hub && (access.can_use_admin || access.can_use_digital_slips));
+}
+
+async function tokenCanAccessSubmission(token: string, submission: Record<string, any>, supabase: any) {
+  if (!token) return false;
+  const { data: recipient, error } = await supabase
+    .from("permission_recipients")
+    .select("*")
+    .eq("signing_token", token)
+    .maybeSingle();
+  if (error) throw error;
+  if (!recipient) return false;
+  const sameEvent = submission.event_id === recipient.event_id;
+  const sameStudent = recipient.student_id
+    ? submission.student_id === recipient.student_id
+    : submission.recipient_id === recipient.id;
+  return Boolean(sameEvent && sameStudent);
+}
+
 function encodeBase64Url(value: string) {
   return btoa(unescape(encodeURIComponent(value)))
     .replaceAll("+", "-")
@@ -135,6 +169,9 @@ Deno.serve(async (request) => {
 
     if (submissionError) throw submissionError;
     if (!submission) throw new Error(`Permission submission not found: ${submissionId}`);
+    const allowed = await isDigitalSlipsStaff(request, supabase)
+      || await tokenCanAccessSubmission(payload.token || "", submission, supabase);
+    if (!allowed) throw new Error("You do not have permission to email this signed permission slip.");
     if (!submission.parent_email) throw new Error("Submission does not have a parent email.");
     if (!submission.signed_pdf_bucket || !submission.signed_pdf_path) {
       throw new Error("Submission does not have a stored signed PDF.");
