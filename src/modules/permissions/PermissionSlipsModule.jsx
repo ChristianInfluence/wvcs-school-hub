@@ -2260,12 +2260,16 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
 
   function openSignedParentEmail(submission) {
     const recipient = selectedEvent.recipients.find((item) => item.id === submission.recipientId);
-    if (!recipient?.parentEmail) return;
+    if (!recipient?.parentEmail) {
+      setSyncStatus("No parent email is on file for this signed permission slip.");
+      return;
+    }
     const updatedSubmission = {
       ...submission,
       parentCopyEmailStatus: "Sending...",
       parentCopyEmailPreparedAt: new Date().toISOString(),
     };
+    setSyncStatus(`Sending parent copy to ${recipient.parentEmail}...`);
     persist((current) => ({
       ...current,
       submissions: current.submissions.map((item) =>
@@ -2284,6 +2288,11 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
           ...current,
           submissions: current.submissions.map((item) => (item.id === submission.id ? sentSubmission : item)),
         }));
+        setSyncStatus(
+          result.sent
+            ? `Parent copy sent to ${recipient.parentEmail}.`
+            : `Parent copy was not sent to ${recipient.parentEmail}: ${result.reason || "No reason provided."}`
+        );
       })
       .catch((error) => {
         window.location.href = getSignedParentEmail({ event: selectedEvent, recipient, submission }).mailto;
