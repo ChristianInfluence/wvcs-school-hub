@@ -2264,6 +2264,19 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
       setSyncStatus("No parent email is on file for this signed permission slip.");
       return;
     }
+    const shouldSend = window.confirm(
+      [
+        "Send this signed permission slip copy?",
+        "",
+        `Student: ${submission.studentName || recipient.studentName || "Student"}`,
+        `Permission slip: ${selectedEvent.title || "Untitled Permission Slip"}`,
+        `Recipient: ${recipient.parentName || submission.parentName || "Parent/Guardian"} <${recipient.parentEmail}>`,
+      ].join("\n")
+    );
+    if (!shouldSend) {
+      setSyncStatus("Parent copy email was not sent.");
+      return;
+    }
     const updatedSubmission = {
       ...submission,
       parentCopyEmailStatus: "Sending...",
