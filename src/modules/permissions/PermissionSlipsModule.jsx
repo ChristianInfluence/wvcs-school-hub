@@ -1333,8 +1333,9 @@ export function ParentPermissionSigningPage({ token }) {
 
 export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [state, setState] = useState(loadState);
-  const [activeWorkspace, setActiveWorkspace] = useState("slips");
+  const [activeWorkspace, setActiveWorkspace] = useState("forms");
   const [selectedEventId, setSelectedEventId] = useState(() => loadState().events[0]?.id || "");
+  const [selectedFormTemplateId, setSelectedFormTemplateId] = useState(() => loadState().events[0]?.id || "");
   const [copiedToken, setCopiedToken] = useState("");
   const [expandedSubmissionIds, setExpandedSubmissionIds] = useState([]);
   const [rosterGrade, setRosterGrade] = useState("5");
@@ -1365,6 +1366,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     parent2Phone: "",
   });
   const selectedEvent = state.events.find((event) => event.id === selectedEventId) || state.events[0];
+  const formTemplates = state.events.filter((event) => event.recordType !== "send");
+  const sendEvents = state.events.filter((event) => event.recordType === "send" || event.recipients?.length || event.selectedStudentIds?.length);
   const submissionsForEvent = state.submissions.filter((submission) => submission.eventId === selectedEvent?.id);
   const rosterStudents = state.rosterStudents?.length ? state.rosterStudents : sampleStudents;
   const availableGrades = [...new Set(rosterStudents.map((student) => student.grade))].sort((a, b) => Number(a) - Number(b));
@@ -1501,10 +1504,42 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   }
 
   function addEvent() {
-    const event = createBlankEvent();
+    const event = {
+      ...createBlankEvent(),
+      recordType: activeWorkspace === "slips" ? "send" : "template",
+    };
     persist((current) => ({ ...current, events: [event, ...current.events] }));
     setSelectedEventId(event.id);
+    if (activeWorkspace === "forms") setSelectedFormTemplateId(event.id);
+    if (activeWorkspace === "slips") setWorkflowStep("students");
     savePermissionEvent(event, currentUserEmail).catch((error) => setSyncStatus(`Created locally. Supabase event save failed: ${error.message}`));
+  }
+
+  function createSendFromTemplate(templateId = selectedFormTemplateId) {
+    const template = state.events.find((event) => event.id === templateId) || selectedEvent;
+    if (!template) {
+      setSyncStatus("Select a field trip form before starting a send.");
+      return;
+    }
+    const sendEvent = {
+      ...template,
+      id: uid("perm-event"),
+      recordType: "send",
+      sourceTemplateId: template.id,
+      sourceTemplateTitle: template.title || "Untitled form",
+      selectedGrades: [],
+      selectedStudentIds: [],
+      recipients: [],
+      status: "Draft Send",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    persist((current) => ({ ...current, events: [sendEvent, ...current.events] }));
+    setSelectedEventId(sendEvent.id);
+    setActiveWorkspace("slips");
+    setWorkflowStep("students");
+    savePermissionEvent(sendEvent, currentUserEmail).catch((error) => setSyncStatus(`Created locally. Supabase event save failed: ${error.message}`));
+    setSyncStatus(`Started a new send from ${template.title || "Untitled form"}.`);
   }
 
   function addField() {
@@ -2173,19 +2208,29 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400"
           >
             <Plus size={18} />
-            New Slip
+            {activeWorkspace === "forms" ? "New Form Template" : "New Slip"}
           </button>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
           {[
-            ["slips", "Permission Slips", FileSignature],
+            ["forms", "Form Templates", ClipboardList],
+            ["slips", "Send Permission Slips", FileSignature],
             ["rosters", "Student Rosters", Users],
           ].map(([id, label, Icon]) => (
             <button
               key={id}
               type="button"
-              onClick={() => setActiveWorkspace(id)}
+              onClick={() => {
+                setActiveWorkspace(id);
+                if (id === "forms" && formTemplates[0] && !formTemplates.some((event) => event.id === selectedEventId)) {
+                  setSelectedEventId(formTemplates[0].id);
+                  setSelectedFormTemplateId(formTemplates[0].id);
+                }
+                if (id === "slips" && sendEvents[0] && !sendEvents.some((event) => event.id === selectedEventId)) {
+                  setSelectedEventId(sendEvents[0].id);
+                }
+              }}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition ${
                 activeWorkspace === id
                   ? "border-sky-400 bg-sky-500 text-white"
@@ -2449,15 +2494,15 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
           </div>
         )}
 
-        {activeWorkspace === "slips" && (
+        {(activeWorkspace === "forms" || activeWorkspace === "slips") && (
         <div className="mt-6 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="rounded-lg border border-slate-800 bg-slate-900 p-3">
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
               <ClipboardList size={17} />
-              Field Trips
+              {activeWorkspace === "forms" ? "Field Trip Forms" : "Permission Slip Sends"}
             </div>
             <div className="grid gap-2">
-              {state.events.map((event) => {
+              {(activeWorkspace === "forms" ? formTemplates : sendEvents).map((event) => {
                 const isSelected = event.id === selectedEvent.id;
                 const eventSigned = new Set(state.submissions.filter((submission) => submission.eventId === event.id).map((submission) => getStudentKey(submission))).size;
                 const eventStudentCount = event.selectedStudentIds?.length || event.recipients.length;
@@ -2465,21 +2510,73 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   <button
                     key={event.id}
                     type="button"
-                    onClick={() => setSelectedEventId(event.id)}
+                    onClick={() => {
+                      setSelectedEventId(event.id);
+                      if (activeWorkspace === "forms") setSelectedFormTemplateId(event.id);
+                    }}
                     className={`rounded-lg border p-3 text-left transition ${
                       isSelected ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:border-slate-600"
                     }`}
                   >
                     <div className="font-semibold text-white">{event.title || "Untitled slip"}</div>
                     <div className="mt-1 text-xs text-slate-400">{formatDate(event.eventDate)}</div>
-                    <div className="mt-2 text-xs font-semibold text-sky-200">{eventSigned}/{eventStudentCount} students signed</div>
+                    {activeWorkspace === "slips" ? (
+                      <div className="mt-2 text-xs font-semibold text-sky-200">{eventSigned}/{eventStudentCount} students signed</div>
+                    ) : (
+                      <div className="mt-2 text-xs font-semibold text-sky-200">{event.fields?.length || 0} form field{event.fields?.length === 1 ? "" : "s"}</div>
+                    )}
                   </button>
                 );
               })}
             </div>
+            {activeWorkspace === "forms" && (
+              <button
+                type="button"
+                onClick={() => createSendFromTemplate(selectedEvent.id)}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-sky-400"
+              >
+                <Send size={15} />
+                Use Form to Send
+              </button>
+            )}
           </aside>
 
           <div className="grid gap-4">
+            {activeWorkspace === "slips" && (
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
+                <FileSignature size={18} />
+                Start From a Field Trip Form
+              </div>
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+                <label className="text-sm font-semibold text-slate-300">
+                  Field trip form
+                  <select
+                    value={selectedFormTemplateId}
+                    onChange={(event) => setSelectedFormTemplateId(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  >
+                    {formTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.title || "Untitled form"} - {formatDate(template.eventDate)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => createSendFromTemplate(selectedFormTemplateId)}
+                  disabled={!selectedFormTemplateId}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={16} />
+                  Start New Send
+                </button>
+              </div>
+            </div>
+            )}
+
+            {activeWorkspace === "slips" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-slate-400">
                 <CheckCircle2 size={16} />
@@ -2508,23 +2605,34 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 ))}
               </div>
             </div>
+            )}
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {dashboardMetrics.map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
-                  <div className="mt-2 text-2xl font-bold text-white">{value}</div>
-                </div>
-              ))}
-            </div>
+            {activeWorkspace === "slips" && (
+            <details className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <summary className="cursor-pointer text-sm font-bold uppercase tracking-[0.14em] text-slate-400">
+                Send Dashboard
+              </summary>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {dashboardMetrics.map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
+                    <div className="mt-2 text-2xl font-bold text-white">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </details>
+            )}
 
+            {activeWorkspace === "slips" && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
+              <details className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <summary className="cursor-pointer">
+                  <div className="inline-flex items-center gap-2 text-lg font-bold text-white">
                   <ShieldCheck size={18} />
                   SMS Readiness
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
+                  </div>
+                </summary>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {[
                     ["Email active", "Automatic email sending is ready now.", true],
                     ["SMS pending A2P", "SMS stays in preview mode until Twilio approval is turned on.", false],
@@ -2537,13 +2645,15 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     </div>
                   ))}
                 </div>
-              </div>
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
+              </details>
+              <details className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <summary className="cursor-pointer">
+                  <div className="inline-flex items-center gap-2 text-lg font-bold text-white">
                   <ClipboardList size={18} />
                   Missing Signatures
-                </div>
-                <div className="grid gap-2">
+                  </div>
+                </summary>
+                <div className="mt-3 grid gap-2">
                   {[
                     ["not-sent", "No link sent", notSentRecipients.length],
                     ["sent-not-viewed", "Sent, not viewed", eventRecipients.filter((recipient) => sentStatusLabels.includes(recipient.status) && !recipient.viewedAt && !signedStudentIds.has(getStudentKey(recipient))).length],
@@ -2564,10 +2674,11 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     </button>
                   ))}
                 </div>
-              </div>
+              </details>
             </div>
+            )}
 
-            {workflowStep === "details" && (
+            {(activeWorkspace === "forms" || workflowStep === "details") && (
             <>
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
@@ -2780,7 +2891,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             </>
             )}
 
-            {(workflowStep === "details" || workflowStep === "recipients") && (
+            {activeWorkspace === "slips" && (workflowStep === "details" || workflowStep === "recipients") && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
@@ -2849,7 +2960,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             </div>
             )}
 
-            {workflowStep === "students" && (
+            {activeWorkspace === "slips" && workflowStep === "students" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -3043,7 +3154,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             </div>
             )}
 
-            {workflowStep === "recipients" && (
+            {activeWorkspace === "slips" && workflowStep === "recipients" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -3121,7 +3232,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
             </div>
             )}
 
-            {workflowStep === "track" && (
+            {activeWorkspace === "slips" && workflowStep === "track" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
                 <ShieldCheck size={18} />
