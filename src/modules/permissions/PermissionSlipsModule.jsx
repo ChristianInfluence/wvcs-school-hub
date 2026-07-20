@@ -1472,36 +1472,56 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     ["SMS Failed", smsProblemRecipients.length],
     ["No Contact", missingContactRecipients.length],
   ];
-  const trackRows = eventRecipients
-    .map((recipient) => {
+  const trackRows = [...eventRecipients
+    .reduce((rows, recipient) => {
       const studentKey = getStudentKey(recipient);
-      const submission = submissionsForEvent.find((item) => getStudentKey(item) === studentKey);
-      const studentName = recipient.studentName || submission?.studentName || "Student";
-      const parentName = recipient.parentName || submission?.parentName || submission?.signerName || "";
+      const existing = rows.get(studentKey) || {
+        id: studentKey,
+        recipients: [],
+        studentKey,
+      };
+      existing.recipients.push(recipient);
+      rows.set(studentKey, existing);
+      return rows;
+    }, new Map())
+    .values()]
+    .map((row) => {
+      const submission = submissionsForEvent.find((item) => getStudentKey(item) === row.studentKey);
+      const primaryRecipient = row.recipients.find((recipient) => recipient.id === submission?.recipientId) || row.recipients[0];
+      const studentName = primaryRecipient?.studentName || submission?.studentName || "Student";
+      const parentNames = row.recipients.map((recipient) => recipient.parentName).filter(Boolean);
+      const parentPhones = row.recipients.map((recipient) => recipient.parentPhone).filter(Boolean);
+      const parentEmails = row.recipients.map((recipient) => recipient.parentEmail).filter(Boolean);
+      const parentName = submission?.parentName || parentNames.join(" / ") || submission?.signerName || "";
       const studentParts = splitPersonName(studentName);
-      const parentParts = splitPersonName(parentName);
+      const parentFirstNames = parentNames.map((name) => splitPersonName(name).firstName).filter(Boolean);
+      const parentLastNames = parentNames.map((name) => splitPersonName(name).lastName).filter(Boolean);
       const signed = Boolean(submission);
       const searchText = [
         studentName,
-        parentName,
-        recipient.parentEmail,
-        recipient.parentPhone,
-        recipient.grade,
+        parentNames.join(" "),
+        parentEmails.join(" "),
+        parentPhones.join(" "),
+        primaryRecipient?.grade,
         signed ? "signed" : "not signed",
       ].join(" ").toLowerCase();
 
       return {
-        id: recipient.id,
-        recipient,
+        id: row.id,
+        recipient: primaryRecipient,
+        recipients: row.recipients,
         submission,
         signed,
         studentName,
-        parentName,
+        parentName: parentName || parentNames.join(" / "),
+        parentNames,
+        parentPhones,
+        parentEmails,
         studentFirstName: studentParts.firstName,
         studentLastName: studentParts.lastName,
-        parentFirstName: parentParts.firstName,
-        parentLastName: parentParts.lastName,
-        signedAt: submission?.signedAt || recipient.signedAt || "",
+        parentFirstName: parentFirstNames.join(" / "),
+        parentLastName: [...new Set(parentLastNames)].join(" / "),
+        signedAt: submission?.signedAt || primaryRecipient?.signedAt || "",
         searchText,
       };
     })
@@ -2586,7 +2606,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
         )}
 
         {(activeWorkspace === "forms" || activeWorkspace === "slips") && (
-        <div className="mt-6 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className={`mt-6 grid gap-4 ${activeWorkspace === "slips" && workflowStep === "track" ? "" : "lg:grid-cols-[280px_minmax(0,1fr)]"}`}>
+          {!(activeWorkspace === "slips" && workflowStep === "track") && (
           <aside className="rounded-lg border border-slate-800 bg-slate-900 p-3">
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
               <ClipboardList size={17} />
@@ -2631,9 +2652,10 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
               </button>
             )}
           </aside>
+          )}
 
           <div className="grid gap-4">
-            {activeWorkspace === "slips" && (
+            {activeWorkspace === "slips" && workflowStep !== "track" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-3 flex items-center gap-2 text-lg font-bold text-white">
                 <FileSignature size={18} />
@@ -3340,7 +3362,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     Track Records
                   </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    {signedCount} signed, {Math.max(eventRecipients.length - signedCount, 0)} waiting, {eventRecipients.length} parent contact{eventRecipients.length === 1 ? "" : "s"} total.
+                    {signedCount} signed, {Math.max(trackRows.length - signedCount, 0)} waiting, {trackRows.length} student{trackRows.length === 1 ? "" : "s"} total.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -3392,12 +3414,12 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
               </div>
 
               <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-                <div className="grid min-w-[1180px] grid-cols-[170px_170px_170px_170px_150px_105px_130px_140px_125px] gap-4 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
+                <div className="grid min-w-[1020px] grid-cols-[135px_135px_150px_150px_150px_90px_115px_120px_115px] gap-3 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
                   <div>Student First Name</div>
                   <div>Student Last Name</div>
-                  <div>Parent First Name</div>
-                  <div>Parent Last Name</div>
-                  <div>Mobile Phone #</div>
+                  <div>Parent First Name(s)</div>
+                  <div>Parent Last Name(s)</div>
+                  <div>Mobile Phone(s)</div>
                   <div>View Slip</div>
                   <div>Date Signed</div>
                   <div>Status</div>
@@ -3411,12 +3433,12 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                       : "border-rose-200 bg-rose-100 text-slate-700";
                     return (
                       <div key={row.id}>
-                        <div className={`grid min-w-[1180px] grid-cols-[170px_170px_170px_170px_150px_105px_130px_140px_125px] gap-4 border-t px-4 py-4 text-sm font-semibold ${rowTone}`}>
+                        <div className={`grid min-w-[1020px] grid-cols-[135px_135px_150px_150px_150px_90px_115px_120px_115px] gap-3 border-t px-4 py-4 text-sm font-semibold ${rowTone}`}>
                           <div>{row.studentFirstName || row.studentName}</div>
                           <div>{row.studentLastName || "-"}</div>
                           <div>{row.parentFirstName || row.parentName || "-"}</div>
                           <div>{row.parentLastName || "-"}</div>
-                          <div>{row.recipient.parentPhone || "-"}</div>
+                          <div>{row.parentPhones.join(" / ") || "-"}</div>
                           <div>
                             {row.submission ? (
                               <button
