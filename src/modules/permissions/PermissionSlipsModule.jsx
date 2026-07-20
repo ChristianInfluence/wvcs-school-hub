@@ -1348,6 +1348,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [studentStatusFilter, setStudentStatusFilter] = useState("all");
   const [workflowStep, setWorkflowStep] = useState("details");
   const [activeTemplateKey, setActiveTemplateKey] = useState("initial");
+  const [testEmail, setTestEmail] = useState(currentUserEmail || "");
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [draggedFieldId, setDraggedFieldId] = useState("");
   const [addedFieldId, setAddedFieldId] = useState("");
   const selectedEventIdRef = useRef(selectedEventId);
@@ -1418,10 +1420,10 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     token: "sample-preview",
   };
   const workflowSteps = [
-    ["details", "Create Trip", selectedEvent?.title && selectedEvent?.eventDate],
-    ["students", "Select Students", selectedStudentIds.length || eventRecipients.length],
-    ["recipients", "Review Recipients", eventRecipients.length],
-    ["track", "Send & Track", sentRecipients.length || signedCount],
+    ["details", "Form Template", selectedEvent?.title && selectedEvent?.eventDate],
+    ["students", "Choose Students", selectedStudentIds.length || eventRecipients.length],
+    ["recipients", "Send Links", eventRecipients.length],
+    ["track", "Track & Records", sentRecipients.length || signedCount],
   ];
   const dashboardMetrics = [
     ["Students Selected", selectedStudentIds.length],
@@ -1532,19 +1534,46 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     });
   }
 
-  function openTestEmailToSelf() {
-    if (!currentUserEmail) {
-      setSyncStatus("Sign in with an email address before sending yourself a test.");
+  async function sendTestEmailToSelf() {
+    const targetEmail = (testEmail || currentUserEmail || "").trim();
+    if (!targetEmail) {
+      setSyncStatus("Enter an email address for the test send.");
       return;
     }
+    if (isSendingTestEmail) return;
     const testRecipient = {
-      ...previewRecipient,
+      ...createBlankRecipient(),
+      grade: previewRecipient.grade || "",
+      studentId: previewRecipient.studentId || "",
+      parentContactId: "",
       parentName: "Test Parent",
-      parentEmail: currentUserEmail,
       studentName: previewRecipient.studentName || "Sample Student",
+      parentEmail: targetEmail,
+      parentPhone: previewRecipient.parentPhone || "",
+      status: "Test Email",
     };
-    window.location.href = getPermissionEmail({ event: selectedEvent, recipient: testRecipient }).mailto;
-    setSyncStatus(`Opened a test email draft to ${currentUserEmail}.`);
+    setIsSendingTestEmail(true);
+    setSyncStatus(`Sending test email to ${targetEmail}...`);
+    try {
+      await savePermissionRecipients(selectedEvent.id, [testRecipient]);
+      const result = await sendPermissionSigningRequestEmail({
+        eventId: selectedEvent.id,
+        recipientIds: [testRecipient.id],
+        signingBaseUrl: `${window.location.origin}${window.location.pathname}`,
+      });
+      deletePermissionRecipient(testRecipient.id).catch(() => {});
+      const failedReason = result.failed?.[0]?.reason || result.skipped?.[0]?.reason;
+      if (result.messages?.length) {
+        setSyncStatus(`Test email sent to ${targetEmail}.`);
+      } else {
+        setSyncStatus(failedReason || `No test email was sent to ${targetEmail}.`);
+      }
+    } catch (error) {
+      deletePermissionRecipient(testRecipient.id).catch(() => {});
+      setSyncStatus(`Test email failed: ${error.message}`);
+    } finally {
+      setIsSendingTestEmail(false);
+    }
   }
 
   async function sendRecipientBatch(recipients, label) {
@@ -2538,6 +2567,8 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
               </div>
             </div>
 
+            {workflowStep === "details" && (
+            <>
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
                 <Save size={18} />
@@ -2671,13 +2702,24 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 </div>
                 <button
                   type="button"
-                  onClick={openTestEmailToSelf}
+                  onClick={sendTestEmailToSelf}
+                  disabled={isSendingTestEmail}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/20"
                 >
-                  <Send size={15} />
-                  Send Test to Myself
+                  <Send size={15} className={isSendingTestEmail ? "animate-pulse" : ""} />
+                  {isSendingTestEmail ? "Sending Test..." : "Send Test"}
                 </button>
               </div>
+              <label className="mb-3 block text-sm font-semibold text-slate-300">
+                Test email address
+                <input
+                  type="email"
+                  value={testEmail}
+                  onChange={(event) => setTestEmail(event.target.value)}
+                  placeholder="yourname@wvcs.org"
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-sky-400"
+                />
+              </label>
               <div className="mb-3 flex flex-wrap gap-2">
                 {Object.entries(messageTemplates).map(([key, template]) => (
                   <button
@@ -2735,7 +2777,10 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 </div>
               </div>
             </div>
+            </>
+            )}
 
+            {(workflowStep === "details" || workflowStep === "recipients") && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
@@ -2802,7 +2847,9 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 </div>
               </div>
             </div>
+            )}
 
+            {workflowStep === "students" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2994,7 +3041,9 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 )}
               </div>
             </div>
+            )}
 
+            {workflowStep === "recipients" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -3070,7 +3119,9 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 ))}
               </div>
             </div>
+            )}
 
+            {workflowStep === "track" && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center gap-2 text-lg font-bold text-white">
                 <ShieldCheck size={18} />
@@ -3138,6 +3189,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
         )}
