@@ -1086,19 +1086,58 @@ export default function MasterSchoolSchedulerPrototype() {
       headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
+
+    const printableClassPalette = {
+      background: "#dbeafe",
+      border: "#60a5fa",
+      leftBorder: "#2563eb",
+      title: "#0f172a",
+      meta: "#1e3a8a",
+    };
+
+    const getPrintableBlockPalette = (block) => {
+      if (block.blockType === "prep") {
+        return {
+          background: "#dbeafe",
+          border: "#60a5fa",
+          leftBorder: "#2563eb",
+          title: "#0f172a",
+          meta: "#1e3a8a",
+        };
+      }
+
+      if (block.blockType === "no-class") {
+        return {
+          background: "#334155",
+          border: "#1e293b",
+          leftBorder: "#0f172a",
+          title: "#ffffff",
+          meta: "#cbd5e1",
+        };
+      }
+
+      return {
+        background: "#ede9fe",
+        border: "#a78bfa",
+        leftBorder: "#7c3aed",
+        title: "#2e1065",
+        meta: "#4c1d95",
+      };
+    };
     
     const appendPrintableClass = (cell, cls, isFullYear = false, fill = false) => {
           const classDiv = document.createElement("div");
           classDiv.style.marginBottom = "2px";
           classDiv.style.padding = denseMode ? "2px" : "2.5px";
-          classDiv.style.backgroundColor = isFullYear ? "#ecfdf5" : "#eff6ff";
-          classDiv.style.border = isFullYear ? "1px solid #86efac" : "1px solid #93c5fd";
-          classDiv.style.borderLeft = isFullYear ? "2px solid #16a34a" : "2px solid #2563eb";
+          classDiv.style.backgroundColor = printableClassPalette.background;
+          classDiv.style.border = `1px solid ${printableClassPalette.border}`;
+          classDiv.style.borderLeft = `2px solid ${printableClassPalette.leftBorder}`;
           classDiv.style.borderRadius = "3px";
           classDiv.style.fontSize = tableFontSize;
           classDiv.style.lineHeight = "1.12";
           classDiv.style.overflow = "hidden";
           classDiv.style.breakInside = "avoid";
+          classDiv.style.color = printableClassPalette.title;
           if (fill) {
             classDiv.style.minHeight = isFullYear ? `${Math.max(0.42, rowHeight * 1.5)}in` : `${Math.max(0.2, rowHeight * 0.68)}in`;
             classDiv.style.display = "flex";
@@ -1110,8 +1149,9 @@ export default function MasterSchoolSchedulerPrototype() {
           className.textContent = cls.name;
           className.style.fontWeight = "700";
           className.style.fontSize = entryTitleSize;
-          className.style.color = isFullYear ? "#14532d" : "#0f172a";
-          applyTextClamp(className, 2);
+          className.style.color = printableClassPalette.title;
+          className.style.maxHeight = "2.3em";
+          className.style.overflow = "hidden";
           classDiv.appendChild(className);
 
           const metaParts = [];
@@ -1125,8 +1165,9 @@ export default function MasterSchoolSchedulerPrototype() {
             classMeta.textContent = metaParts.join(" • ");
             classMeta.style.marginTop = "1px";
             classMeta.style.fontSize = entryMetaSize;
-            classMeta.style.color = "#475569";
-            applyTextClamp(classMeta, 1);
+            classMeta.style.color = printableClassPalette.meta;
+            classMeta.style.maxHeight = "1.2em";
+            classMeta.style.overflow = "hidden";
             classDiv.appendChild(classMeta);
           }
           
@@ -1134,16 +1175,18 @@ export default function MasterSchoolSchedulerPrototype() {
     };
 
     const appendPrintableBlock = (cell, block, fill = false) => {
+          const palette = getPrintableBlockPalette(block);
           const blockDiv = document.createElement("div");
           blockDiv.textContent = block.name;
           blockDiv.style.padding = denseMode ? "2px" : "2.5px";
-          blockDiv.style.backgroundColor = "#f8fafc";
-          blockDiv.style.border = "1px solid #cbd5e1";
-          blockDiv.style.borderLeft = "2px solid #64748b";
+          blockDiv.style.backgroundColor = palette.background;
+          blockDiv.style.border = `1px solid ${palette.border}`;
+          blockDiv.style.borderLeft = `2px solid ${palette.leftBorder}`;
           blockDiv.style.borderRadius = "3px";
           blockDiv.style.fontSize = entryTitleSize;
-          blockDiv.style.color = "#334155";
-          blockDiv.style.fontStyle = "italic";
+          blockDiv.style.color = palette.title;
+          blockDiv.style.fontStyle = "normal";
+          blockDiv.style.fontWeight = "700";
           blockDiv.style.marginBottom = "2px";
           blockDiv.style.lineHeight = "1.12";
           blockDiv.style.overflow = "hidden";
@@ -1152,7 +1195,7 @@ export default function MasterSchoolSchedulerPrototype() {
             blockDiv.style.display = "flex";
             blockDiv.style.alignItems = "center";
           }
-          applyTextClamp(blockDiv, 2);
+          blockDiv.style.maxHeight = fill ? "none" : "2.5em";
           cell.appendChild(blockDiv);
     };
 
@@ -1211,9 +1254,9 @@ export default function MasterSchoolSchedulerPrototype() {
           const cell = document.createElement("td");
           if (hasFullSpanItems && semesterIndex === 0) {
             cell.rowSpan = SEMESTERS.length;
-            cell.style.backgroundColor = "#f7fee7";
+            cell.style.backgroundColor = "#ffffff";
           }
-          applyCellBase(cell, hasFullSpanItems ? { background: "#f7fee7" } : undefined);
+          applyCellBase(cell, hasFullSpanItems ? { background: "#ffffff" } : undefined);
 
           if (hasFullSpanItems) {
             const fullSpanItemCount = fullSpanBlocks.length + fullYearClasses.length;
@@ -2451,13 +2494,16 @@ export default function MasterSchoolSchedulerPrototype() {
                               className={hasFullSpanItems ? "print-full-year-cell" : undefined}
                             >
                               {printBlocks.map((block) => (
-                                <div key={block.id} className="print-entry">
+                                <div
+                                  key={block.id}
+                                  className={`print-entry print-entry-block print-entry-block-${block.blockType}`}
+                                >
                                   <div className="print-entry-title">{block.name}</div>
                                 </div>
                               ))}
 
                               {printClasses.map((cls) => (
-                                <div key={cls.id} className="print-entry">
+                                <div key={cls.id} className="print-entry print-entry-class">
                                   <div className="print-entry-title">{cls.name}</div>
                                   <div className="print-entry-meta">
                                     {[

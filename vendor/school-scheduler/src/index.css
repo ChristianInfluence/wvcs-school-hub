@@ -117,9 +117,10 @@
   }
 
   .print-entry {
-    border: 1px solid #93c5fd;
+    border: 1px solid #60a5fa;
     border-left: 2px solid #2563eb;
-    background: #eff6ff !important;
+    background: #dbeafe !important;
+    color: #0f172a;
     padding: 2px;
     margin-bottom: 2px;
     border-radius: 3px;
@@ -136,9 +137,34 @@
   }
 
   .print-entry-meta {
-    color: #475569;
+    color: #1e3a8a;
     font-size: 4.8px;
     line-height: 1.12;
+  }
+
+  .print-entry-block-no-class {
+    border-color: #1e293b;
+    border-left-color: #0f172a;
+    background: #334155 !important;
+  }
+
+  .print-entry-block-no-class .print-entry-title,
+  .print-entry-block-no-class .print-entry-meta {
+    color: #ffffff;
+  }
+
+  .print-entry-block-professional-duties {
+    border-color: #a78bfa;
+    border-left-color: #7c3aed;
+    background: #ede9fe !important;
+  }
+
+  .print-entry-block-professional-duties .print-entry-title {
+    color: #2e1065;
+  }
+
+  .print-entry-block-professional-duties .print-entry-meta {
+    color: #4c1d95;
   }
 
   .print-lunch-cell {
@@ -153,13 +179,7 @@
   }
 
   .print-full-year-cell {
-    background: #f7fee7 !important;
-  }
-
-  .print-full-year-cell .print-entry {
-    border-color: #86efac;
-    border-left-color: #16a34a;
-    background: #ecfdf5 !important;
+    background: #ffffff !important;
   }
 }
 
