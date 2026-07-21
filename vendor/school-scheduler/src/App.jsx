@@ -867,12 +867,41 @@ export default function MasterSchoolSchedulerPrototype() {
           return;
         }
 
+        const currentTeachersById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+        const importedTeachersById = new Map(imported.teachers.map((teacher) => [teacher.id, teacher]));
+        const referencedTeacherIds = new Set();
+
+        imported.classes.forEach((cls) => {
+          Object.values(cls.placements || {}).forEach((placement) => {
+            if (placement?.teacherId) referencedTeacherIds.add(placement.teacherId);
+          });
+        });
+        imported.scheduleBlocks.forEach((block) => {
+          if (block.teacherId) referencedTeacherIds.add(block.teacherId);
+        });
+
+        const missingTeachers = [...referencedTeacherIds]
+          .filter((teacherId) => !importedTeachersById.has(teacherId))
+          .map((teacherId, index) => ({
+            id: teacherId,
+            name: currentTeachersById.get(teacherId)?.name || `Imported Teacher ${index + 1}`,
+          }));
+
+        const normalizedImport = {
+          ...imported,
+          teachers: [...imported.teachers, ...missingTeachers],
+        };
+
         if (!confirm("Load this schedule? Your current working schedule will be replaced.")) {
           return;
         }
 
-        commit(() => imported);
-        alert("Schedule imported successfully!");
+        commit(() => normalizedImport);
+        alert(
+          missingTeachers.length
+            ? `Schedule imported successfully. Added ${missingTeachers.length} missing teacher${missingTeachers.length === 1 ? "" : "s"} from the saved schedule.`
+            : "Schedule imported successfully!"
+        );
       } catch (error) {
         alert(`Failed to import schedule: ${error.message}`);
       }
