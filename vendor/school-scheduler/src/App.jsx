@@ -915,107 +915,174 @@ export default function MasterSchoolSchedulerPrototype() {
   }
 
   function buildPrintableScheduleElement() {
+    const teacherCount = Math.max(teachers.length, 1);
+    const lunchRows = appSettings.lunch?.enabled ? 1 : 0;
+    const totalRows = PERIODS.length + lunchRows;
+    const denseMode = teacherCount >= 11;
+    const compactMode = teacherCount >= 8;
+    const rowHeight = Math.max(0.43, Math.min(0.7, 6.58 / totalRows));
+    const periodWidth = denseMode ? "0.48in" : compactMode ? "0.54in" : "0.62in";
+    const tableFontSize = denseMode ? "5.7px" : compactMode ? "6.2px" : "6.8px";
+    const teacherFontSize = denseMode ? "5.9px" : compactMode ? "6.6px" : "7.4px";
+    const entryTitleSize = denseMode ? "5.9px" : compactMode ? "6.4px" : "6.9px";
+    const entryMetaSize = denseMode ? "4.8px" : compactMode ? "5.2px" : "5.6px";
+    const cellPadding = denseMode ? "2px" : "2.5px";
+    const generatedOn = new Date().toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+
+    const applyTextClamp = (element, lines = 2) => {
+      element.style.display = "-webkit-box";
+      element.style.webkitLineClamp = String(lines);
+      element.style.webkitBoxOrient = "vertical";
+      element.style.overflow = "hidden";
+    };
+
+    const applyCellBase = (cell, options = {}) => {
+      cell.style.borderRight = "1px solid #cbd5e1";
+      cell.style.borderBottom = "1px solid #cbd5e1";
+      cell.style.padding = cellPadding;
+      cell.style.verticalAlign = "top";
+      cell.style.overflow = "hidden";
+      cell.style.lineHeight = "1.15";
+      cell.style.backgroundColor = options.background || "#ffffff";
+      if (options.header) {
+        cell.style.backgroundColor = "#f1f5f9";
+        cell.style.color = "#0f172a";
+        cell.style.fontWeight = "700";
+        cell.style.textTransform = "uppercase";
+        cell.style.letterSpacing = "0";
+      }
+      if (options.period) {
+        cell.style.width = periodWidth;
+        cell.style.backgroundColor = "#f8fafc";
+        cell.style.color = "#334155";
+        cell.style.fontWeight = "700";
+      }
+    };
+
     const html = document.createElement("div");
-    html.style.padding = "15px";
+    html.className = "scheduler-print-sheet";
+    html.style.boxSizing = "border-box";
+    html.style.width = "10.64in";
+    html.style.height = "8.14in";
+    html.style.padding = "0.1in 0.12in";
     html.style.fontFamily = "Arial, sans-serif";
     html.style.backgroundColor = "#ffffff";
-    html.style.color = "#000000";
+    html.style.color = "#0f172a";
+    html.style.overflow = "hidden";
     
     const header = document.createElement("div");
-    header.style.marginBottom = "15px";
+    header.style.marginBottom = "0.08in";
     header.style.display = "flex";
     header.style.alignItems = "center";
-    header.style.gap = "15px";
-    header.style.borderBottom = "2px solid #333";
-    header.style.paddingBottom = "8px";
+    header.style.gap = "0.1in";
+    header.style.borderBottom = "2px solid #0f172a";
+    header.style.paddingBottom = "0.07in";
     
     if (appSettings.logoUrl) {
       const logoImg = document.createElement("img");
       logoImg.src = appSettings.logoUrl;
       logoImg.alt = "School Logo";
-      logoImg.style.height = "60px";
-      logoImg.style.width = "60px";
+      logoImg.style.height = "0.45in";
+      logoImg.style.width = "0.45in";
       logoImg.style.objectFit = "contain";
-      logoImg.style.borderRadius = "6px";
+      logoImg.style.borderRadius = "4px";
       header.appendChild(logoImg);
     }
     
     const titleContainer = document.createElement("div");
     titleContainer.style.flex = "1";
+    titleContainer.style.minWidth = "0";
     
     const title = document.createElement("h1");
     title.textContent = appSettings.title || "School Schedule";
-    title.style.margin = "0 0 3px 0";
-    title.style.fontSize = "22px";
+    title.style.margin = "0";
+    title.style.fontSize = denseMode ? "14px" : "15px";
+    title.style.lineHeight = "1.05";
+    title.style.fontWeight = "800";
+    title.style.color = "#0f172a";
+    applyTextClamp(title, 1);
     
     const subtitle = document.createElement("p");
     subtitle.textContent = appSettings.subtitle || "";
-    subtitle.style.margin = "0";
-    subtitle.style.fontSize = "11px";
-    subtitle.style.color = "#666";
+    subtitle.style.margin = "3px 0 0";
+    subtitle.style.fontSize = "7.5px";
+    subtitle.style.lineHeight = "1.2";
+    subtitle.style.color = "#475569";
+    applyTextClamp(subtitle, 1);
     
     titleContainer.appendChild(title);
     if (appSettings.subtitle) titleContainer.appendChild(subtitle);
     header.appendChild(titleContainer);
+
+    const meta = document.createElement("div");
+    meta.style.textAlign = "right";
+    meta.style.fontSize = "7px";
+    meta.style.lineHeight = "1.35";
+    meta.style.color = "#475569";
+    meta.style.whiteSpace = "nowrap";
+    meta.innerHTML = `<strong style="color:#0f172a;">${semester}</strong><br>Printed ${generatedOn}<br>${teacherCount} teacher${teacherCount === 1 ? "" : "s"}`;
+    header.appendChild(meta);
     
     html.appendChild(header);
     
     const table = document.createElement("table");
     table.style.width = "100%";
     table.style.borderCollapse = "collapse";
-    table.style.fontSize = "10px"; // Reduced from 11px
+    table.style.height = "6.95in";
+    table.style.fontSize = tableFontSize;
     table.style.tableLayout = "fixed";
+    table.style.border = "1px solid #cbd5e1";
+    table.style.borderRadius = "6px";
+    table.style.overflow = "hidden";
     
     const headerRow = document.createElement("tr");
+    headerRow.style.height = "0.22in";
     const periodHeader = document.createElement("th");
     periodHeader.textContent = "Period";
-    periodHeader.style.border = "1px solid #999";
-    periodHeader.style.padding = "6px"; // Reduced from 8px
-    periodHeader.style.backgroundColor = "#f0f0f0";
-    periodHeader.style.fontWeight = "bold";
     periodHeader.style.textAlign = "left";
+    applyCellBase(periodHeader, { header: true, period: true });
     headerRow.appendChild(periodHeader);
     
     teachers.forEach((teacher) => {
       const th = document.createElement("th");
       th.textContent = teacher.name;
-      th.style.border = "1px solid #999";
-      th.style.padding = "6px"; // Reduced from 8px
-      th.style.backgroundColor = "#f0f0f0";
-      th.style.fontWeight = "bold";
       th.style.textAlign = "left";
+      th.style.fontSize = teacherFontSize;
+      applyTextClamp(th, 2);
+      applyCellBase(th, { header: true });
       headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
     
     PERIODS.forEach((period) => {
       const row = document.createElement("tr");
+      row.style.height = `${rowHeight}in`;
       
       const periodCell = document.createElement("td");
-      periodCell.style.border = "1px solid #999";
-      periodCell.style.padding = "6px"; // Reduced from 8px
-      periodCell.style.backgroundColor = "#f9f9f9";
-      periodCell.style.fontWeight = "bold";
-      periodCell.style.verticalAlign = "top";
+      applyCellBase(periodCell, { period: true });
       
       const periodText = document.createElement("div");
       periodText.textContent = `Period ${period}`;
+      periodText.style.fontSize = denseMode ? "5.8px" : "6.4px";
       periodCell.appendChild(periodText);
       
       const timeText = document.createElement("div");
       timeText.textContent = periodTimes[period] || "";
-      timeText.style.fontSize = "10px";
-      timeText.style.color = "#666";
+      timeText.style.marginTop = "2px";
+      timeText.style.fontSize = denseMode ? "4.8px" : "5.4px";
+      timeText.style.fontWeight = "400";
+      timeText.style.color = "#64748b";
       periodCell.appendChild(timeText);
       
       row.appendChild(periodCell);
       
       teachers.forEach((teacher) => {
         const cell = document.createElement("td");
-        cell.style.border = "1px solid #999";
-        cell.style.padding = "6px"; // Reduced from 8px
-        cell.style.verticalAlign = "top";
-        cell.style.minHeight = "50px"; // Reduced from 60px
+        applyCellBase(cell);
         
         const classesInCell = classes.filter(
           (c) =>
@@ -1029,34 +1096,38 @@ export default function MasterSchoolSchedulerPrototype() {
         
         classesInCell.forEach((cls) => {
           const classDiv = document.createElement("div");
-          classDiv.style.marginBottom = "4px";
-          classDiv.style.padding = "4px";
-          classDiv.style.backgroundColor = "#e8f4f8";
-          classDiv.style.border = "1px solid #4a9eff";
-          classDiv.style.borderRadius = "2px";
-          classDiv.style.fontSize = "10px";
-          classDiv.style.lineHeight = "1.3";
+          classDiv.style.marginBottom = "2px";
+          classDiv.style.padding = denseMode ? "2px" : "2.5px";
+          classDiv.style.backgroundColor = "#eff6ff";
+          classDiv.style.border = "1px solid #93c5fd";
+          classDiv.style.borderLeft = "2px solid #2563eb";
+          classDiv.style.borderRadius = "3px";
+          classDiv.style.fontSize = tableFontSize;
+          classDiv.style.lineHeight = "1.12";
+          classDiv.style.overflow = "hidden";
+          classDiv.style.breakInside = "avoid";
           
           const className = document.createElement("div");
           className.textContent = cls.name;
-          className.style.fontWeight = "bold";
-          className.style.fontSize = "11px";
+          className.style.fontWeight = "700";
+          className.style.fontSize = entryTitleSize;
+          className.style.color = "#0f172a";
+          applyTextClamp(className, 2);
           classDiv.appendChild(className);
+
+          const metaParts = [];
+          if (cls.subject) metaParts.push(cls.subject);
+          if (cls.room) metaParts.push(`Room ${cls.room}`);
+          if (cls.grades?.length) metaParts.push(`Gr. ${cls.grades.join(",")}`);
           
-          if (cls.subject) {
-            const subject = document.createElement("div");
-            subject.textContent = cls.subject;
-            subject.style.fontSize = "9px";
-            subject.style.color = "#666";
-            classDiv.appendChild(subject);
-          }
-          
-          if (cls.room) {
-            const room = document.createElement("div");
-            room.textContent = `Room: ${cls.room}`;
-            room.style.fontSize = "9px";
-            room.style.color = "#666";
-            classDiv.appendChild(room);
+          if (metaParts.length) {
+            const classMeta = document.createElement("div");
+            classMeta.textContent = metaParts.join(" • ");
+            classMeta.style.marginTop = "1px";
+            classMeta.style.fontSize = entryMetaSize;
+            classMeta.style.color = "#475569";
+            applyTextClamp(classMeta, 1);
+            classDiv.appendChild(classMeta);
           }
           
           cell.appendChild(classDiv);
@@ -1065,13 +1136,18 @@ export default function MasterSchoolSchedulerPrototype() {
         blocksInCell.forEach((block) => {
           const blockDiv = document.createElement("div");
           blockDiv.textContent = block.name;
-          blockDiv.style.padding = "4px";
-          blockDiv.style.backgroundColor = "#f0f0f0";
-          blockDiv.style.border = "1px solid #ccc";
-          blockDiv.style.borderRadius = "2px";
-          blockDiv.style.fontSize = "10px";
+          blockDiv.style.padding = denseMode ? "2px" : "2.5px";
+          blockDiv.style.backgroundColor = "#f8fafc";
+          blockDiv.style.border = "1px solid #cbd5e1";
+          blockDiv.style.borderLeft = "2px solid #64748b";
+          blockDiv.style.borderRadius = "3px";
+          blockDiv.style.fontSize = entryTitleSize;
+          blockDiv.style.color = "#334155";
           blockDiv.style.fontStyle = "italic";
-          blockDiv.style.marginBottom = "4px";
+          blockDiv.style.marginBottom = "2px";
+          blockDiv.style.lineHeight = "1.12";
+          blockDiv.style.overflow = "hidden";
+          applyTextClamp(blockDiv, 2);
           cell.appendChild(blockDiv);
         });
         
@@ -1082,13 +1158,10 @@ export default function MasterSchoolSchedulerPrototype() {
 
       if (appSettings.lunch?.enabled && period === appSettings.lunch.afterPeriod) {
         const lunchRow = document.createElement("tr");
+        lunchRow.style.height = "0.26in";
 
         const lunchPeriodCell = document.createElement("td");
-        lunchPeriodCell.style.border = "1px solid #999";
-        lunchPeriodCell.style.padding = "6px";
-        lunchPeriodCell.style.backgroundColor = "#f0fdf4";
-        lunchPeriodCell.style.fontWeight = "bold";
-        lunchPeriodCell.style.verticalAlign = "top";
+        applyCellBase(lunchPeriodCell, { period: true, background: "#f0fdf4" });
 
         const lunchText = document.createElement("div");
         lunchText.textContent = "Lunch";
@@ -1096,28 +1169,27 @@ export default function MasterSchoolSchedulerPrototype() {
 
         const lunchTimeText = document.createElement("div");
         lunchTimeText.textContent = appSettings.lunch.time || "";
-        lunchTimeText.style.fontSize = "10px";
-        lunchTimeText.style.color = "#666";
+        lunchTimeText.style.fontSize = denseMode ? "4.8px" : "5.4px";
+        lunchTimeText.style.fontWeight = "400";
+        lunchTimeText.style.color = "#166534";
         lunchPeriodCell.appendChild(lunchTimeText);
 
         lunchRow.appendChild(lunchPeriodCell);
 
         teachers.forEach(() => {
           const lunchCell = document.createElement("td");
-          lunchCell.style.border = "1px solid #999";
-          lunchCell.style.padding = "6px";
-          lunchCell.style.backgroundColor = "#f0fdf4";
-          lunchCell.style.verticalAlign = "top";
+          applyCellBase(lunchCell, { background: "#f0fdf4" });
 
           const lunchDiv = document.createElement("div");
-          lunchDiv.textContent = "Shared Lunch Period";
-          lunchDiv.style.padding = "4px";
+          lunchDiv.textContent = "Shared Lunch";
+          lunchDiv.style.padding = "2px";
           lunchDiv.style.backgroundColor = "#dcfce7";
           lunchDiv.style.border = "1px solid #86efac";
-          lunchDiv.style.borderRadius = "2px";
-          lunchDiv.style.fontSize = "10px";
-          lunchDiv.style.fontWeight = "bold";
-          lunchDiv.style.marginBottom = "4px";
+          lunchDiv.style.borderRadius = "3px";
+          lunchDiv.style.fontSize = entryMetaSize;
+          lunchDiv.style.fontWeight = "700";
+          lunchDiv.style.color = "#166534";
+          lunchDiv.style.textAlign = "center";
           lunchCell.appendChild(lunchDiv);
 
           lunchRow.appendChild(lunchCell);
@@ -1130,10 +1202,12 @@ export default function MasterSchoolSchedulerPrototype() {
     html.appendChild(table);
     
     const footer = document.createElement("div");
-    footer.style.marginTop = "20px";
-    footer.style.fontSize = "10px";
-    footer.style.color = "#666";
-    footer.textContent = `Generated on ${new Date().toLocaleString()} | Semester: ${semester}`;
+    footer.style.marginTop = "0.05in";
+    footer.style.display = "flex";
+    footer.style.justifyContent = "space-between";
+    footer.style.fontSize = "6.5px";
+    footer.style.color = "#64748b";
+    footer.innerHTML = `<span>WVCS Master Schedule</span><span>${appSettings.title || "School Schedule"} • ${semester}</span>`;
     html.appendChild(footer);
 
     return html;
@@ -1150,7 +1224,7 @@ export default function MasterSchoolSchedulerPrototype() {
           <style>
             @page {
               size: letter landscape;
-              margin: 6mm;
+              margin: 0.18in;
             }
 
             * {
@@ -1163,10 +1237,16 @@ export default function MasterSchoolSchedulerPrototype() {
             body {
               margin: 0;
               background: #ffffff;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
             }
 
             body {
               padding: 0;
+              display: flex;
+              justify-content: center;
+              align-items: flex-start;
             }
 
             table,
@@ -1214,11 +1294,12 @@ export default function MasterSchoolSchedulerPrototype() {
     const html = buildPrintableScheduleElement();
     
     const opt = {
-      margin: [6, 6, 6, 6],
+      margin: [0, 0, 0, 0],
       filename: filename,
       image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+      html2canvas: { scale: 2.5, backgroundColor: "#ffffff", useCORS: true },
       jsPDF: { orientation: "landscape", unit: "mm", format: "letter" },
+      pagebreak: { mode: ["avoid-all"] },
     };
 
     try {
