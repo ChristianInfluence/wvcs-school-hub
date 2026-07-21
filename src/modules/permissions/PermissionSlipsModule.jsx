@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   GripVertical,
   Plus,
+  Printer,
   RotateCcw,
   Save,
   Send,
@@ -730,6 +731,112 @@ function buildSignedPermissionHtml({ event, recipient, submission }) {
       </div>
     </div>
   `;
+}
+
+function buildBlankPermissionHtml({ event }) {
+  const parentIntro = (event.parentIntro || defaultParentIntro)
+    .split("\n")
+    .filter((paragraph) => paragraph.trim())
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join("");
+  const questions = event.fields
+    .map((field) => {
+      const answerArea = field.type === "checkbox"
+        ? '<div class="blank-checkbox"><span></span> Yes&nbsp;&nbsp;&nbsp;&nbsp;<span></span> No</div>'
+        : '<div class="blank-line"></div>';
+      return `
+        <div class="blank-question">
+          <div class="blank-label">${escapeHtml(field.label)}${field.required ? " *" : ""}</div>
+          ${answerArea}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(event.title || "WVCS Permission Slip")}</title>
+        <style>
+          @page { size: letter; margin: 0.45in; }
+          body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #0f172a; background: #ffffff; }
+          .blank-document { position: relative; max-width: 7.6in; margin: 0 auto; line-height: 1.42; }
+          .blank-watermark { position: fixed; left: 50%; top: 52%; width: 4.6in; opacity: 0.045; transform: translate(-50%, -50%); z-index: 0; }
+          .blank-content { position: relative; z-index: 1; }
+          .blank-header { display: grid; grid-template-columns: 0.78in 1fr; gap: 0.16in; align-items: center; padding-bottom: 0.14in; border-bottom: 2px solid #0f172a; }
+          .blank-logo { width: 0.64in; height: 0.64in; object-fit: contain; }
+          .blank-school { margin: 0; font-size: 18px; font-weight: 700; }
+          .blank-contact { margin-top: 3px; font-size: 9px; color: #475569; line-height: 1.3; }
+          .blank-title { margin: 0.18in 0 0.12in; font-size: 17px; font-weight: 700; text-transform: uppercase; }
+          .blank-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 0.14in; }
+          .blank-meta-item, .blank-question, .blank-signature-box { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; break-inside: avoid; page-break-inside: avoid; }
+          .blank-kicker, .blank-label { font-size: 9px; font-weight: 700; color: #475569; text-transform: uppercase; }
+          .blank-value { margin-top: 2px; font-size: 12px; font-weight: 700; }
+          .blank-section { margin-top: 0.14in; break-inside: avoid; page-break-inside: avoid; }
+          .blank-section h3 { margin: 0 0 6px; font-size: 13px; }
+          .blank-section p { margin: 0 0 8px; font-size: 11px; }
+          .blank-trip-box { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
+          .blank-question { margin: 7px 0; background: #ffffff; }
+          .blank-line { height: 0.32in; border-bottom: 1px solid #94a3b8; }
+          .blank-checkbox { margin-top: 9px; font-size: 11px; color: #334155; }
+          .blank-checkbox span { display: inline-block; width: 13px; height: 13px; margin-right: 5px; border: 1px solid #64748b; vertical-align: -2px; }
+          .blank-signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+          .blank-signature-line { height: 0.35in; border-bottom: 1px solid #64748b; }
+          .blank-small { margin-top: 4px; font-size: 8px; color: #64748b; }
+          .no-print { margin: 0 0 16px; text-align: right; }
+          .no-print button { border: 0; border-radius: 8px; background: #0284c7; color: #fff; padding: 10px 14px; font-weight: 700; cursor: pointer; }
+          @media print { .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="no-print"><button onclick="window.print()">Print Permission Slip</button></div>
+        <div class="blank-document">
+          <img class="blank-watermark" src="${warriorHeadNew}" alt="">
+          <div class="blank-content">
+            <header class="blank-header">
+              <img class="blank-logo" src="${warriorHeadNew}" alt="WVCS Warrior">
+              <div>
+                <h1 class="blank-school">Willamette Valley Christian School</h1>
+                <div class="blank-contact">
+                  Willamette Valley Christian School<br>
+                  9075 Pueblo Ave NE, Brooks, OR 97305<br>
+                  TEL: 503-393-5236
+                </div>
+              </div>
+            </header>
+            <h2 class="blank-title">Permission Slip</h2>
+            <section class="blank-meta">
+              <div class="blank-meta-item"><div class="blank-kicker">Field Trip</div><div class="blank-value">${escapeHtml(event.title || "Untitled Permission Slip")}</div></div>
+              <div class="blank-meta-item"><div class="blank-kicker">Date</div><div class="blank-value">${escapeHtml(formatDate(event.eventDate))}</div></div>
+              <div class="blank-meta-item"><div class="blank-kicker">Student Name</div><div class="blank-line"></div></div>
+              <div class="blank-meta-item"><div class="blank-kicker">Parent/Guardian Name</div><div class="blank-line"></div></div>
+            </section>
+            <section class="blank-section">${parentIntro}</section>
+            <section class="blank-section blank-trip-box">
+              <h3>Permission/medical release form</h3>
+              <p>${escapeHtml(event.description || "Trip information has not been entered yet.")}</p>
+              <p><strong>Destination:</strong> ${escapeHtml(event.destination || "Not specified")}</p>
+              <p><strong>Transportation:</strong> ${escapeHtml(event.transportation || "Not specified")}</p>
+              <p><strong>Notes:</strong> ${escapeHtml(event.emergencyInstructions || "None")}</p>
+            </section>
+            <section class="blank-section">
+              <p>${escapeHtml(event.medicalRelease || defaultMedicalRelease)}</p>
+            </section>
+            <section class="blank-section">
+              <h3>Parent/Guardian Responses</h3>
+              ${questions || '<div class="blank-question"><div class="blank-label">Notes</div><div class="blank-line"></div></div>'}
+            </section>
+            <section class="blank-section blank-signature-box">
+              <h3>Parent/Guardian Signature</h3>
+              <div class="blank-signature-grid">
+                <div><div class="blank-signature-line"></div><div class="blank-small">Signature</div></div>
+                <div><div class="blank-signature-line"></div><div class="blank-small">Date</div></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </body>
+    </html>`;
 }
 
 function getSignedPermissionFilename({ event, recipient, submission }) {
@@ -1774,6 +1881,20 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     link.click();
     URL.revokeObjectURL(url);
     setSyncStatus(`Downloaded one combined PDF with ${submissionsForEvent.length} signed permission slip${submissionsForEvent.length === 1 ? "" : "s"}.`);
+  }
+
+  function printBlankPermissionSlip() {
+    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!printWindow) {
+      setSyncStatus("Pop-up blocked. Please allow pop-ups to print a blank permission slip.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(buildBlankPermissionHtml({ event: selectedEvent }));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.setTimeout(() => printWindow.print(), 450);
+    setSyncStatus(`Opened a printable blank permission slip for ${selectedEvent.title || "this field trip"}.`);
   }
 
   function moveField(fieldId, targetFieldId) {
@@ -3076,6 +3197,14 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   >
                     <Copy size={15} />
                     Copy Missing Contacts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={printBlankPermissionSlip}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-bold text-slate-100 transition hover:bg-slate-700"
+                  >
+                    <Printer size={15} />
+                    Print Blank Permission Slip
                   </button>
                   <button
                     type="button"
