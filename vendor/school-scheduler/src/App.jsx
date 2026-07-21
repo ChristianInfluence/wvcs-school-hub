@@ -1049,11 +1049,17 @@ export default function MasterSchoolSchedulerPrototype() {
     
     teachers.forEach((teacher) => {
       const th = document.createElement("th");
-      th.textContent = teacher.name;
       th.style.textAlign = "left";
       th.style.fontSize = teacherFontSize;
-      applyTextClamp(th, 2);
       applyCellBase(th, { header: true });
+
+      const teacherName = document.createElement("div");
+      teacherName.textContent = teacher.name;
+      teacherName.style.fontSize = teacherFontSize;
+      teacherName.style.lineHeight = "1.12";
+      applyTextClamp(teacherName, 2);
+      th.appendChild(teacherName);
+
       headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
