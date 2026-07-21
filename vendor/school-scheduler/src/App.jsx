@@ -144,6 +144,10 @@ const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SEMESTERS = ["Semester 1", "Semester 2"];
 const GRADE_OPTIONS = ["6", "7", "8", "9", "10", "11", "12"];
 
+function getSemesterShortLabel(semester) {
+  return semester === "Semester 1" ? "Sem 1" : "Sem 2";
+}
+
 const initialPeriodTimes = {
   1: "8:00–8:46",
   2: "8:48.5–9:34.5",
@@ -446,7 +450,6 @@ export default function MasterSchoolSchedulerPrototype() {
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
-  const [semester, setSemester] = useState("Semester 1");
   const [editingClass, setEditingClass] = useState(null);
   const [newTeacherName, setNewTeacherName] = useState("");
   const [editingTeacherId, setEditingTeacherId] = useState(null);
@@ -917,11 +920,12 @@ export default function MasterSchoolSchedulerPrototype() {
   function buildPrintableScheduleElement() {
     const teacherCount = Math.max(teachers.length, 1);
     const lunchRows = appSettings.lunch?.enabled ? 1 : 0;
-    const totalRows = PERIODS.length + lunchRows;
+    const totalRows = PERIODS.length * SEMESTERS.length + lunchRows;
     const denseMode = teacherCount >= 11;
     const compactMode = teacherCount >= 8;
     const rowHeight = Math.max(0.43, Math.min(0.7, 6.58 / totalRows));
     const periodWidth = denseMode ? "0.48in" : compactMode ? "0.54in" : "0.62in";
+    const semesterWidth = denseMode ? "0.36in" : "0.42in";
     const tableFontSize = denseMode ? "5.7px" : compactMode ? "6.2px" : "6.8px";
     const teacherFontSize = denseMode ? "5.9px" : compactMode ? "6.6px" : "7.4px";
     const entryTitleSize = denseMode ? "5.9px" : compactMode ? "6.4px" : "6.9px";
@@ -1024,7 +1028,7 @@ export default function MasterSchoolSchedulerPrototype() {
     meta.style.lineHeight = "1.35";
     meta.style.color = "#475569";
     meta.style.whiteSpace = "nowrap";
-    meta.innerHTML = `<strong style="color:#0f172a;">${semester}</strong><br>Printed ${generatedOn}<br>${teacherCount} teacher${teacherCount === 1 ? "" : "s"}`;
+    meta.innerHTML = `<strong style="color:#0f172a;">Two-semester view</strong><br>Printed ${generatedOn}<br>${teacherCount} teacher${teacherCount === 1 ? "" : "s"}`;
     header.appendChild(meta);
     
     html.appendChild(header);
@@ -1046,6 +1050,13 @@ export default function MasterSchoolSchedulerPrototype() {
     periodHeader.style.textAlign = "left";
     applyCellBase(periodHeader, { header: true, period: true });
     headerRow.appendChild(periodHeader);
+
+    const semesterHeader = document.createElement("th");
+    semesterHeader.textContent = "Term";
+    semesterHeader.style.width = semesterWidth;
+    semesterHeader.style.textAlign = "left";
+    applyCellBase(semesterHeader, { header: true });
+    headerRow.appendChild(semesterHeader);
     
     teachers.forEach((teacher) => {
       const th = document.createElement("th");
@@ -1064,49 +1075,13 @@ export default function MasterSchoolSchedulerPrototype() {
     });
     table.appendChild(headerRow);
     
-    PERIODS.forEach((period) => {
-      const row = document.createElement("tr");
-      row.style.height = `${rowHeight}in`;
-      
-      const periodCell = document.createElement("td");
-      applyCellBase(periodCell, { period: true });
-      
-      const periodText = document.createElement("div");
-      periodText.textContent = `Period ${period}`;
-      periodText.style.fontSize = denseMode ? "5.8px" : "6.4px";
-      periodCell.appendChild(periodText);
-      
-      const timeText = document.createElement("div");
-      timeText.textContent = periodTimes[period] || "";
-      timeText.style.marginTop = "2px";
-      timeText.style.fontSize = denseMode ? "4.8px" : "5.4px";
-      timeText.style.fontWeight = "400";
-      timeText.style.color = "#64748b";
-      periodCell.appendChild(timeText);
-      
-      row.appendChild(periodCell);
-      
-      teachers.forEach((teacher) => {
-        const cell = document.createElement("td");
-        applyCellBase(cell);
-        
-        const classesInCell = classes.filter(
-          (c) =>
-            c.placements[semester]?.teacherId === teacher.id &&
-            c.placements[semester]?.period === period
-        );
-        
-        const blocksInCell = scheduleBlocks.filter(
-          (b) => b.semester === semester && b.teacherId === teacher.id && b.period === period
-        );
-        
-        classesInCell.forEach((cls) => {
+    const appendPrintableClass = (cell, cls, isFullYear = false) => {
           const classDiv = document.createElement("div");
           classDiv.style.marginBottom = "2px";
           classDiv.style.padding = denseMode ? "2px" : "2.5px";
-          classDiv.style.backgroundColor = "#eff6ff";
-          classDiv.style.border = "1px solid #93c5fd";
-          classDiv.style.borderLeft = "2px solid #2563eb";
+          classDiv.style.backgroundColor = isFullYear ? "#ecfdf5" : "#eff6ff";
+          classDiv.style.border = isFullYear ? "1px solid #86efac" : "1px solid #93c5fd";
+          classDiv.style.borderLeft = isFullYear ? "2px solid #16a34a" : "2px solid #2563eb";
           classDiv.style.borderRadius = "3px";
           classDiv.style.fontSize = tableFontSize;
           classDiv.style.lineHeight = "1.12";
@@ -1117,11 +1092,12 @@ export default function MasterSchoolSchedulerPrototype() {
           className.textContent = cls.name;
           className.style.fontWeight = "700";
           className.style.fontSize = entryTitleSize;
-          className.style.color = "#0f172a";
+          className.style.color = isFullYear ? "#14532d" : "#0f172a";
           applyTextClamp(className, 2);
           classDiv.appendChild(className);
 
           const metaParts = [];
+          if (isFullYear) metaParts.push("Full year");
           if (cls.subject) metaParts.push(cls.subject);
           if (cls.room) metaParts.push(`Room ${cls.room}`);
           if (cls.grades?.length) metaParts.push(`Gr. ${cls.grades.join(",")}`);
@@ -1137,9 +1113,9 @@ export default function MasterSchoolSchedulerPrototype() {
           }
           
           cell.appendChild(classDiv);
-        });
-        
-        blocksInCell.forEach((block) => {
+    };
+
+    const appendPrintableBlock = (cell, block) => {
           const blockDiv = document.createElement("div");
           blockDiv.textContent = block.name;
           blockDiv.style.padding = denseMode ? "2px" : "2.5px";
@@ -1155,18 +1131,93 @@ export default function MasterSchoolSchedulerPrototype() {
           blockDiv.style.overflow = "hidden";
           applyTextClamp(blockDiv, 2);
           cell.appendChild(blockDiv);
+    };
+
+    PERIODS.forEach((period) => {
+      SEMESTERS.forEach((activeSemester, semesterIndex) => {
+        const row = document.createElement("tr");
+        row.style.height = `${rowHeight}in`;
+
+        if (semesterIndex === 0) {
+          const periodCell = document.createElement("td");
+          periodCell.rowSpan = SEMESTERS.length;
+          applyCellBase(periodCell, { period: true });
+
+          const periodText = document.createElement("div");
+          periodText.textContent = `Period ${period}`;
+          periodText.style.fontSize = denseMode ? "5.8px" : "6.4px";
+          periodCell.appendChild(periodText);
+
+          const timeText = document.createElement("div");
+          timeText.textContent = periodTimes[period] || "";
+          timeText.style.marginTop = "2px";
+          timeText.style.fontSize = denseMode ? "4.8px" : "5.4px";
+          timeText.style.fontWeight = "400";
+          timeText.style.color = "#64748b";
+          periodCell.appendChild(timeText);
+
+          row.appendChild(periodCell);
+        }
+
+        const semesterCell = document.createElement("td");
+        semesterCell.textContent = getSemesterShortLabel(activeSemester);
+        applyCellBase(semesterCell, { background: "#f8fafc" });
+        semesterCell.style.width = semesterWidth;
+        semesterCell.style.fontWeight = "700";
+        semesterCell.style.color = "#475569";
+        semesterCell.style.backgroundColor = "#f8fafc";
+        row.appendChild(semesterCell);
+
+        teachers.forEach((teacher) => {
+          const fullYearClasses = classes.filter((c) => {
+            if (!c.fullYear) return false;
+            const first = c.placements?.["Semester 1"];
+            const second = c.placements?.["Semester 2"];
+            return (
+              (first?.teacherId === teacher.id && first?.period === period) ||
+              (second?.teacherId === teacher.id && second?.period === period)
+            );
+          });
+
+          if (fullYearClasses.length && semesterIndex === 1) return;
+
+          const cell = document.createElement("td");
+          if (fullYearClasses.length && semesterIndex === 0) {
+            cell.rowSpan = SEMESTERS.length;
+            cell.style.backgroundColor = "#f7fee7";
+          }
+          applyCellBase(cell, fullYearClasses.length ? { background: "#f7fee7" } : undefined);
+
+          if (fullYearClasses.length) {
+            fullYearClasses.forEach((cls) => appendPrintableClass(cell, cls, true));
+          } else {
+            const classesInCell = classes.filter(
+              (c) =>
+                !c.fullYear &&
+                c.placements?.[activeSemester]?.teacherId === teacher.id &&
+                c.placements?.[activeSemester]?.period === period
+            );
+
+            const blocksInCell = scheduleBlocks.filter(
+              (b) => b.semester === activeSemester && b.teacherId === teacher.id && b.period === period
+            );
+
+            blocksInCell.forEach((block) => appendPrintableBlock(cell, block));
+            classesInCell.forEach((cls) => appendPrintableClass(cell, cls));
+          }
+
+          row.appendChild(cell);
         });
-        
-        row.appendChild(cell);
+
+        table.appendChild(row);
       });
-      
-      table.appendChild(row);
 
       if (appSettings.lunch?.enabled && period === appSettings.lunch.afterPeriod) {
         const lunchRow = document.createElement("tr");
         lunchRow.style.height = "0.26in";
 
         const lunchPeriodCell = document.createElement("td");
+        lunchPeriodCell.colSpan = 2;
         applyCellBase(lunchPeriodCell, { period: true, background: "#f0fdf4" });
 
         const lunchText = document.createElement("div");
@@ -1213,7 +1264,7 @@ export default function MasterSchoolSchedulerPrototype() {
     footer.style.justifyContent = "space-between";
     footer.style.fontSize = "6.5px";
     footer.style.color = "#64748b";
-    footer.innerHTML = `<span>WVCS Master Schedule</span><span>${appSettings.title || "School Schedule"} • ${semester}</span>`;
+    footer.innerHTML = `<span>WVCS Master Schedule</span><span>${appSettings.title || "School Schedule"} • includes grade levels</span>`;
     html.appendChild(footer);
 
     return html;
@@ -1338,10 +1389,6 @@ export default function MasterSchoolSchedulerPrototype() {
     ]);
   }
 
-  const placedClasses = useMemo(() => {
-    return classes.filter((c) => c.placements[semester]);
-  }, [classes, semester]);
-
   const conflictMap = useMemo(() => {
     const conflicts = new Map();
 
@@ -1349,28 +1396,30 @@ export default function MasterSchoolSchedulerPrototype() {
       conflicts.set(classId, [...(conflicts.get(classId) || []), conflict]);
     }
 
-    for (const period of PERIODS) {
-      const inPeriod = placedClasses.filter((c) => c.placements[semester]?.period === period);
+    for (const activeSemester of SEMESTERS) {
+      for (const period of PERIODS) {
+        const inPeriod = classes.filter((c) => c.placements?.[activeSemester]?.period === period);
 
-      for (let i = 0; i < inPeriod.length; i++) {
-        for (let j = i + 1; j < inPeriod.length; j++) {
-          const a = inPeriod[i];
-          const b = inPeriod[j];
+        for (let i = 0; i < inPeriod.length; i++) {
+          for (let j = i + 1; j < inPeriod.length; j++) {
+            const a = inPeriod[i];
+            const b = inPeriod[j];
 
-          if (a.checkGradeConflicts && b.checkGradeConflicts) {
-            const overlap = a.grades.filter((g) => b.grades.includes(g));
-            if (overlap.length) {
-              addConflict(a.id, { type: "grade", with: b.name, grades: overlap, period });
-              addConflict(b.id, { type: "grade", with: a.name, grades: overlap, period });
+            if (a.checkGradeConflicts && b.checkGradeConflicts) {
+              const overlap = a.grades.filter((g) => b.grades.includes(g));
+              if (overlap.length) {
+                addConflict(a.id, { type: "grade", with: b.name, grades: overlap, period, semester: activeSemester });
+                addConflict(b.id, { type: "grade", with: a.name, grades: overlap, period, semester: activeSemester });
+              }
             }
-          }
 
-          if (a.checkRoomConflicts && b.checkRoomConflicts) {
-            const roomA = a.room?.trim().toLowerCase();
-            const roomB = b.room?.trim().toLowerCase();
-            if (roomA && roomB && roomA === roomB) {
-              addConflict(a.id, { type: "room", with: b.name, room: a.room, period });
-              addConflict(b.id, { type: "room", with: a.name, room: b.room, period });
+            if (a.checkRoomConflicts && b.checkRoomConflicts) {
+              const roomA = a.room?.trim().toLowerCase();
+              const roomB = b.room?.trim().toLowerCase();
+              if (roomA && roomB && roomA === roomB) {
+                addConflict(a.id, { type: "room", with: b.name, room: a.room, period, semester: activeSemester });
+                addConflict(b.id, { type: "room", with: a.name, room: b.room, period, semester: activeSemester });
+              }
             }
           }
         }
@@ -1378,12 +1427,12 @@ export default function MasterSchoolSchedulerPrototype() {
     }
 
     return conflicts;
-  }, [placedClasses, semester]);
+  }, [classes]);
 
-  const unscheduled = classes.filter((c) => !c.placements[semester]);
+  const unscheduled = classes.filter((c) => !SEMESTERS.some((activeSemester) => c.placements?.[activeSemester]));
   const conflictList = Array.from(conflictMap.entries());
   const activeCellPickerKey = activeCellPicker
-    ? `${activeCellPicker.teacherId}-${activeCellPicker.period}`
+    ? `${activeCellPicker.teacherId}-${activeCellPicker.period}-${activeCellPicker.semester}`
     : "";
 
   function classSearchText(cls) {
@@ -1397,52 +1446,52 @@ export default function MasterSchoolSchedulerPrototype() {
       .slice(0, 8);
   }
 
-  function handleDrop(e, teacherId, period) {
+  function handleDrop(e, teacherId, period, targetSemester) {
     e.preventDefault();
     const raw = e.dataTransfer.getData("dragData");
     if (!raw) return;
     const data = JSON.parse(raw);
 
     if (data.kind === "class") {
-      placeClass(data.id, teacherId, period);
+      placeClass(data.id, teacherId, period, targetSemester);
       setActiveCellPicker(null);
     }
 
     if (data.kind === "block-template") {
-      addScheduleBlock(data.blockType, teacherId, period);
+      addScheduleBlock(data.blockType, teacherId, period, targetSemester);
       setActiveCellPicker(null);
     }
   }
 
-  function placeItem(item, teacherId, period) {
+  function placeItem(item, teacherId, period, targetSemester) {
     if (!item) return;
 
     if (item.kind === "class") {
-      placeClass(item.id, teacherId, period);
+      placeClass(item.id, teacherId, period, targetSemester);
       setSelectedItem(null);
       setActiveCellPicker(null);
       return;
     }
 
     if (item.kind === "block-template") {
-      addScheduleBlock(item.blockType, teacherId, period);
+      addScheduleBlock(item.blockType, teacherId, period, targetSemester);
     }
   }
 
-  function placeSelectedItem(teacherId, period) {
-    placeItem(selectedItem, teacherId, period);
+  function placeSelectedItem(teacherId, period, targetSemester) {
+    placeItem(selectedItem, teacherId, period, targetSemester);
   }
 
-  function openCellPicker(teacherId, period) {
+  function openCellPicker(teacherId, period, targetSemester) {
     if (selectedItem) {
-      placeSelectedItem(teacherId, period);
+      placeSelectedItem(teacherId, period, targetSemester);
       return;
     }
-    setActiveCellPicker({ teacherId, period, query: "" });
+    setActiveCellPicker({ teacherId, period, semester: targetSemester, query: "" });
   }
 
-  function placeClassFromPicker(classId, teacherId, period) {
-    placeClass(classId, teacherId, period);
+  function placeClassFromPicker(classId, teacherId, period, targetSemester) {
+    placeClass(classId, teacherId, period, targetSemester);
     setActiveCellPicker(null);
   }
 
@@ -1479,7 +1528,7 @@ export default function MasterSchoolSchedulerPrototype() {
       const target = document.elementFromPoint(e.clientX, e.clientY);
       const cell = target?.closest("[data-schedule-cell='true']");
       if (cell) {
-        placeItem(current.item, cell.dataset.teacherId, Number(cell.dataset.period));
+        placeItem(current.item, cell.dataset.teacherId, Number(cell.dataset.period), cell.dataset.semester);
         return;
       }
 
@@ -1501,7 +1550,7 @@ export default function MasterSchoolSchedulerPrototype() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragPreview]);
 
-  function placeClass(classId, teacherId, period) {
+  function placeClass(classId, teacherId, period, targetSemester = "Semester 1") {
     commit((state) => ({
       ...state,
       classes: state.classes.map((c) =>
@@ -1514,8 +1563,9 @@ export default function MasterSchoolSchedulerPrototype() {
                     "Semester 2": { teacherId, period },
                   }
                 : {
-                    ...c.placements,
-                    [semester]: { teacherId, period },
+                    "Semester 1": null,
+                    "Semester 2": null,
+                    [targetSemester]: { teacherId, period },
                   },
             }
           : c
@@ -1532,14 +1582,14 @@ export default function MasterSchoolSchedulerPrototype() {
               ...c,
               placements: c.fullYear
                 ? { "Semester 1": null, "Semester 2": null }
-                : { ...c.placements, [semester]: null },
+                : { "Semester 1": null, "Semester 2": null },
             }
           : c
       ),
     }));
   }
 
-  function addScheduleBlock(blockType, teacherId, period) {
+  function addScheduleBlock(blockType, teacherId, period, targetSemester = "Semester 1") {
     const template = blockTemplates.find((t) => t.blockType === blockType);
     if (!template) return;
 
@@ -1552,7 +1602,7 @@ export default function MasterSchoolSchedulerPrototype() {
           blockType,
           name: template.name,
           color: template.color,
-          semester,
+          semester: targetSemester,
           teacherId,
           period,
         },
@@ -1680,6 +1730,143 @@ export default function MasterSchoolSchedulerPrototype() {
     setSettingsOpen(false);
   }
 
+  function getFullYearClassesForCell(teacherId, period) {
+    return classes.filter((cls) => {
+      if (!cls.fullYear) return false;
+      const firstPlacement = cls.placements?.["Semester 1"];
+      const secondPlacement = cls.placements?.["Semester 2"];
+      return (
+        (firstPlacement?.teacherId === teacherId && firstPlacement?.period === period) ||
+        (secondPlacement?.teacherId === teacherId && secondPlacement?.period === period)
+      );
+    });
+  }
+
+  function getClassesForSemesterSlot(teacherId, period, targetSemester) {
+    return classes.filter(
+      (cls) =>
+        !cls.fullYear &&
+        cls.placements?.[targetSemester]?.teacherId === teacherId &&
+        cls.placements?.[targetSemester]?.period === period
+    );
+  }
+
+  function getBlocksForSemesterSlot(teacherId, period, targetSemester) {
+    return scheduleBlocks.filter(
+      (block) => block.semester === targetSemester && block.teacherId === teacherId && block.period === period
+    );
+  }
+
+  function renderSemesterSlot(teacher, period, targetSemester, options = {}) {
+    const slotKey = `${teacher.id}-${period}-${targetSemester}`;
+    const classesInSlot = options.fullYear
+      ? getFullYearClassesForCell(teacher.id, period)
+      : getClassesForSemesterSlot(teacher.id, period, targetSemester);
+    const blocksInSlot = options.fullYear ? [] : getBlocksForSemesterSlot(teacher.id, period, targetSemester);
+    const isPickerOpen = activeCellPickerKey === slotKey;
+    const pickerMatches = isPickerOpen ? getClassPickerMatches(activeCellPicker.query) : [];
+
+    return (
+      <div
+        key={slotKey}
+        data-schedule-cell="true"
+        data-teacher-id={teacher.id}
+        data-period={period}
+        data-semester={targetSemester}
+        className={`min-h-14 border-slate-800 p-1 transition hover:bg-slate-800/70 ${
+          options.fullYear ? "row-span-2 border-b bg-emerald-950/25" : "border-b"
+        } ${selectedItem ? "cursor-copy bg-slate-800/30" : "cursor-text"}`}
+        onClick={() => openCellPicker(teacher.id, period, targetSemester)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => handleDrop(e, teacher.id, period, targetSemester)}
+      >
+        <div className="space-y-1">
+          {!options.fullYear && (
+            <div className="no-print mb-1 inline-flex rounded-md bg-slate-950 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+              {getSemesterShortLabel(targetSemester)}
+            </div>
+          )}
+
+          {isPickerOpen && (
+            <div
+              className="no-print rounded-lg border border-sky-500/50 bg-slate-950 p-1.5 shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                autoFocus
+                value={activeCellPicker.query}
+                onChange={(e) =>
+                  setActiveCellPicker((current) =>
+                    current ? { ...current, query: e.target.value } : current
+                  )
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setActiveCellPicker(null);
+                  }
+                  if (e.key === "Enter" && pickerMatches[0]) {
+                    placeClassFromPicker(pickerMatches[0].id, teacher.id, period, targetSemester);
+                  }
+                }}
+                placeholder={`Type class for ${getSemesterShortLabel(targetSemester)}...`}
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-sky-400"
+              />
+              <div className="mt-1 max-h-40 overflow-auto">
+                {pickerMatches.length ? (
+                  pickerMatches.map((cls) => (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => placeClassFromPicker(cls.id, teacher.id, period, targetSemester)}
+                      className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800"
+                    >
+                      <span className="font-semibold text-white">{cls.name}</span>
+                      <span className="ml-1 text-slate-400">
+                        {[
+                          cls.fullYear ? "Full year" : getSemesterShortLabel(targetSemester),
+                          cls.subject,
+                          cls.room ? `Rm ${cls.room}` : "",
+                          cls.grades?.length ? `Gr. ${cls.grades.join(",")}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-2 py-2 text-xs text-slate-500">No unscheduled classes match.</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isPickerOpen && !blocksInSlot.length && !classesInSlot.length && !selectedItem && (
+            <div className="no-print rounded-md border border-dashed border-slate-700 px-2 py-2 text-center text-[11px] text-slate-500">
+              Click to type a class
+            </div>
+          )}
+
+          {blocksInSlot.map((block) => (
+            <ScheduleBlockCard key={block.id} block={block} onRemove={removeScheduleBlock} />
+          ))}
+
+          {classesInSlot.map((cls) => (
+            <ClassCard
+              key={cls.id}
+              cls={cls}
+              conflict={conflictMap.has(cls.id)}
+              selected={selectedItem?.kind === "class" && selectedItem.id === cls.id}
+              onEdit={setEditingClass}
+              onRemove={removeClass}
+              onSelect={setSelectedItem}
+              onPointerDragStart={handlePointerDragStart}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-none space-y-4">
@@ -1700,11 +1887,9 @@ export default function MasterSchoolSchedulerPrototype() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 bg-slate-950/70 p-1 rounded-xl border border-slate-700">
-            {SEMESTERS.map((s) => (
-              <Button key={s} variant={semester === s ? "default" : "outline"} onClick={() => setSemester(s)}>
-                {s}
-              </Button>
-            ))}
+            <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">
+              Two-semester grid
+            </div>
 
             <Button variant="outline" onClick={undo} disabled={!undoStack.length}>
               <Undo2 size={16} className="mr-1 inline" /> Undo
@@ -1778,10 +1963,10 @@ export default function MasterSchoolSchedulerPrototype() {
                         return conflicts.map((conflict, index) => (
                           <div key={`${classId}-${index}`}>
                             {conflict.type === "grade"
-                              ? `${cls?.name} conflicts with ${conflict.with} in Period ${conflict.period} for grade(s) ${conflict.grades.join(", ")}.`
+                              ? `${cls?.name} conflicts with ${conflict.with} in ${conflict.semester}, Period ${conflict.period} for grade(s) ${conflict.grades.join(", ")}.`
                               : conflict.type === "lunch"
                               ? `${cls?.name} cannot be scheduled in Period ${conflict.period} because of ${conflict.with}.`
-                              : `${cls?.name} conflicts with ${conflict.with} in Period ${conflict.period} because both use room ${conflict.room}.`}
+                              : `${cls?.name} conflicts with ${conflict.with} in ${conflict.semester}, Period ${conflict.period} because both use room ${conflict.room}.`}
                           </div>
                         ));
                       })}
@@ -1863,7 +2048,7 @@ export default function MasterSchoolSchedulerPrototype() {
                   ))}
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">All classes are scheduled for {semester}.</div>
+                <div className="text-sm text-slate-500">All classes are scheduled.</div>
               )}
             </div>
           </CardContent>
@@ -2075,13 +2260,13 @@ export default function MasterSchoolSchedulerPrototype() {
             <div
               className="schedule-grid-wrapper grid"
               style={{
-                gridTemplateColumns: `110px repeat(${teachers.length}, 132px)`,
-                minWidth: `${(110 + teachers.length * 132) * scheduleZoom}px`,
+                gridTemplateColumns: `120px repeat(${teachers.length}, 142px)`,
+                minWidth: `${(120 + teachers.length * 142) * scheduleZoom}px`,
                 zoom: scheduleZoom,
               }}
             >
               <div className="sticky left-0 top-0 z-30 border-b border-r border-slate-700 bg-slate-800 p-3 font-semibold text-white">
-                Period
+                Period / Term
               </div>
 
               {teachers.map((teacher) => (
@@ -2098,107 +2283,32 @@ export default function MasterSchoolSchedulerPrototype() {
                   <div className="sticky left-0 z-10 border-b border-r border-slate-700 bg-slate-900 p-3 font-semibold text-slate-200">
                     <div>Period {period}</div>
                     <div className="mt-1 text-xs font-normal text-slate-400">{periodTimes[period]}</div>
+                    <div className="mt-3 grid grid-rows-2 overflow-hidden rounded-lg border border-slate-700 text-[11px]">
+                      {SEMESTERS.map((activeSemester) => (
+                        <div
+                          key={`${period}-${activeSemester}-label`}
+                          className="border-b border-slate-700 px-2 py-2 font-semibold text-slate-300 last:border-b-0"
+                        >
+                          {getSemesterShortLabel(activeSemester)}
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   {teachers.map((teacher) => {
-                    const classesInCell = classes.filter(
-                      (c) =>
-                        c.placements[semester]?.teacherId === teacher.id &&
-                        c.placements[semester]?.period === period
-                    );
-
-                    const blocksInCell = scheduleBlocks.filter(
-                      (b) => b.semester === semester && b.teacherId === teacher.id && b.period === period
-                    );
-                    const isPickerOpen = activeCellPickerKey === `${teacher.id}-${period}`;
-                    const pickerMatches = isPickerOpen ? getClassPickerMatches(activeCellPicker.query) : [];
+                    const fullYearClasses = getFullYearClassesForCell(teacher.id, period);
 
                     return (
                       <div
                         key={`${teacher.id}-${period}`}
-                        data-schedule-cell="true"
-                        data-teacher-id={teacher.id}
-                        data-period={period}
-                        className={`min-h-20 border-b border-r border-slate-800 p-1 transition hover:bg-slate-800/70 ${
-                          selectedItem ? "cursor-copy bg-slate-800/30" : "cursor-text"
-                        }`}
-                        onClick={() => openCellPicker(teacher.id, period)}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => handleDrop(e, teacher.id, period)}
+                        className="min-h-32 border-b border-r border-slate-800 bg-slate-950/20"
                       >
-                        <div className="space-y-1">
-                          {isPickerOpen && (
-                            <div
-                              className="no-print rounded-lg border border-sky-500/50 bg-slate-950 p-1.5 shadow-lg"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                autoFocus
-                                value={activeCellPicker.query}
-                                onChange={(e) =>
-                                  setActiveCellPicker((current) =>
-                                    current ? { ...current, query: e.target.value } : current
-                                  )
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Escape") {
-                                    setActiveCellPicker(null);
-                                  }
-                                  if (e.key === "Enter" && pickerMatches[0]) {
-                                    placeClassFromPicker(pickerMatches[0].id, teacher.id, period);
-                                  }
-                                }}
-                                placeholder="Type class..."
-                                className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-sky-400"
-                              />
-                              <div className="mt-1 max-h-40 overflow-auto">
-                                {pickerMatches.length ? (
-                                  pickerMatches.map((cls) => (
-                                    <button
-                                      key={cls.id}
-                                      type="button"
-                                      onClick={() => placeClassFromPicker(cls.id, teacher.id, period)}
-                                      className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800"
-                                    >
-                                      <span className="font-semibold text-white">{cls.name}</span>
-                                      <span className="ml-1 text-slate-400">
-                                        {[cls.subject, cls.room ? `Rm ${cls.room}` : "", cls.grades?.length ? `Gr. ${cls.grades.join(",")}` : ""]
-                                          .filter(Boolean)
-                                          .join(" · ")}
-                                      </span>
-                                    </button>
-                                  ))
-                                ) : (
-                                  <div className="px-2 py-2 text-xs text-slate-500">
-                                    No unscheduled classes match.
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {!isPickerOpen && !blocksInCell.length && !classesInCell.length && !selectedItem && (
-                            <div className="no-print rounded-md border border-dashed border-slate-700 px-2 py-2 text-center text-[11px] text-slate-500">
-                              Click to type a class
-                            </div>
-                          )}
-
-                          {blocksInCell.map((block) => (
-                            <ScheduleBlockCard key={block.id} block={block} onRemove={removeScheduleBlock} />
-                          ))}
-
-                          {classesInCell.map((cls) => (
-                            <ClassCard
-                              key={cls.id}
-                              cls={cls}
-                              conflict={conflictMap.has(cls.id)}
-                              selected={selectedItem?.kind === "class" && selectedItem.id === cls.id}
-                              onEdit={setEditingClass}
-                              onRemove={removeClass}
-                              onSelect={setSelectedItem}
-                              onPointerDragStart={handlePointerDragStart}
-                            />
-                          ))}
+                        <div className="grid min-h-32 grid-rows-2">
+                          {fullYearClasses.length
+                            ? renderSemesterSlot(teacher, period, "Semester 1", { fullYear: true })
+                            : SEMESTERS.map((activeSemester) =>
+                                renderSemesterSlot(teacher, period, activeSemester)
+                              )}
                         </div>
                       </div>
                     );
@@ -2238,7 +2348,7 @@ export default function MasterSchoolSchedulerPrototype() {
             <div className="print-title">
               <h1>{appSettings.title}</h1>
               <p>
-                {semester} • {appSettings.subtitle}
+                Two-semester view • {appSettings.subtitle}
               </p>
             </div>
 
@@ -2246,6 +2356,7 @@ export default function MasterSchoolSchedulerPrototype() {
               <thead>
                 <tr>
                   <th className="print-period">Period</th>
+                  <th className="print-semester">Term</th>
                   {teachers.map((teacher) => (
                     <th key={teacher.id}>{teacher.name}</th>
                   ))}
@@ -2255,52 +2366,61 @@ export default function MasterSchoolSchedulerPrototype() {
               <tbody>
                 {PERIODS.map((period) => (
                   <React.Fragment key={period}>
-                    <tr>
-                      <td className="print-period">
-                        <div>Period {period}</div>
-                        <div className="print-period-time">{periodTimes[period]}</div>
-                      </td>
-
-                      {teachers.map((teacher) => {
-                        const classesInCell = classes.filter(
-                          (c) =>
-                            c.placements[semester]?.teacherId === teacher.id &&
-                            c.placements[semester]?.period === period
-                        );
-
-                        const blocksInCell = scheduleBlocks.filter(
-                          (b) =>
-                            b.semester === semester &&
-                            b.teacherId === teacher.id &&
-                            b.period === period
-                        );
-
-                        return (
-                          <td key={`${teacher.id}-${period}-print`}>
-                            {blocksInCell.map((block) => (
-                              <div key={block.id} className="print-entry">
-                                <div className="print-entry-title">{block.name}</div>
-                              </div>
-                            ))}
-
-                            {classesInCell.map((cls) => (
-                              <div key={cls.id} className="print-entry">
-                                <div className="print-entry-title">{cls.name}</div>
-                                <div className="print-entry-meta">
-                                  {cls.room ? `Room ${cls.room}` : ""}
-                                  {cls.grades?.length ? ` • Gr. ${cls.grades.join(",")}` : ""}
-                                </div>
-                              </div>
-                            ))}
+                    {SEMESTERS.map((activeSemester, semesterIndex) => (
+                      <tr key={`${period}-${activeSemester}-print`}>
+                        {semesterIndex === 0 && (
+                          <td className="print-period" rowSpan={SEMESTERS.length}>
+                            <div>Period {period}</div>
+                            <div className="print-period-time">{periodTimes[period]}</div>
                           </td>
-                        );
-                      })}
-                    </tr>
+                        )}
+
+                        <td className="print-semester">{getSemesterShortLabel(activeSemester)}</td>
+
+                        {teachers.map((teacher) => {
+                          const fullYearClasses = getFullYearClassesForCell(teacher.id, period);
+                          if (fullYearClasses.length && semesterIndex === 1) return null;
+
+                          const classesInCell = getClassesForSemesterSlot(teacher.id, period, activeSemester);
+                          const blocksInCell = getBlocksForSemesterSlot(teacher.id, period, activeSemester);
+                          const printClasses = fullYearClasses.length ? fullYearClasses : classesInCell;
+
+                          return (
+                            <td
+                              key={`${teacher.id}-${period}-${activeSemester}-print`}
+                              rowSpan={fullYearClasses.length ? SEMESTERS.length : undefined}
+                              className={fullYearClasses.length ? "print-full-year-cell" : undefined}
+                            >
+                              {blocksInCell.map((block) => (
+                                <div key={block.id} className="print-entry">
+                                  <div className="print-entry-title">{block.name}</div>
+                                </div>
+                              ))}
+
+                              {printClasses.map((cls) => (
+                                <div key={cls.id} className="print-entry">
+                                  <div className="print-entry-title">{cls.name}</div>
+                                  <div className="print-entry-meta">
+                                    {[
+                                      cls.fullYear ? "Full year" : "",
+                                      cls.room ? `Room ${cls.room}` : "",
+                                      cls.grades?.length ? `Gr. ${cls.grades.join(",")}` : "",
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" • ")}
+                                  </div>
+                                </div>
+                              ))}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
 
                     {/* Insert lunch row in PDF after the specified period */}
                     {appSettings.lunch?.enabled && period === appSettings.lunch.afterPeriod && (
                       <tr key={`lunch-${period}-pdf`} className="print-lunch-row">
-                        <td className="print-period print-lunch-cell">
+                        <td className="print-period print-lunch-cell" colSpan={2}>
                           <div>Lunch</div>
                           <div className="print-period-time">{appSettings.lunch.time}</div>
                         </td>

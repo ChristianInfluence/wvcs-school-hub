@@ -103,6 +103,13 @@
     background: #f8fafc !important;
   }
 
+  .print-semester {
+    width: 0.42in;
+    color: #475569;
+    font-weight: 700;
+    background: #f8fafc !important;
+  }
+
   .print-period-time {
     color: #64748b;
     font-size: 4.8px;
@@ -142,6 +149,16 @@
     border-left-color: #16a34a;
     background: #dcfce7 !important;
     color: #166534;
+  }
+
+  .print-full-year-cell {
+    background: #f7fee7 !important;
+  }
+
+  .print-full-year-cell .print-entry {
+    border-color: #86efac;
+    border-left-color: #16a34a;
+    background: #ecfdf5 !important;
   }
 }
 
