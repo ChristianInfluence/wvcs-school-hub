@@ -143,7 +143,7 @@ const VERSIONS_KEY = "wvcs-master-scheduler-versions";
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SEMESTERS = ["Semester 1", "Semester 2"];
 const GRADE_OPTIONS = ["6", "7", "8", "9", "10", "11", "12"];
-const FULL_SPAN_BLOCK_TYPES = new Set(["prep", "no-class"]);
+const FULL_SPAN_BLOCK_TYPES = new Set(["prep", "no-class", "professional-duties"]);
 
 function getSemesterShortLabel(semester) {
   return semester === "Semester 1" ? "Sem 1" : "Sem 2";
@@ -420,17 +420,19 @@ function ScheduleBlockCard({ block, onRemove }) {
 
   return (
     <div
-      className={`print-card group rounded-lg border px-2 py-1.5 shadow-sm ${block.color}`}
+      className={`print-card group relative max-w-full overflow-hidden rounded-lg border px-2 py-1.5 shadow-sm ${block.color}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-start justify-between gap-1.5">
+      <div className="flex min-w-0 items-start justify-between gap-1.5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 truncate text-[13px] font-semibold leading-snug">
-            {getIcon()}
-            <span className="truncate">{block.name}</span>
+          <div className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-snug">
+            <span className="shrink-0">
+              {getIcon()}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{block.name}</span>
           </div>
-          <div className="mt-0.5 text-[10px] leading-tight opacity-80">
-            {block.blockType === "lunch" ? "Shared lunch period" : "Blocked schedule time"}
+          <div className="mt-0.5 truncate text-[10px] leading-tight opacity-80">
+            {isFullSpanBlock(block) ? "Both semesters" : block.blockType === "lunch" ? "Shared lunch period" : "Blocked schedule time"}
           </div>
         </div>
         <button
@@ -438,9 +440,10 @@ function ScheduleBlockCard({ block, onRemove }) {
             e.stopPropagation();
             onRemove(block.id);
           }}
-          className={`no-print shrink-0 rounded-md p-0.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 ${
+          className={`no-print relative z-10 shrink-0 rounded-md p-0.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 focus:opacity-100 ${
             block.blockType === "lunch" ? "hidden" : ""
           }`}
+          aria-label={`Delete ${block.name}`}
         >
           <Trash2 size={12} />
         </button>
@@ -1799,14 +1802,14 @@ export default function MasterSchoolSchedulerPrototype() {
         data-teacher-id={teacher.id}
         data-period={period}
         data-semester={targetSemester}
-        className={`min-h-14 border-slate-800 p-1 transition hover:bg-slate-800/70 ${
+        className={`min-w-0 overflow-hidden border-slate-800 p-1 transition hover:bg-slate-800/70 ${
           options.fullYear ? "row-span-2 border-b bg-emerald-950/25" : "border-b"
         } ${selectedItem ? "cursor-copy bg-slate-800/30" : "cursor-text"}`}
         onClick={() => openCellPicker(teacher.id, period, targetSemester)}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => handleDrop(e, teacher.id, period, targetSemester)}
       >
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1 overflow-hidden">
           {!options.fullYear && (
             <div className="no-print mb-1 inline-flex rounded-md bg-slate-950 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
               {getSemesterShortLabel(targetSemester)}
@@ -2329,9 +2332,9 @@ export default function MasterSchoolSchedulerPrototype() {
                     return (
                       <div
                         key={`${teacher.id}-${period}`}
-                        className="min-h-32 border-b border-r border-slate-800 bg-slate-950/20"
+                        className="min-h-32 min-w-0 overflow-hidden border-b border-r border-slate-800 bg-slate-950/20"
                       >
-                        <div className="grid min-h-32 grid-rows-2">
+                        <div className="grid min-h-32 min-w-0 grid-rows-2 overflow-hidden">
                           {hasFullSpanItems
                             ? renderSemesterSlot(teacher, period, "Semester 1", { fullYear: true })
                             : SEMESTERS.map((activeSemester) =>
