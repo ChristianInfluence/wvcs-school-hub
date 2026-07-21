@@ -148,6 +148,20 @@
     background: #334155 !important;
   }
 
+  .print-entry-block-prep {
+    border-color: #86efac;
+    border-left-color: #16a34a;
+    background: #dcfce7 !important;
+  }
+
+  .print-entry-block-prep .print-entry-title {
+    color: #14532d;
+  }
+
+  .print-entry-block-prep .print-entry-meta {
+    color: #166534;
+  }
+
   .print-entry-block-no-class .print-entry-title,
   .print-entry-block-no-class .print-entry-meta {
     color: #ffffff;

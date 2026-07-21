@@ -1098,11 +1098,11 @@ export default function MasterSchoolSchedulerPrototype() {
     const getPrintableBlockPalette = (block) => {
       if (block.blockType === "prep") {
         return {
-          background: "#dbeafe",
-          border: "#60a5fa",
-          leftBorder: "#2563eb",
-          title: "#0f172a",
-          meta: "#1e3a8a",
+          background: "#dcfce7",
+          border: "#86efac",
+          leftBorder: "#16a34a",
+          title: "#14532d",
+          meta: "#166534",
         };
       }
 
