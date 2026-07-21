@@ -455,6 +455,7 @@ export default function MasterSchoolSchedulerPrototype() {
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [activeCellPicker, setActiveCellPicker] = useState(null);
   const [dragPreview, setDragPreview] = useState(null);
   const [scheduleZoom, setScheduleZoom] = useState(0.85);
   const [updateStatus, setUpdateStatus] = useState("");
@@ -1294,6 +1295,20 @@ export default function MasterSchoolSchedulerPrototype() {
 
   const unscheduled = classes.filter((c) => !c.placements[semester]);
   const conflictList = Array.from(conflictMap.entries());
+  const activeCellPickerKey = activeCellPicker
+    ? `${activeCellPicker.teacherId}-${activeCellPicker.period}`
+    : "";
+
+  function classSearchText(cls) {
+    return [cls.name, cls.subject, cls.room, ...(cls.grades || [])].filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function getClassPickerMatches(query) {
+    const normalized = String(query || "").trim().toLowerCase();
+    return unscheduled
+      .filter((cls) => !normalized || classSearchText(cls).includes(normalized))
+      .slice(0, 8);
+  }
 
   function handleDrop(e, teacherId, period) {
     e.preventDefault();
@@ -1303,10 +1318,12 @@ export default function MasterSchoolSchedulerPrototype() {
 
     if (data.kind === "class") {
       placeClass(data.id, teacherId, period);
+      setActiveCellPicker(null);
     }
 
     if (data.kind === "block-template") {
       addScheduleBlock(data.blockType, teacherId, period);
+      setActiveCellPicker(null);
     }
   }
 
@@ -1316,6 +1333,7 @@ export default function MasterSchoolSchedulerPrototype() {
     if (item.kind === "class") {
       placeClass(item.id, teacherId, period);
       setSelectedItem(null);
+      setActiveCellPicker(null);
       return;
     }
 
@@ -1326,6 +1344,19 @@ export default function MasterSchoolSchedulerPrototype() {
 
   function placeSelectedItem(teacherId, period) {
     placeItem(selectedItem, teacherId, period);
+  }
+
+  function openCellPicker(teacherId, period) {
+    if (selectedItem) {
+      placeSelectedItem(teacherId, period);
+      return;
+    }
+    setActiveCellPicker({ teacherId, period, query: "" });
+  }
+
+  function placeClassFromPicker(classId, teacherId, period) {
+    placeClass(classId, teacherId, period);
+    setActiveCellPicker(null);
   }
 
   function handlePointerDragStart(e, item) {
@@ -1992,6 +2023,8 @@ export default function MasterSchoolSchedulerPrototype() {
                     const blocksInCell = scheduleBlocks.filter(
                       (b) => b.semester === semester && b.teacherId === teacher.id && b.period === period
                     );
+                    const isPickerOpen = activeCellPickerKey === `${teacher.id}-${period}`;
+                    const pickerMatches = isPickerOpen ? getClassPickerMatches(activeCellPicker.query) : [];
 
                     return (
                       <div
@@ -2000,13 +2033,69 @@ export default function MasterSchoolSchedulerPrototype() {
                         data-teacher-id={teacher.id}
                         data-period={period}
                         className={`min-h-20 border-b border-r border-slate-800 p-1 transition hover:bg-slate-800/70 ${
-                          selectedItem ? "cursor-copy bg-slate-800/30" : ""
+                          selectedItem ? "cursor-copy bg-slate-800/30" : "cursor-text"
                         }`}
-                        onClick={() => placeSelectedItem(teacher.id, period)}
+                        onClick={() => openCellPicker(teacher.id, period)}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => handleDrop(e, teacher.id, period)}
                       >
                         <div className="space-y-1">
+                          {isPickerOpen && (
+                            <div
+                              className="no-print rounded-lg border border-sky-500/50 bg-slate-950 p-1.5 shadow-lg"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                autoFocus
+                                value={activeCellPicker.query}
+                                onChange={(e) =>
+                                  setActiveCellPicker((current) =>
+                                    current ? { ...current, query: e.target.value } : current
+                                  )
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") {
+                                    setActiveCellPicker(null);
+                                  }
+                                  if (e.key === "Enter" && pickerMatches[0]) {
+                                    placeClassFromPicker(pickerMatches[0].id, teacher.id, period);
+                                  }
+                                }}
+                                placeholder="Type class..."
+                                className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-sky-400"
+                              />
+                              <div className="mt-1 max-h-40 overflow-auto">
+                                {pickerMatches.length ? (
+                                  pickerMatches.map((cls) => (
+                                    <button
+                                      key={cls.id}
+                                      type="button"
+                                      onClick={() => placeClassFromPicker(cls.id, teacher.id, period)}
+                                      className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800"
+                                    >
+                                      <span className="font-semibold text-white">{cls.name}</span>
+                                      <span className="ml-1 text-slate-400">
+                                        {[cls.subject, cls.room ? `Rm ${cls.room}` : "", cls.grades?.length ? `Gr. ${cls.grades.join(",")}` : ""]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="px-2 py-2 text-xs text-slate-500">
+                                    No unscheduled classes match.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {!isPickerOpen && !blocksInCell.length && !classesInCell.length && !selectedItem && (
+                            <div className="no-print rounded-md border border-dashed border-slate-700 px-2 py-2 text-center text-[11px] text-slate-500">
+                              Click to type a class
+                            </div>
+                          )}
+
                           {blocksInCell.map((block) => (
                             <ScheduleBlockCard key={block.id} block={block} onRemove={removeScheduleBlock} />
                           ))}
