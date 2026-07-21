@@ -1884,17 +1884,25 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   }
 
   function printBlankPermissionSlip() {
-    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+    const printWindow = window.open("about:blank", "_blank");
     if (!printWindow) {
       setSyncStatus("Pop-up blocked. Please allow pop-ups to print a blank permission slip.");
       return;
     }
-    printWindow.document.open();
-    printWindow.document.write(buildBlankPermissionHtml({ event: selectedEvent }));
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.setTimeout(() => printWindow.print(), 450);
-    setSyncStatus(`Opened a printable blank permission slip for ${selectedEvent.title || "this field trip"}.`);
+    try {
+      printWindow.document.open();
+      printWindow.document.write(buildBlankPermissionHtml({ event: selectedEvent }));
+      printWindow.document.close();
+      printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.setTimeout(() => printWindow.print(), 250);
+      };
+      printWindow.focus();
+      setSyncStatus(`Opened a printable blank permission slip for ${selectedEvent.title || "this field trip"}.`);
+    } catch (error) {
+      printWindow.close();
+      setSyncStatus(`Could not open the blank permission slip for printing: ${error.message}`);
+    }
   }
 
   function moveField(fieldId, targetFieldId) {
