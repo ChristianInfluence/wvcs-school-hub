@@ -938,10 +938,10 @@ export default function MasterSchoolSchedulerPrototype() {
     const rowHeight = Math.max(0.31, Math.min(0.44, 5.85 / totalRows));
     const periodWidth = denseMode ? "0.48in" : compactMode ? "0.54in" : "0.62in";
     const semesterWidth = denseMode ? "0.36in" : "0.42in";
-    const tableFontSize = denseMode ? "5.7px" : compactMode ? "6.2px" : "6.8px";
+    const tableFontSize = denseMode ? "6px" : compactMode ? "6.4px" : "6.9px";
     const teacherFontSize = denseMode ? "5.9px" : compactMode ? "6.6px" : "7.4px";
-    const entryTitleSize = denseMode ? "5.9px" : compactMode ? "6.4px" : "6.9px";
-    const entryMetaSize = denseMode ? "4.8px" : compactMode ? "5.2px" : "5.6px";
+    const entryTitleSize = denseMode ? "6.4px" : compactMode ? "6.8px" : "7.2px";
+    const entryMetaSize = denseMode ? "5.2px" : compactMode ? "5.5px" : "5.8px";
     const cellPadding = denseMode ? "2px" : "2.5px";
     const generatedOn = new Date().toLocaleDateString(undefined, {
       month: "short",
@@ -1134,7 +1134,7 @@ export default function MasterSchoolSchedulerPrototype() {
           classDiv.style.borderLeft = `2px solid ${printableClassPalette.leftBorder}`;
           classDiv.style.borderRadius = "3px";
           classDiv.style.fontSize = tableFontSize;
-          classDiv.style.lineHeight = "1.12";
+          classDiv.style.lineHeight = "1.2";
           classDiv.style.overflow = "hidden";
           classDiv.style.breakInside = "avoid";
           classDiv.style.color = printableClassPalette.title;
@@ -1150,7 +1150,9 @@ export default function MasterSchoolSchedulerPrototype() {
           className.style.fontWeight = "700";
           className.style.fontSize = entryTitleSize;
           className.style.color = printableClassPalette.title;
-          className.style.maxHeight = "2.3em";
+          className.style.lineHeight = "1.2";
+          className.style.paddingBottom = "1px";
+          className.style.maxHeight = "none";
           className.style.overflow = "hidden";
           classDiv.appendChild(className);
 
@@ -1166,7 +1168,9 @@ export default function MasterSchoolSchedulerPrototype() {
             classMeta.style.marginTop = "1px";
             classMeta.style.fontSize = entryMetaSize;
             classMeta.style.color = printableClassPalette.meta;
-            classMeta.style.maxHeight = "1.2em";
+            classMeta.style.lineHeight = "1.18";
+            classMeta.style.paddingBottom = "1px";
+            classMeta.style.maxHeight = "none";
             classMeta.style.overflow = "hidden";
             classDiv.appendChild(classMeta);
           }
@@ -1188,14 +1192,15 @@ export default function MasterSchoolSchedulerPrototype() {
           blockDiv.style.fontStyle = "normal";
           blockDiv.style.fontWeight = "700";
           blockDiv.style.marginBottom = "2px";
-          blockDiv.style.lineHeight = "1.12";
+          blockDiv.style.lineHeight = "1.2";
           blockDiv.style.overflow = "hidden";
           if (fill) {
             blockDiv.style.minHeight = isFullSpanBlock(block) ? `${Math.max(0.42, rowHeight * 1.5)}in` : `${Math.max(0.2, rowHeight * 0.68)}in`;
             blockDiv.style.display = "flex";
             blockDiv.style.alignItems = "center";
           }
-          blockDiv.style.maxHeight = fill ? "none" : "2.5em";
+          blockDiv.style.paddingBottom = "1px";
+          blockDiv.style.maxHeight = "none";
           cell.appendChild(blockDiv);
     };
 
@@ -1430,8 +1435,13 @@ export default function MasterSchoolSchedulerPrototype() {
     const opt = {
       margin: [0, 0, 0, 0],
       filename: filename,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2.5, backgroundColor: "#ffffff", useCORS: true },
+      image: { type: "png", quality: 1 },
+      html2canvas: {
+        scale: 4,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        letterRendering: true,
+      },
       jsPDF: { orientation: "landscape", unit: "mm", format: "letter" },
       pagebreak: { mode: ["avoid-all"] },
     };
