@@ -289,7 +289,7 @@ function blankClass() {
   };
 }
 
-function ClassCard({ cls, conflict, selected, onEdit, onRemove, onSelect, onPointerDragStart }) {
+function ClassCard({ cls, conflict, selected, fill = false, onEdit, onRemove, onSelect, onPointerDragStart }) {
   const dragItem = { kind: "class", id: cls.id, label: cls.name, color: cls.color };
   const subject = cls.subject?.trim();
   const room = cls.room?.trim();
@@ -311,14 +311,16 @@ function ClassCard({ cls, conflict, selected, onEdit, onRemove, onSelect, onPoin
         onSelect?.(dragItem);
         e.dataTransfer.setData("dragData", JSON.stringify({ kind: "class", id: cls.id }));
       }}
-      className={`print-card group relative rounded-lg border px-2 py-1.5 shadow-sm cursor-pointer active:cursor-grabbing ${cls.color} ${
+      className={`print-card group relative max-w-full overflow-hidden rounded-lg border px-2 py-1.5 shadow-sm cursor-pointer active:cursor-grabbing ${
+        fill ? "flex h-full min-h-12 flex-col justify-center" : ""
+      } ${cls.color} ${
         conflict ? "ring-2 ring-red-400" : ""
       } ${
         selected ? "ring-2 ring-emerald-300" : ""
       }`}
     >
-      <div>
-        <div>
+      <div className="min-w-0">
+        <div className="min-w-0">
           <div className="line-clamp-2 pr-8 text-[13px] font-semibold leading-tight" title={cls.name}>
             {cls.name}
           </div>
@@ -402,7 +404,7 @@ function getErrorMessage(error) {
   return JSON.stringify(error);
 }
 
-function ScheduleBlockCard({ block, onRemove }) {
+function ScheduleBlockCard({ block, fill = false, onRemove }) {
   const getIcon = () => {
     switch (block.blockType) {
       case "office":
@@ -420,7 +422,9 @@ function ScheduleBlockCard({ block, onRemove }) {
 
   return (
     <div
-      className={`print-card group relative max-w-full overflow-hidden rounded-lg border px-2 py-1.5 shadow-sm ${block.color}`}
+      className={`print-card group relative max-w-full overflow-hidden rounded-lg border px-2 py-1.5 shadow-sm ${
+        fill ? "flex h-full min-h-12 flex-col justify-center" : ""
+      } ${block.color}`}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex min-w-0 items-start justify-between gap-1.5">
@@ -931,7 +935,7 @@ export default function MasterSchoolSchedulerPrototype() {
     const totalRows = PERIODS.length * SEMESTERS.length + lunchRows;
     const denseMode = teacherCount >= 11;
     const compactMode = teacherCount >= 8;
-    const rowHeight = Math.max(0.43, Math.min(0.7, 6.58 / totalRows));
+    const rowHeight = Math.max(0.31, Math.min(0.44, 5.85 / totalRows));
     const periodWidth = denseMode ? "0.48in" : compactMode ? "0.54in" : "0.62in";
     const semesterWidth = denseMode ? "0.36in" : "0.42in";
     const tableFontSize = denseMode ? "5.7px" : compactMode ? "6.2px" : "6.8px";
@@ -1044,7 +1048,7 @@ export default function MasterSchoolSchedulerPrototype() {
     const table = document.createElement("table");
     table.style.width = "100%";
     table.style.borderCollapse = "collapse";
-    table.style.height = "6.95in";
+    table.style.height = "auto";
     table.style.fontSize = tableFontSize;
     table.style.tableLayout = "fixed";
     table.style.border = "1px solid #cbd5e1";
@@ -1083,7 +1087,7 @@ export default function MasterSchoolSchedulerPrototype() {
     });
     table.appendChild(headerRow);
     
-    const appendPrintableClass = (cell, cls, isFullYear = false) => {
+    const appendPrintableClass = (cell, cls, isFullYear = false, fill = false) => {
           const classDiv = document.createElement("div");
           classDiv.style.marginBottom = "2px";
           classDiv.style.padding = denseMode ? "2px" : "2.5px";
@@ -1095,6 +1099,12 @@ export default function MasterSchoolSchedulerPrototype() {
           classDiv.style.lineHeight = "1.12";
           classDiv.style.overflow = "hidden";
           classDiv.style.breakInside = "avoid";
+          if (fill) {
+            classDiv.style.minHeight = isFullYear ? `${Math.max(0.42, rowHeight * 1.5)}in` : `${Math.max(0.2, rowHeight * 0.68)}in`;
+            classDiv.style.display = "flex";
+            classDiv.style.flexDirection = "column";
+            classDiv.style.justifyContent = "center";
+          }
           
           const className = document.createElement("div");
           className.textContent = cls.name;
@@ -1123,7 +1133,7 @@ export default function MasterSchoolSchedulerPrototype() {
           cell.appendChild(classDiv);
     };
 
-    const appendPrintableBlock = (cell, block) => {
+    const appendPrintableBlock = (cell, block, fill = false) => {
           const blockDiv = document.createElement("div");
           blockDiv.textContent = block.name;
           blockDiv.style.padding = denseMode ? "2px" : "2.5px";
@@ -1137,6 +1147,11 @@ export default function MasterSchoolSchedulerPrototype() {
           blockDiv.style.marginBottom = "2px";
           blockDiv.style.lineHeight = "1.12";
           blockDiv.style.overflow = "hidden";
+          if (fill) {
+            blockDiv.style.minHeight = isFullSpanBlock(block) ? `${Math.max(0.42, rowHeight * 1.5)}in` : `${Math.max(0.2, rowHeight * 0.68)}in`;
+            blockDiv.style.display = "flex";
+            blockDiv.style.alignItems = "center";
+          }
           applyTextClamp(blockDiv, 2);
           cell.appendChild(blockDiv);
     };
@@ -1201,8 +1216,9 @@ export default function MasterSchoolSchedulerPrototype() {
           applyCellBase(cell, hasFullSpanItems ? { background: "#f7fee7" } : undefined);
 
           if (hasFullSpanItems) {
-            fullSpanBlocks.forEach((block) => appendPrintableBlock(cell, block));
-            fullYearClasses.forEach((cls) => appendPrintableClass(cell, cls, true));
+            const fullSpanItemCount = fullSpanBlocks.length + fullYearClasses.length;
+            fullSpanBlocks.forEach((block) => appendPrintableBlock(cell, block, fullSpanItemCount === 1));
+            fullYearClasses.forEach((cls) => appendPrintableClass(cell, cls, true, fullSpanItemCount === 1));
           } else {
             const classesInCell = classes.filter(
               (c) =>
@@ -1219,8 +1235,9 @@ export default function MasterSchoolSchedulerPrototype() {
                 b.period === period
             );
 
-            blocksInCell.forEach((block) => appendPrintableBlock(cell, block));
-            classesInCell.forEach((cls) => appendPrintableClass(cell, cls));
+            const cellItemCount = blocksInCell.length + classesInCell.length;
+            blocksInCell.forEach((block) => appendPrintableBlock(cell, block, cellItemCount === 1));
+            classesInCell.forEach((cls) => appendPrintableClass(cell, cls, false, cellItemCount === 1));
           }
 
           row.appendChild(cell);
@@ -1794,6 +1811,8 @@ export default function MasterSchoolSchedulerPrototype() {
       : getBlocksForSemesterSlot(teacher.id, period, targetSemester);
     const isPickerOpen = activeCellPickerKey === slotKey;
     const pickerMatches = isPickerOpen ? getClassPickerMatches(activeCellPicker.query) : [];
+    const slotItemCount = blocksInSlot.length + classesInSlot.length;
+    const fillSingleItem = !isPickerOpen && slotItemCount === 1;
 
     return (
       <div
@@ -1809,7 +1828,7 @@ export default function MasterSchoolSchedulerPrototype() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => handleDrop(e, teacher.id, period, targetSemester)}
       >
-        <div className="min-w-0 space-y-1 overflow-hidden">
+        <div className="flex h-full min-w-0 flex-col gap-1 overflow-hidden">
           {!options.fullYear && (
             <div className="no-print mb-1 inline-flex rounded-md bg-slate-950 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
               {getSemesterShortLabel(targetSemester)}
@@ -1876,13 +1895,19 @@ export default function MasterSchoolSchedulerPrototype() {
           )}
 
           {blocksInSlot.map((block) => (
-            <ScheduleBlockCard key={block.id} block={block} onRemove={removeScheduleBlock} />
+            <ScheduleBlockCard
+              key={block.id}
+              block={block}
+              fill={fillSingleItem}
+              onRemove={removeScheduleBlock}
+            />
           ))}
 
           {classesInSlot.map((cls) => (
             <ClassCard
               key={cls.id}
               cls={cls}
+              fill={fillSingleItem}
               conflict={conflictMap.has(cls.id)}
               selected={selectedItem?.kind === "class" && selectedItem.id === cls.id}
               onEdit={setEditingClass}
@@ -2312,11 +2337,11 @@ export default function MasterSchoolSchedulerPrototype() {
                   <div className="sticky left-0 z-10 border-b border-r border-slate-700 bg-slate-900 p-3 font-semibold text-slate-200">
                     <div>Period {period}</div>
                     <div className="mt-1 text-xs font-normal text-slate-400">{periodTimes[period]}</div>
-                    <div className="mt-3 grid grid-rows-2 overflow-hidden rounded-lg border border-slate-700 text-[11px]">
+                    <div className="mt-2 grid grid-rows-2 overflow-hidden rounded-lg border border-slate-700 text-[11px]">
                       {SEMESTERS.map((activeSemester) => (
                         <div
                           key={`${period}-${activeSemester}-label`}
-                          className="border-b border-slate-700 px-2 py-2 font-semibold text-slate-300 last:border-b-0"
+                          className="border-b border-slate-700 px-2 py-1.5 font-semibold text-slate-300 last:border-b-0"
                         >
                           {getSemesterShortLabel(activeSemester)}
                         </div>
@@ -2332,9 +2357,9 @@ export default function MasterSchoolSchedulerPrototype() {
                     return (
                       <div
                         key={`${teacher.id}-${period}`}
-                        className="min-h-32 min-w-0 overflow-hidden border-b border-r border-slate-800 bg-slate-950/20"
+                        className="min-h-24 min-w-0 overflow-hidden border-b border-r border-slate-800 bg-slate-950/20"
                       >
-                        <div className="grid min-h-32 min-w-0 grid-rows-2 overflow-hidden">
+                        <div className="grid min-h-24 min-w-0 grid-rows-2 overflow-hidden">
                           {hasFullSpanItems
                             ? renderSemesterSlot(teacher, period, "Semester 1", { fullYear: true })
                             : SEMESTERS.map((activeSemester) =>
