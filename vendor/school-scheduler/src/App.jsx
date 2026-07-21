@@ -143,9 +143,14 @@ const VERSIONS_KEY = "wvcs-master-scheduler-versions";
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SEMESTERS = ["Semester 1", "Semester 2"];
 const GRADE_OPTIONS = ["6", "7", "8", "9", "10", "11", "12"];
+const FULL_SPAN_BLOCK_TYPES = new Set(["prep", "no-class"]);
 
 function getSemesterShortLabel(semester) {
   return semester === "Semester 1" ? "Sem 1" : "Sem 2";
+}
+
+function isFullSpanBlock(block) {
+  return block?.semester === "Both" || FULL_SPAN_BLOCK_TYPES.has(block?.blockType);
 }
 
 const initialPeriodTimes = {
@@ -1178,17 +1183,22 @@ export default function MasterSchoolSchedulerPrototype() {
               (second?.teacherId === teacher.id && second?.period === period)
             );
           });
+          const fullSpanBlocks = scheduleBlocks.filter(
+            (b) => isFullSpanBlock(b) && b.teacherId === teacher.id && b.period === period
+          );
+          const hasFullSpanItems = fullYearClasses.length || fullSpanBlocks.length;
 
-          if (fullYearClasses.length && semesterIndex === 1) return;
+          if (hasFullSpanItems && semesterIndex === 1) return;
 
           const cell = document.createElement("td");
-          if (fullYearClasses.length && semesterIndex === 0) {
+          if (hasFullSpanItems && semesterIndex === 0) {
             cell.rowSpan = SEMESTERS.length;
             cell.style.backgroundColor = "#f7fee7";
           }
-          applyCellBase(cell, fullYearClasses.length ? { background: "#f7fee7" } : undefined);
+          applyCellBase(cell, hasFullSpanItems ? { background: "#f7fee7" } : undefined);
 
-          if (fullYearClasses.length) {
+          if (hasFullSpanItems) {
+            fullSpanBlocks.forEach((block) => appendPrintableBlock(cell, block));
             fullYearClasses.forEach((cls) => appendPrintableClass(cell, cls, true));
           } else {
             const classesInCell = classes.filter(
@@ -1199,7 +1209,11 @@ export default function MasterSchoolSchedulerPrototype() {
             );
 
             const blocksInCell = scheduleBlocks.filter(
-              (b) => b.semester === activeSemester && b.teacherId === teacher.id && b.period === period
+              (b) =>
+                !isFullSpanBlock(b) &&
+                b.semester === activeSemester &&
+                b.teacherId === teacher.id &&
+                b.period === period
             );
 
             blocksInCell.forEach((block) => appendPrintableBlock(cell, block));
@@ -1602,7 +1616,7 @@ export default function MasterSchoolSchedulerPrototype() {
           blockType,
           name: template.name,
           color: template.color,
-          semester: targetSemester,
+          semester: FULL_SPAN_BLOCK_TYPES.has(blockType) ? "Both" : targetSemester,
           teacherId,
           period,
         },
@@ -1742,6 +1756,12 @@ export default function MasterSchoolSchedulerPrototype() {
     });
   }
 
+  function getFullSpanBlocksForCell(teacherId, period) {
+    return scheduleBlocks.filter(
+      (block) => isFullSpanBlock(block) && block.teacherId === teacherId && block.period === period
+    );
+  }
+
   function getClassesForSemesterSlot(teacherId, period, targetSemester) {
     return classes.filter(
       (cls) =>
@@ -1753,7 +1773,11 @@ export default function MasterSchoolSchedulerPrototype() {
 
   function getBlocksForSemesterSlot(teacherId, period, targetSemester) {
     return scheduleBlocks.filter(
-      (block) => block.semester === targetSemester && block.teacherId === teacherId && block.period === period
+      (block) =>
+        !isFullSpanBlock(block) &&
+        block.semester === targetSemester &&
+        block.teacherId === teacherId &&
+        block.period === period
     );
   }
 
@@ -1762,7 +1786,9 @@ export default function MasterSchoolSchedulerPrototype() {
     const classesInSlot = options.fullYear
       ? getFullYearClassesForCell(teacher.id, period)
       : getClassesForSemesterSlot(teacher.id, period, targetSemester);
-    const blocksInSlot = options.fullYear ? [] : getBlocksForSemesterSlot(teacher.id, period, targetSemester);
+    const blocksInSlot = options.fullYear
+      ? getFullSpanBlocksForCell(teacher.id, period)
+      : getBlocksForSemesterSlot(teacher.id, period, targetSemester);
     const isPickerOpen = activeCellPickerKey === slotKey;
     const pickerMatches = isPickerOpen ? getClassPickerMatches(activeCellPicker.query) : [];
 
@@ -2297,6 +2323,8 @@ export default function MasterSchoolSchedulerPrototype() {
 
                   {teachers.map((teacher) => {
                     const fullYearClasses = getFullYearClassesForCell(teacher.id, period);
+                    const fullSpanBlocks = getFullSpanBlocksForCell(teacher.id, period);
+                    const hasFullSpanItems = fullYearClasses.length || fullSpanBlocks.length;
 
                     return (
                       <div
@@ -2304,7 +2332,7 @@ export default function MasterSchoolSchedulerPrototype() {
                         className="min-h-32 border-b border-r border-slate-800 bg-slate-950/20"
                       >
                         <div className="grid min-h-32 grid-rows-2">
-                          {fullYearClasses.length
+                          {hasFullSpanItems
                             ? renderSemesterSlot(teacher, period, "Semester 1", { fullYear: true })
                             : SEMESTERS.map((activeSemester) =>
                                 renderSemesterSlot(teacher, period, activeSemester)
@@ -2379,19 +2407,22 @@ export default function MasterSchoolSchedulerPrototype() {
 
                         {teachers.map((teacher) => {
                           const fullYearClasses = getFullYearClassesForCell(teacher.id, period);
-                          if (fullYearClasses.length && semesterIndex === 1) return null;
+                          const fullSpanBlocks = getFullSpanBlocksForCell(teacher.id, period);
+                          const hasFullSpanItems = fullYearClasses.length || fullSpanBlocks.length;
+                          if (hasFullSpanItems && semesterIndex === 1) return null;
 
                           const classesInCell = getClassesForSemesterSlot(teacher.id, period, activeSemester);
                           const blocksInCell = getBlocksForSemesterSlot(teacher.id, period, activeSemester);
                           const printClasses = fullYearClasses.length ? fullYearClasses : classesInCell;
+                          const printBlocks = fullSpanBlocks.length ? fullSpanBlocks : blocksInCell;
 
                           return (
                             <td
                               key={`${teacher.id}-${period}-${activeSemester}-print`}
-                              rowSpan={fullYearClasses.length ? SEMESTERS.length : undefined}
-                              className={fullYearClasses.length ? "print-full-year-cell" : undefined}
+                              rowSpan={hasFullSpanItems ? SEMESTERS.length : undefined}
+                              className={hasFullSpanItems ? "print-full-year-cell" : undefined}
                             >
-                              {blocksInCell.map((block) => (
+                              {printBlocks.map((block) => (
                                 <div key={block.id} className="print-entry">
                                   <div className="print-entry-title">{block.name}</div>
                                 </div>
