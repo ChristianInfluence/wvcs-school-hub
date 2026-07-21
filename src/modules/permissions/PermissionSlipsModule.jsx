@@ -1492,6 +1492,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [activeTemplateKey, setActiveTemplateKey] = useState("initial");
   const [testEmail, setTestEmail] = useState(currentUserEmail || "");
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [isRefreshingRecords, setIsRefreshingRecords] = useState(false);
   const [draggedFieldId, setDraggedFieldId] = useState("");
   const [addedFieldId, setAddedFieldId] = useState("");
   const selectedEventIdRef = useRef(selectedEventId);
@@ -1638,48 +1639,55 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     })
     .sort((a, b) => a.studentName.localeCompare(b.studentName) || a.parentName.localeCompare(b.parentName));
 
-  useEffect(() => {
-    let active = true;
-    async function loadSharedPermissionData() {
-      try {
-        const [rosterResult, eventsResult, recipientsResult, submissionsResult] = await Promise.all([
-          fetchPermissionRoster(),
-          fetchPermissionEvents(),
-          fetchPermissionRecipients(),
-          fetchPermissionSubmissions(),
-        ]);
+  async function refreshSharedPermissionData({ showRefreshing = false } = {}) {
+    if (showRefreshing) {
+      setIsRefreshingRecords(true);
+      setSyncStatus("Refreshing Track & Records...");
+    }
+    try {
+      const [rosterResult, eventsResult, recipientsResult, submissionsResult] = await Promise.all([
+        fetchPermissionRoster(),
+        fetchPermissionEvents(),
+        fetchPermissionRecipients(),
+        fetchPermissionSubmissions(),
+      ]);
 
-        if (!active) return;
-        if (!rosterResult.loaded && !eventsResult.loaded && !recipientsResult.loaded && !submissionsResult.loaded) {
-          setSyncStatus("Using local permission data until Supabase is configured.");
-          return;
+      if (!rosterResult.loaded && !eventsResult.loaded && !recipientsResult.loaded && !submissionsResult.loaded) {
+        setSyncStatus("Using local permission data until Supabase is configured.");
+        return;
+      }
+
+      setState((current) => {
+        const nextEvents = eventsResult.events?.length
+          ? attachRecipientsToEvents(eventsResult.events, recipientsResult.recipients || [])
+          : current.events;
+        const next = {
+          ...current,
+          rosterStudents: rosterResult.rosterStudents?.length ? rosterResult.rosterStudents : current.rosterStudents,
+          events: nextEvents,
+          submissions: submissionsResult.submissions?.length ? submissionsResult.submissions : current.submissions,
+        };
+        saveState(next);
+        if (next.events[0] && !next.events.some((event) => event.id === selectedEventIdRef.current)) {
+          selectedEventIdRef.current = next.events[0].id;
+          setSelectedEventId(next.events[0].id);
         }
-
-        setState((current) => {
-          const nextEvents = eventsResult.events?.length
-            ? attachRecipientsToEvents(eventsResult.events, recipientsResult.recipients || [])
-            : current.events;
-          const next = {
-            ...current,
-            rosterStudents: rosterResult.rosterStudents?.length ? rosterResult.rosterStudents : current.rosterStudents,
-            events: nextEvents,
-            submissions: submissionsResult.submissions?.length ? submissionsResult.submissions : current.submissions,
-          };
-          saveState(next);
-          if (next.events[0] && !next.events.some((event) => event.id === selectedEventIdRef.current)) {
-            selectedEventIdRef.current = next.events[0].id;
-            setSelectedEventId(next.events[0].id);
-          }
-          return next;
-        });
-        setSyncStatus("Shared permission data connected.");
-      } catch (error) {
-        if (active) setSyncStatus(`Using local permission data. Supabase sync failed: ${error.message}`);
+        return next;
+      });
+      setSyncStatus(showRefreshing ? "Track & Records refreshed." : "Shared permission data connected.");
+    } catch (error) {
+      setSyncStatus(`Using local permission data. Supabase sync failed: ${error.message}`);
+    } finally {
+      if (showRefreshing) {
+        setIsRefreshingRecords(false);
       }
     }
-    loadSharedPermissionData();
+  }
+
+  useEffect(() => {
+    refreshSharedPermissionData();
     return () => {
-      active = false;
+      // No cleanup needed; the refresh only updates local component state.
     };
   }, []);
 
@@ -3525,6 +3533,15 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => refreshSharedPermissionData({ showRefreshing: true })}
+                    disabled={isRefreshingRecords}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCcw size={15} className={isRefreshingRecords ? "animate-spin" : ""} />
+                    {isRefreshingRecords ? "Refreshing..." : "Refresh"}
+                  </button>
                   <button
                     type="button"
                     onClick={exportSignedList}
