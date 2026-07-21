@@ -921,8 +921,8 @@ function AuthGate({ children }) {
           <div className="mt-3 text-xs text-slate-500">Only @{WVCS_DOMAIN} accounts are allowed.</div>
 
           <div className="mt-6 border-t border-slate-800 pt-5 text-sm leading-6 text-slate-400">
-            <p>
-              WVCS School Hub is an official service of Willamette Valley Christian School. Visit our main school website at{" "}
+            <p className="text-center">
+              WVCS School Hub is an official service of Willamette Valley Christian School. Main school website:{" "}
               <a
                 href="https://wvcs.org"
                 target="_blank"
@@ -934,26 +934,28 @@ function AuthGate({ children }) {
               .
             </p>
 
-            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="font-semibold text-slate-100">Willamette Valley Christian School</div>
-              <div>9075 Pueblo Ave. NE, Brooks, OR 97305</div>
-              <a href="tel:15033935236" className="font-semibold text-sky-300 underline-offset-4 hover:underline">
-                503-393-5236
-              </a>
+            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/80 p-4 text-center">
+              <div className="font-bold text-slate-100">Willamette Valley Christian School</div>
+              <div className="mt-1 text-sm text-slate-400">9075 Pueblo Ave. NE, Brooks, OR 97305</div>
+              <div className="mt-1">
+                <a href="tel:15033935236" className="font-semibold text-sky-300 underline-offset-4 hover:underline">
+                  503-393-5236
+                </a>
+              </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold">
+            <nav className="mt-4 grid grid-cols-2 gap-2 text-center text-xs font-semibold sm:grid-cols-5">
               <a
                 href="https://wvcs.org"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-300 underline-offset-4 hover:underline"
+                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                Official school site
+                School Site
               </a>
               <a
                 href="#/public-forms"
-                className="text-sky-300 underline-offset-4 hover:underline"
+                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
                 Public Forms
               </a>
@@ -961,7 +963,7 @@ function AuthGate({ children }) {
                 href="https://www.wvcs.org/privacy"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-300 underline-offset-4 hover:underline"
+                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
                 Privacy Policy
               </a>
@@ -969,19 +971,19 @@ function AuthGate({ children }) {
                 href="https://www.wvcs.org/terms"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-300 underline-offset-4 hover:underline"
+                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                SMS Terms and Conditions
+                SMS Terms
               </a>
               <a
                 href="https://www.wvcs.org/text-messaging"
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-300 underline-offset-4 hover:underline"
+                className="col-span-2 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800 sm:col-span-1"
               >
-                Text Messaging Enrollment
+                Text Enrollment
               </a>
-            </div>
+            </nav>
           </div>
         </div>
       </div>
