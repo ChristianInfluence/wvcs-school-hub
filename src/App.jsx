@@ -949,39 +949,44 @@ function AuthGate({ children }) {
                 href="https://wvcs.org"
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
+                className="flex min-h-12 flex-col items-center justify-center rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                School Site
+                <span>School</span>
+                <span>Site</span>
               </a>
               <a
                 href="#/public-forms"
-                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
+                className="flex min-h-12 flex-col items-center justify-center rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                Public Forms
+                <span>Public</span>
+                <span>Forms</span>
               </a>
               <a
                 href="https://www.wvcs.org/privacy"
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
+                className="flex min-h-12 flex-col items-center justify-center rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                Privacy Policy
+                <span>Privacy</span>
+                <span>Policy</span>
               </a>
               <a
                 href="https://www.wvcs.org/terms"
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
+                className="flex min-h-12 flex-col items-center justify-center rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800"
               >
-                SMS Terms
+                <span>SMS</span>
+                <span>Terms</span>
               </a>
               <a
                 href="https://www.wvcs.org/text-messaging"
                 target="_blank"
                 rel="noreferrer"
-                className="col-span-2 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800 sm:col-span-1"
+                className="col-span-2 flex min-h-12 flex-col items-center justify-center rounded-md border border-slate-800 bg-slate-950/70 px-2 py-2 text-sky-300 transition hover:border-sky-500/50 hover:bg-slate-800 sm:col-span-1"
               >
-                Text Enrollment
+                <span>Text</span>
+                <span>Enrollment</span>
               </a>
             </nav>
           </div>
