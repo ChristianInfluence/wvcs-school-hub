@@ -309,6 +309,31 @@ export async function replacePermissionRosterGrade(grade, students) {
   return { saved: true };
 }
 
+export async function replacePermissionRoster(students) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const { data: existingStudents, error: existingError } = await supabase
+    .from("permission_roster_students")
+    .select("id");
+
+  if (existingError) throw existingError;
+
+  const existingIds = (existingStudents || []).map((student) => student.id);
+  if (existingIds.length) {
+    const { error: deleteError } = await supabase
+      .from("permission_roster_students")
+      .delete()
+      .in("id", existingIds);
+    if (deleteError) throw deleteError;
+  }
+
+  for (const student of students) {
+    await savePermissionRosterStudent(student);
+  }
+
+  return { saved: true };
+}
+
 export async function deletePermissionRosterStudent(studentId) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
 

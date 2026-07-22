@@ -30,6 +30,7 @@ import {
   fetchPermissionRoster,
   fetchPermissionSubmissions,
   createParentPermissionPdfUrl,
+  replacePermissionRoster,
   replacePermissionRosterGrade,
   savePermissionEvent,
   savePermissionRecipients,
@@ -346,7 +347,38 @@ function parseDelimitedLine(line, delimiter) {
   return values;
 }
 
-function parseRosterCsv(csvText, grade) {
+function normalizeCsvHeader(header) {
+  return String(header || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function getCsvRecordValue(record, aliases) {
+  for (const alias of aliases) {
+    const value = record[normalizeCsvHeader(alias)];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function sortRosterStudents(students) {
+  return [...students].sort((a, b) => {
+    const gradeA = Number(a.grade);
+    const gradeB = Number(b.grade);
+    if (Number.isFinite(gradeA) && Number.isFinite(gradeB) && gradeA !== gradeB) return gradeA - gradeB;
+    return String(a.grade || "").localeCompare(String(b.grade || ""), undefined, { numeric: true }) ||
+      a.studentName.localeCompare(b.studentName);
+  });
+}
+
+function groupRosterStudentsByGrade(students) {
+  return students.reduce((groups, student) => {
+    const grade = String(student.grade || "").trim();
+    if (!grade) return groups;
+    groups[grade] = [...(groups[grade] || []), student];
+    return groups;
+  }, {});
+}
+
+function parseRosterCsv(csvText, fallbackGrade = "") {
   const lines = csvText
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -354,14 +386,16 @@ function parseRosterCsv(csvText, grade) {
   if (lines.length < 2) return [];
 
   const delimiter = lines[0].includes("\t") ? "\t" : ",";
-  const headers = parseDelimitedLine(lines[0], delimiter).map((header) => header.trim());
+  const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeCsvHeader);
   const rows = lines.slice(1).map((line) => parseDelimitedLine(line, delimiter));
 
   return rows
     .map((row, rowIndex) => {
       const record = Object.fromEntries(headers.map((header, index) => [header, row[index] || ""]));
-      const studentFirstName = record["Student-FN"]?.trim();
-      const studentLastName = record["Student-LN"]?.trim();
+      const grade = getCsvRecordValue(record, ["Grade", "Student Grade", "Student-Grade"]) || fallbackGrade.trim();
+      const studentFirstName = getCsvRecordValue(record, ["Student-FN", "Student FN", "Student First Name", "First Name"]);
+      const studentLastName = getCsvRecordValue(record, ["Student-LN", "Student LN", "Student Last Name", "Last Name"]);
+      if (!grade) return null;
       if (!studentFirstName && !studentLastName) return null;
 
       const studentName = [studentFirstName, studentLastName].filter(Boolean).join(" ");
@@ -369,15 +403,21 @@ function parseRosterCsv(csvText, grade) {
       const parents = [
         {
           id: `${studentId}-parent-1`,
-          parentName: [record["Parent-1-FN"], record["Parent-1-LN"]].filter(Boolean).join(" ").trim(),
-          parentEmail: record["EMAIL-1"]?.trim() || "",
-          parentPhone: record["Parent-1-#"]?.trim() || "",
+          parentName: [
+            getCsvRecordValue(record, ["Parent-1-FN", "Parent 1 FN", "Parent 1 First Name"]),
+            getCsvRecordValue(record, ["Parent-1-LN", "Parent 1 LN", "Parent 1 Last Name"]),
+          ].filter(Boolean).join(" ").trim(),
+          parentEmail: getCsvRecordValue(record, ["EMAIL-1", "Email 1", "Parent 1 Email"]),
+          parentPhone: getCsvRecordValue(record, ["Parent-1-#", "Parent 1 #", "Parent 1 Phone", "Phone 1"]),
         },
         {
           id: `${studentId}-parent-2`,
-          parentName: [record["Parent-2-FN"], record["Parent-2-LN"]].filter(Boolean).join(" ").trim(),
-          parentEmail: record["EMAIL-2"]?.trim() || "",
-          parentPhone: record["Parent-2-#"]?.trim() || "",
+          parentName: [
+            getCsvRecordValue(record, ["Parent-2-FN", "Parent 2 FN", "Parent 2 First Name"]),
+            getCsvRecordValue(record, ["Parent-2-LN", "Parent 2 LN", "Parent 2 Last Name"]),
+          ].filter(Boolean).join(" ").trim(),
+          parentEmail: getCsvRecordValue(record, ["EMAIL-2", "Email 2", "Parent 2 Email"]),
+          parentPhone: getCsvRecordValue(record, ["Parent-2-#", "Parent 2 #", "Parent 2 Phone", "Phone 2"]),
         },
       ].filter((parent) => parent.parentName || parent.parentEmail || parent.parentPhone);
 
@@ -1512,7 +1552,9 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const sendEvents = state.events.filter((event) => event.recordType === "send" || event.recipients?.length || event.selectedStudentIds?.length);
   const submissionsForEvent = state.submissions.filter((submission) => submission.eventId === selectedEvent?.id);
   const rosterStudents = state.rosterStudents?.length ? state.rosterStudents : sampleStudents;
-  const availableGrades = [...new Set(rosterStudents.map((student) => student.grade))].sort((a, b) => Number(a) - Number(b));
+  const availableGrades = [...new Set(rosterStudents.map((student) => student.grade))].sort((a, b) =>
+    String(a || "").localeCompare(String(b || ""), undefined, { numeric: true })
+  );
   const rosterStudentsByGrade = availableGrades.map((grade) => ({
     grade,
     students: rosterStudents
@@ -1997,28 +2039,56 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   }
 
   function importRosterCsv() {
-    const grade = rosterGrade.trim();
-    if (!grade) {
-      setRosterMessage("Enter a grade before importing.");
-      return;
-    }
-    const importedStudents = parseRosterCsv(rosterCsv, grade);
+    const fallbackGrade = rosterGrade.trim();
+    const importedStudents = parseRosterCsv(rosterCsv, fallbackGrade);
     if (!importedStudents.length) {
-      setRosterMessage("No students were found. Check the CSV header and rows.");
+      setRosterMessage("No students were found. Check the CSV header, grade column, and rows.");
       return;
     }
+    const importedGrades = [...new Set(importedStudents.map((student) => student.grade))];
+    const studentsByGrade = groupRosterStudentsByGrade(importedStudents);
     persist((current) => ({
       ...current,
-      rosterStudents: [
-        ...(current.rosterStudents || []).filter((student) => student.grade !== grade),
+      rosterStudents: sortRosterStudents([
+        ...(current.rosterStudents || []).filter((student) => !importedGrades.includes(student.grade)),
         ...importedStudents,
-      ].sort((a, b) => Number(a.grade) - Number(b.grade) || a.studentName.localeCompare(b.studentName)),
+      ]),
     }));
-    replacePermissionRosterGrade(grade, importedStudents).catch((error) =>
+    Promise.all(
+      Object.entries(studentsByGrade).map(([grade, students]) => replacePermissionRosterGrade(grade, students))
+    ).catch((error) =>
       setRosterMessage(`Imported locally. Supabase roster save failed: ${error.message}`)
     );
-    setActiveRosterGrade(grade);
-    setRosterMessage(`Imported ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} for grade ${grade}.`);
+    setActiveRosterGrade(importedGrades[0] || fallbackGrade);
+    setRosterMessage(
+      `Imported ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}.`
+    );
+  }
+
+  function replaceFullRosterFromCsv() {
+    const importedStudents = parseRosterCsv(rosterCsv, rosterGrade.trim());
+    if (!importedStudents.length) {
+      setRosterMessage("No students were found. Check the CSV header, grade column, and rows.");
+      return;
+    }
+
+    const importedGrades = [...new Set(importedStudents.map((student) => student.grade))];
+    const confirmed = window.confirm(
+      `Replace the entire student roster with ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}? This removes students who are not in this CSV.`
+    );
+    if (!confirmed) return;
+
+    persist((current) => ({
+      ...current,
+      rosterStudents: sortRosterStudents(importedStudents),
+    }));
+    replacePermissionRoster(importedStudents).catch((error) =>
+      setRosterMessage(`Replaced locally. Supabase roster replace failed: ${error.message}`)
+    );
+    setActiveRosterGrade(importedGrades[0] || rosterGrade.trim());
+    setRosterMessage(
+      `Replaced roster with ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}.`
+    );
   }
 
   function updateRosterStudent(studentId, patch) {
@@ -2107,10 +2177,10 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     const newStudent = { id: studentId, grade, studentName, parents };
     persist((current) => ({
       ...current,
-      rosterStudents: [
+      rosterStudents: sortRosterStudents([
         ...(current.rosterStudents || []).filter((student) => student.id !== studentId),
         newStudent,
-      ].sort((a, b) => Number(a.grade) - Number(b.grade) || a.studentName.localeCompare(b.studentName)),
+      ]),
     }));
     savePermissionRosterStudent(newStudent).catch((error) =>
       setRosterMessage(`Added locally. Supabase roster save failed: ${error.message}`)
@@ -2535,15 +2605,16 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[130px_minmax(0,1fr)_190px] lg:items-end">
+            <div className="grid gap-3 lg:grid-cols-[150px_minmax(0,1fr)_190px_190px] lg:items-end">
               <label className="text-sm font-semibold text-slate-300">
-                Grade
+                Fallback Grade
                 <input
                   value={rosterGrade}
                   onChange={(event) => setRosterGrade(event.target.value)}
                   placeholder="5"
                   className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-sky-400"
                 />
+                <span className="mt-1 block text-xs font-normal text-slate-500">Used only if the CSV has no Grade column.</span>
               </label>
               <label className="text-sm font-semibold text-slate-300">
                 CSV file
@@ -2560,14 +2631,25 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400"
               >
                 <Save size={16} />
-                Import Grade Roster
+                Import / Update Grades
+              </button>
+              <button
+                type="button"
+                onClick={replaceFullRosterFromCsv}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-100 transition hover:bg-amber-500/20"
+              >
+                <RotateCcw size={16} />
+                Replace Full Roster
               </button>
             </div>
 
             <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Required CSV Header</div>
               <div className="mt-2 overflow-x-auto whitespace-nowrap font-mono text-xs text-slate-300">
-                Student-FN, Student-LN, Parent-1-FN, Parent-1-LN, EMAIL-1, Parent-1-#, Parent-2-FN, Parent-2-LN, Parent-2-#, EMAIL-2
+                Grade, Student-FN, Student-LN, Parent-1-FN, Parent-1-LN, EMAIL-1, Parent-1-#, Parent-2-FN, Parent-2-LN, Parent-2-#, EMAIL-2
+              </div>
+              <div className="mt-2 text-xs text-slate-500">
+                Import / Update replaces only the grades included in the CSV. Replace Full Roster removes old students first, then imports this CSV.
               </div>
             </div>
 
@@ -2577,7 +2659,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                 rows={5}
                 value={rosterCsv}
                 onChange={(event) => setRosterCsv(event.target.value)}
-                placeholder="Student-FN,Student-LN,Parent-1-FN,Parent-1-LN,EMAIL-1,Parent-1-#,Parent-2-FN,Parent-2-LN,Parent-2-#,EMAIL-2"
+                placeholder="Grade,Student-FN,Student-LN,Parent-1-FN,Parent-1-LN,EMAIL-1,Parent-1-#,Parent-2-FN,Parent-2-LN,Parent-2-#,EMAIL-2"
                 className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-sky-400"
               />
             </label>
