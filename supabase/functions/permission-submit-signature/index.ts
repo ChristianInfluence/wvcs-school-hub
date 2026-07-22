@@ -166,6 +166,32 @@ Deno.serve(async (request) => {
       details: { ...(submission.audit || {}), signedPdf: { bucket, path: pdfPath } },
     });
 
+    await supabase.from("drive_backup_jobs").upsert(
+      {
+        source_type: "permission_submission",
+        source_id: submissionId,
+        status: "pending",
+        target_folder_path: [
+          "Digital Permission Slips",
+          new Date(signedAt).getFullYear().toString(),
+          event.title || "Permission Slip",
+          "Signed PDFs",
+        ],
+        filename,
+        metadata: {
+          eventId: event.id,
+          eventTitle: event.title || "",
+          studentName: recipient.student_name || "",
+          parentName: recipient.parent_name || "",
+          parentEmail: recipient.parent_email || "",
+          storageBucket: bucket,
+          storagePath: pdfPath,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "source_type,source_id,filename" }
+    );
+
     return new Response(JSON.stringify({ saved: true, submission: mapSubmission(inserted) }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

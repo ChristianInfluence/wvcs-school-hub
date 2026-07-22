@@ -26,6 +26,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { handleFormApprovalAction, handleFormShareLink, sendFormNotification } from "../../lib/formNotifications.js";
+import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
 import {
   deleteFormTemplate,
   createStoredFileUrl,
@@ -2596,6 +2597,25 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
             generatedPdfStorageBucket: uploadResult.bucket,
             generatedPdfStoragePath: uploadResult.path,
           };
+          queueDriveBackupJob({
+            sourceType: "form_submission",
+            sourceId: selected.id,
+            filename: getPdfFileName(reviewedSubmission),
+            targetFolderPath: [
+              "Forms",
+              template?.title || selected.templateTitle || "Form",
+              new Date(signedAt).getFullYear().toString(),
+              status,
+            ],
+            metadata: {
+              templateId: selected.templateId,
+              templateTitle: template?.title || selected.templateTitle || "",
+              submitterName: selected.submitterName || "",
+              submitterEmail: selected.submitterEmail || "",
+              storageBucket: uploadResult.bucket,
+              storagePath: uploadResult.path,
+            },
+          }).catch((error) => setSyncStatus(`Approved PDF saved. Drive backup queue failed: ${error.message}`));
         }
       } catch (error) {
         setSyncStatus(`Approved PDF generated locally. Storage upload failed: ${error.message}`);

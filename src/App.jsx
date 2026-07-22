@@ -3,6 +3,7 @@ import {
   Bell,
   CalendarClock,
   CalendarDays,
+  Cloud,
   ClipboardCheck,
   Files,
   FileText,
@@ -22,6 +23,7 @@ import {
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
 import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicFormsDirectoryPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
 import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
+import DriveBackupModule from "./modules/admin/DriveBackupModule.jsx";
 import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
@@ -728,6 +730,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           ["substitutes", "Substitutes", CalendarDays],
           ["meetings", "Meetings Admin", Users],
           ["forms", "Forms Admin", FileText],
+          ["drive-backup", "Drive Backup", Cloud],
           ["documents", "Documents Admin", Files],
           ["suggestions", "Suggestions", Lightbulb],
           ["look-of-the-week", "Look of the Week", Sparkles],
@@ -751,6 +754,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "meetings" && <AdminMeetingsModule />}
       {adminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
+      {adminView === "drive-backup" && <DriveBackupModule currentUserEmail={currentUserEmail} />}
       {adminView === "documents" && <AdminDocumentsModule />}
       {adminView === "suggestions" && <AdminSuggestionsModule />}
       {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}
