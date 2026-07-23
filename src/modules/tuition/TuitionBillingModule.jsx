@@ -22,6 +22,17 @@ const DISCOUNT_OPTIONS = [
   "Multi-student",
 ];
 
+const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
+const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
+
+function createBlankParent() {
+  return {
+    id: uid("parent"),
+    name: "",
+    email: "",
+  };
+}
+
 function createBlankDiscount(label = DISCOUNT_OPTIONS[0]) {
   return {
     id: uid("discount"),
@@ -38,22 +49,23 @@ function createBlankStudent() {
     grade: "",
     tuition: "",
     discounts: [],
-    comprehensiveFee: "",
-    feeNote: "",
+    comprehensiveFee: "450.00",
+    feeNote: DEFAULT_FEE_NOTE,
   };
 }
 
 const defaultInvoice = {
-  schoolYear: "",
+  schoolYear: "2026-2027",
   familyName: "",
   parentName: "",
   parentEmail: "",
+  parents: [createBlankParent()],
   invoiceDate: today,
   dueDate: "",
   preparedBy: "",
   note: "",
-  paymentNote: "",
-  registrationFee: "",
+  paymentNote: DEFAULT_PAYMENT_NOTE,
+  registrationFee: "250.00",
   students: [createBlankStudent()],
 };
 
@@ -92,6 +104,37 @@ function formatDate(value) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function getInvoiceParents(invoice) {
+  if (Array.isArray(invoice.parents) && invoice.parents.length) {
+    return invoice.parents.map((parent) => ({
+      id: parent.id || uid("parent"),
+      name: parent.name || "",
+      email: parent.email || "",
+    }));
+  }
+
+  return [
+    {
+      id: "parent-primary",
+      name: invoice.parentName || "",
+      email: invoice.parentEmail || "",
+    },
+  ];
+}
+
+function getParentRecipients(invoice) {
+  return Array.from(
+    new Set(getInvoiceParents(invoice).map((parent) => String(parent.email || "").trim()).filter(Boolean))
+  );
+}
+
+function getParentDisplayName(invoice) {
+  const names = getInvoiceParents(invoice).map((parent) => parent.name).filter(Boolean);
+  if (!names.length) return "Parent/Guardian";
+  if (names.length === 1) return names[0];
+  return names.join(" and ");
 }
 
 function getStudentDiscounts(student) {
@@ -194,6 +237,7 @@ async function blobToBase64(blob) {
 
 function InvoicePreview({ invoice, invoiceRef }) {
   const totals = invoiceTotals(invoice);
+  const parents = getInvoiceParents(invoice);
 
   return (
     <div ref={invoiceRef} className="tuition-invoice bg-white p-10 text-slate-950 shadow-xl">
@@ -204,8 +248,13 @@ function InvoicePreview({ invoice, invoiceRef }) {
             <div className="text-xs font-bold uppercase text-sky-700">Willamette Valley Christian School</div>
             <h1 className="mt-2 text-3xl font-bold text-slate-950">{invoiceTitle(invoice)}</h1>
             <div className="mt-3 text-sm text-slate-600">
-              <div>{invoice.parentName || "Parent/Guardian"}</div>
-              {invoice.parentEmail && <div>{invoice.parentEmail}</div>}
+              <div>{getParentDisplayName(invoice)}</div>
+              {parents
+                .map((parent) => parent.email)
+                .filter(Boolean)
+                .map((email) => (
+                  <div key={email}>{email}</div>
+                ))}
             </div>
           </div>
         </div>
@@ -308,6 +357,40 @@ export default function TuitionBillingModule() {
 
   function updateInvoice(patch) {
     setInvoice((current) => ({ ...current, ...patch }));
+  }
+
+  function updateParent(parentId, patch) {
+    setInvoice((current) => {
+      const parents = getInvoiceParents(current).map((parent) => (parent.id === parentId ? { ...parent, ...patch } : parent));
+      const firstParent = parents[0] || createBlankParent();
+      return {
+        ...current,
+        parents,
+        parentName: firstParent.name,
+        parentEmail: firstParent.email,
+      };
+    });
+  }
+
+  function addParent() {
+    setInvoice((current) => ({
+      ...current,
+      parents: [...getInvoiceParents(current), createBlankParent()],
+    }));
+  }
+
+  function removeParent(parentId) {
+    setInvoice((current) => {
+      const nextParents = getInvoiceParents(current).filter((parent) => parent.id !== parentId);
+      const parents = nextParents.length ? nextParents : [createBlankParent()];
+      const firstParent = parents[0];
+      return {
+        ...current,
+        parents,
+        parentName: firstParent.name,
+        parentEmail: firstParent.email,
+      };
+    });
   }
 
   function updateStudent(studentId, patch) {
@@ -413,8 +496,9 @@ export default function TuitionBillingModule() {
   }
 
   async function sendInvoiceEmail() {
-    if (!invoice.parentEmail.trim()) {
-      setStatus("Enter a parent email before sending.");
+    const recipients = getParentRecipients(invoice);
+    if (!recipients.length) {
+      setStatus("Enter at least one parent email before sending.");
       return;
     }
     setSendingEmail(true);
@@ -428,14 +512,14 @@ export default function TuitionBillingModule() {
           total: totals.grandTotal,
           title: invoiceTitle(invoice),
         },
-        recipients: [invoice.parentEmail],
+        recipients,
         attachment: {
           filename: getInvoiceFileName(invoice),
           mimeType: "application/pdf",
           contentBase64: await blobToBase64(blob),
         },
       });
-      setStatus(result.sent ? `Tuition breakdown sent to ${invoice.parentEmail}.` : result.reason || "Email was not sent.");
+      setStatus(result.sent ? `Tuition breakdown sent to ${recipients.join(", ")}.` : result.reason || "Email was not sent.");
     } catch (error) {
       setStatus(`Unable to send tuition breakdown email: ${error.message}`);
     } finally {
@@ -592,21 +676,6 @@ export default function TuitionBillingModule() {
                     placeholder="2026-2027"
                   />
                 </Field>
-                <Field label="Parent Name">
-                  <Input
-                    value={invoice.parentName}
-                    onChange={(event) => updateInvoice({ parentName: event.target.value })}
-                    placeholder="Parent/guardian name"
-                  />
-                </Field>
-                <Field label="Parent Email">
-                  <Input
-                    type="email"
-                    value={invoice.parentEmail}
-                    onChange={(event) => updateInvoice({ parentEmail: event.target.value })}
-                    placeholder="parent@example.com"
-                  />
-                </Field>
                 <Field label="Invoice Date">
                   <Input type="date" value={invoice.invoiceDate} onChange={(event) => updateInvoice({ invoiceDate: event.target.value })} />
                 </Field>
@@ -623,6 +692,46 @@ export default function TuitionBillingModule() {
                     placeholder="WVCS Office"
                   />
                 </Field>
+              </div>
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-white">Parents / Guardians</div>
+                  <button
+                    type="button"
+                    onClick={addParent}
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                  >
+                    <Plus size={15} />
+                    Add Parent
+                  </button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {getInvoiceParents(invoice).map((parent, index) => (
+                    <div key={parent.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <Input
+                        value={parent.name}
+                        onChange={(event) => updateParent(parent.id, { name: event.target.value })}
+                        placeholder={index === 0 ? "Parent/guardian name" : "Additional parent/guardian"}
+                      />
+                      <Input
+                        type="email"
+                        value={parent.email}
+                        onChange={(event) => updateParent(parent.id, { email: event.target.value })}
+                        placeholder="parent@example.com"
+                      />
+                      {getInvoiceParents(invoice).length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeParent(parent.id)}
+                          className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                          aria-label="Remove parent"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
               <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
                 Parent Note

@@ -41,13 +41,21 @@ function normalizeEmail(value: string) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getParentNames(invoice: Record<string, any>) {
+  if (Array.isArray(invoice.parents)) {
+    const names = invoice.parents.map((parent: Record<string, any>) => String(parent?.name || "").trim()).filter(Boolean);
+    if (names.length) return names.join(" and ");
+  }
+  return invoice.parentName || "Parent/Guardian";
+}
+
 function buildMessage(payload: Record<string, any>, senderEmail: string, recipientEmail: string) {
   const boundary = `wvcs-tuition-${crypto.randomUUID()}`;
   const altBoundary = `wvcs-tuition-alt-${crypto.randomUUID()}`;
   const invoice = payload.invoice || {};
   const attachment = payload.attachment || {};
   const subject = `WVCS Tuition Breakdown: ${invoice.familyName || invoice.title || "Family"}`;
-  const greetingName = invoice.parentName || "Parent/Guardian";
+  const greetingName = getParentNames(invoice);
   const total = formatCurrency(invoice.total);
   const schoolYear = invoice.schoolYear || "the school year";
 
