@@ -256,10 +256,32 @@ function isRepeatableDateField(field, template) {
   return isFacilitiesUsageTemplate(template) && ["date", "day", "requested dates", "event date"].some((term) => label.includes(term));
 }
 
+function normalizeRepeatableDateAnswer(value) {
+  if (value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.entries)) {
+    return {
+      differentTimes: Boolean(value.differentTimes),
+      entries: value.entries.length
+        ? value.entries.map((entry) => ({
+            date: entry?.date || "",
+            startTime: entry?.startTime || "",
+            endTime: entry?.endTime || "",
+          }))
+        : [{ date: "", startTime: "", endTime: "" }],
+    };
+  }
+  const entries = Array.isArray(value)
+    ? value.map((item) => (typeof item === "object" ? item : { date: item || "", startTime: "", endTime: "" }))
+    : [{ date: value || "", startTime: "", endTime: "" }];
+  return {
+    differentTimes: entries.some((entry) => entry.startTime || entry.endTime),
+    entries: entries.length ? entries : [{ date: "", startTime: "", endTime: "" }],
+  };
+}
+
 function hasRequiredAnswer(field, answers) {
   if (!field.required) return true;
-  if (isRepeatableDateField(field) && Array.isArray(answers[field.id])) {
-    return answers[field.id].some(Boolean);
+  if (isRepeatableDateField(field)) {
+    return normalizeRepeatableDateAnswer(answers[field.id]).entries.some((entry) => entry.date);
   }
   if (field.type === "checkbox") return answers[field.id] === true;
   if (field.type === "choice") {
@@ -327,17 +349,21 @@ function getApprovalCalendarEvent(data) {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "date" || label.includes("date") || label.includes("day");
   });
-  const dateValue = Array.isArray(dateAnswer?.value) ? dateAnswer.value.find(Boolean) : dateAnswer?.value;
+  const repeatableDate = dateAnswer?.value && typeof dateAnswer.value === "object"
+    ? normalizeRepeatableDateAnswer(dateAnswer.value).entries.find((entry) => entry.date)
+    : null;
+  const dateValue = repeatableDate?.date || (Array.isArray(dateAnswer?.value) ? dateAnswer.value.find(Boolean) : dateAnswer?.value);
   if (!dateValue) return null;
 
   const timeAnswer = answers.find((answer) => {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "time" || label.includes("time") || label.includes("start");
   });
-  const start = parseLocalDateTime(dateValue, timeAnswer?.value);
+  const start = parseLocalDateTime(dateValue, repeatableDate?.startTime || timeAnswer?.value);
   if (!start) return null;
-  const hasTime = Boolean(timeAnswer?.value);
-  const end = hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const hasTime = Boolean(repeatableDate?.startTime || timeAnswer?.value);
+  const explicitEnd = repeatableDate?.endTime ? parseLocalDateTime(dateValue, repeatableDate.endTime) : null;
+  const end = explicitEnd || (hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000));
   const answerLines = answers.map((answer) => `${answer.label}: ${renderAnswerValue(answer.value)}`).join("\n");
   return {
     title: submission?.templateTitle || "WVCS Approved Form",
@@ -548,29 +574,73 @@ function FieldInput({ field, value, onChange, template = null }) {
     "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-sky-400";
 
   if (isRepeatableDateField(field, template)) {
-    const dateValues = Array.isArray(value) ? value : value ? [value] : [""];
-    const updateDate = (index, nextValue) => {
-      const nextValues = dateValues.map((item, itemIndex) => (itemIndex === index ? nextValue : item));
-      onChange(nextValues.filter((item, itemIndex) => item || itemIndex === 0));
+    const repeatable = normalizeRepeatableDateAnswer(value);
+    const entries = repeatable.entries.length ? repeatable.entries : [{ date: "", startTime: "", endTime: "" }];
+    const cleanEntries = (nextEntries) => nextEntries.filter((entry, index) => entry.date || entry.startTime || entry.endTime || index === 0);
+    const emit = (nextPatch) => {
+      onChange({
+        differentTimes: nextPatch.differentTimes ?? repeatable.differentTimes,
+        entries: cleanEntries(nextPatch.entries || entries),
+      });
     };
-    const addDate = () => onChange([...dateValues.filter(Boolean), ""]);
+    const updateEntry = (index, patch) => {
+      emit({ entries: entries.map((entry, itemIndex) => (itemIndex === index ? { ...entry, ...patch } : entry)) });
+    };
+    const addDate = () => emit({ entries: [...entries.filter((entry) => entry.date || entry.startTime || entry.endTime), { date: "", startTime: "", endTime: "" }] });
     const removeDate = (index) => {
-      const nextValues = dateValues.filter((_, itemIndex) => itemIndex !== index);
-      onChange(nextValues.length ? nextValues : [""]);
+      const nextEntries = entries.filter((_, itemIndex) => itemIndex !== index);
+      emit({ entries: nextEntries.length ? nextEntries : [{ date: "", startTime: "", endTime: "" }] });
     };
 
     return (
-      <div className="grid gap-2 rounded-lg border border-slate-700 bg-slate-950 p-3">
-        {dateValues.map((dateValue, index) => (
-          <div key={`${field.id}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              type="date"
-              value={dateValue || ""}
-              onChange={(event) => updateDate(index, event.target.value)}
-              className={base}
-              aria-label={`${field.label} ${index + 1}`}
-            />
-            {dateValues.length > 1 && (
+      <div className="grid gap-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
+        <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200">
+          <input
+            type="checkbox"
+            checked={repeatable.differentTimes}
+            onChange={(event) => emit({
+              differentTimes: event.target.checked,
+              entries: event.target.checked
+                ? entries
+                : entries.map((entry) => ({ ...entry, startTime: "", endTime: "" })),
+            })}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+          />
+          These events are at different times
+        </label>
+        {entries.map((entry, index) => (
+          <div key={`${field.id}-${index}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+            <div className={repeatable.differentTimes ? "grid gap-2 lg:grid-cols-[1fr_150px_150px_auto]" : "grid gap-2 sm:grid-cols-[1fr_auto]"}>
+              <input
+                type="date"
+                value={entry.date || ""}
+                onChange={(event) => updateEntry(index, { date: event.target.value })}
+                className={base}
+                aria-label={`${field.label} ${index + 1}`}
+              />
+              {repeatable.differentTimes && (
+                <>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-400">
+                    Start
+                    <input
+                      type="time"
+                      value={entry.startTime || ""}
+                      onChange={(event) => updateEntry(index, { startTime: event.target.value })}
+                      className={base}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-400">
+                    End
+                    <input
+                      type="time"
+                      value={entry.endTime || ""}
+                      onChange={(event) => updateEntry(index, { endTime: event.target.value })}
+                      className={base}
+                    />
+                  </label>
+                </>
+              )}
+              {entries.length > 1 && (
               <button
                 type="button"
                 onClick={() => removeDate(index)}
@@ -578,7 +648,8 @@ function FieldInput({ field, value, onChange, template = null }) {
               >
                 Remove
               </button>
-            )}
+              )}
+            </div>
           </div>
         ))}
         <button
@@ -718,6 +789,15 @@ function formatFileSize(size) {
 function renderAnswerValue(answer) {
   if (answer && typeof answer === "object" && "name" in answer) {
     return `${answer.name}${answer.size ? ` (${formatFileSize(answer.size)})` : ""}`;
+  }
+  if (answer && typeof answer === "object" && Array.isArray(answer.entries)) {
+    const rows = normalizeRepeatableDateAnswer(answer).entries.filter((entry) => entry.date || entry.startTime || entry.endTime);
+    return rows.length
+      ? rows.map((entry) => {
+          const times = [entry.startTime, entry.endTime].filter(Boolean).join(" - ");
+          return [entry.date, times].filter(Boolean).join(" ");
+        }).join(", ")
+      : "-";
   }
   if (Array.isArray(answer)) return answer.length ? answer.join(", ") : "-";
   if (typeof answer === "boolean") return answer ? "Yes" : "No";
