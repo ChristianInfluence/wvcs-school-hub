@@ -713,7 +713,6 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
     ["forms", "Forms Admin", FileText],
     ["meetings", "Meetings Admin", Users],
     ["documents", "Documents Admin", Files],
-    ["tuition-billing", "Tuition & Billing", ReceiptText],
     ["suggestions", "Suggestions", Lightbulb],
     ["look-of-the-week", "Look of the Week", Sparkles],
   ];
@@ -737,6 +736,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
         {[
           ["settings", "Settings", Settings],
           ["module-admin", "Module Admin", LayoutDashboard],
+          ["office-payroll", "Office & Payroll", ReceiptText],
           ["substitutes", "Substitutes", CalendarDays],
         ].map(([id, label, Icon]) => (
           <button
@@ -755,6 +755,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
         ))}
       </div>
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
+      {adminView === "office-payroll" && <TuitionBillingModule />}
       {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "module-admin" && (
         <>
@@ -780,7 +781,6 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           {moduleAdminView === "meetings" && <AdminMeetingsModule />}
           {moduleAdminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
           {moduleAdminView === "documents" && <AdminDocumentsModule />}
-          {moduleAdminView === "tuition-billing" && <TuitionBillingModule />}
           {moduleAdminView === "suggestions" && <AdminSuggestionsModule />}
           {moduleAdminView === "look-of-the-week" && <AdminLookOfWeekModule />}
         </>

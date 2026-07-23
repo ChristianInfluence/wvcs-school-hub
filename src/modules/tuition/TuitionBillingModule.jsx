@@ -9,6 +9,8 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
+import { sendTuitionInvoiceEmail } from "../../lib/tuitionBillingData.js";
+import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -46,13 +48,16 @@ const defaultInvoice = {
       feeNote: "Includes consumable materials, field trips, retreats, and yearbooks.",
     },
   ],
-  incidentals: [
-    {
-      id: "incidental-1",
-      description: "",
-      amount: "",
-    },
-  ],
+};
+
+const defaultIncidentalInvoice = {
+  familyName: "",
+  parentName: "",
+  parentEmail: "",
+  invoiceDate: today,
+  dueDate: "",
+  note: "Please contact the school office with any questions about these incidental charges.",
+  charges: [{ id: "charge-1", description: "", amount: "" }],
 };
 
 function uid(prefix) {
@@ -93,13 +98,11 @@ function studentTotal(student) {
 
 function invoiceTotals(invoice) {
   const studentSubtotal = invoice.students.reduce((total, student) => total + studentTotal(student), 0);
-  const incidentalTotal = invoice.incidentals.reduce((total, item) => total + money(item.amount), 0);
   const registrationFee = money(invoice.registrationFee);
   return {
     studentSubtotal,
-    incidentalTotal,
     registrationFee,
-    grandTotal: studentSubtotal + incidentalTotal + registrationFee,
+    grandTotal: studentSubtotal + registrationFee,
   };
 }
 
@@ -131,19 +134,35 @@ function MoneyInput(props) {
   return <Input inputMode="decimal" placeholder="0.00" {...props} />;
 }
 
+function getInvoiceFileName(invoice) {
+  return `${invoiceTitle(invoice).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.pdf`;
+}
+
+async function blobToBase64(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return String(dataUrl).split(",")[1];
+}
+
 function InvoicePreview({ invoice, invoiceRef }) {
   const totals = invoiceTotals(invoice);
-  const activeIncidentals = invoice.incidentals.filter((item) => item.description || money(item.amount));
 
   return (
     <div ref={invoiceRef} className="tuition-invoice bg-white p-10 text-slate-950 shadow-xl">
       <div className="flex items-start justify-between gap-8 border-b border-slate-200 pb-6">
-        <div>
-          <div className="text-xs font-bold uppercase text-sky-700">Willamette Valley Christian School</div>
-          <h1 className="mt-2 text-3xl font-bold text-slate-950">{invoiceTitle(invoice)}</h1>
-          <div className="mt-3 text-sm text-slate-600">
-            <div>{invoice.parentName || "Parent/Guardian"}</div>
-            {invoice.parentEmail && <div>{invoice.parentEmail}</div>}
+        <div className="flex items-start gap-4">
+          <img src={warriorHeadNew} alt="Willamette Valley Christian School" className="h-16 w-16 object-contain" />
+          <div>
+            <div className="text-xs font-bold uppercase text-sky-700">Willamette Valley Christian School</div>
+            <h1 className="mt-2 text-3xl font-bold text-slate-950">{invoiceTitle(invoice)}</h1>
+            <div className="mt-3 text-sm text-slate-600">
+              <div>{invoice.parentName || "Parent/Guardian"}</div>
+              {invoice.parentEmail && <div>{invoice.parentEmail}</div>}
+            </div>
           </div>
         </div>
         <div className="min-w-48 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -213,18 +232,6 @@ function InvoicePreview({ invoice, invoiceRef }) {
               <span>Registration Fee</span>
               <span className="font-semibold">{formatCurrency(invoice.registrationFee)}</span>
             </div>
-            {activeIncidentals.map((item) => (
-              <div key={`${item.id}-preview`} className="flex justify-between gap-4">
-                <span>{item.description || "Incidental charge"}</span>
-                <span className="font-semibold">{formatCurrency(item.amount)}</span>
-              </div>
-            ))}
-            {activeIncidentals.length > 0 && (
-              <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-slate-600">
-                <span>Incidentals subtotal</span>
-                <span className="font-semibold">{formatCurrency(totals.incidentalTotal)}</span>
-              </div>
-            )}
             <div className="mt-4 flex items-center justify-between gap-4 border-t-2 border-slate-900 pt-4 text-xl font-bold">
               <span>Total Amount</span>
               <span>{formatCurrency(totals.grandTotal)}</span>
@@ -245,8 +252,11 @@ function InvoicePreview({ invoice, invoiceRef }) {
 }
 
 export default function TuitionBillingModule() {
+  const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
+  const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
   const [status, setStatus] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
   const invoiceRef = useRef(null);
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
 
@@ -287,51 +297,42 @@ export default function TuitionBillingModule() {
     }));
   }
 
-  function updateIncidental(itemId, patch) {
-    setInvoice((current) => ({
-      ...current,
-      incidentals: current.incidentals.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
-    }));
-  }
-
-  function addIncidental() {
-    setInvoice((current) => ({
-      ...current,
-      incidentals: [...current.incidentals, { id: uid("incidental"), description: "", amount: "" }],
-    }));
-  }
-
-  function removeIncidental(itemId) {
-    setInvoice((current) => ({
-      ...current,
-      incidentals: current.incidentals.length > 1 ? current.incidentals.filter((item) => item.id !== itemId) : current.incidentals,
-    }));
-  }
-
   function resetInvoice() {
     setInvoice({
       ...defaultInvoice,
       invoiceDate: today,
       students: defaultInvoice.students.map((student) => ({ ...student })),
-      incidentals: defaultInvoice.incidentals.map((item) => ({ ...item })),
     });
     setStatus("Started a fresh invoice draft.");
   }
 
-  async function downloadPdf() {
+  async function createInvoicePdfBlob() {
     if (!invoiceRef.current) return;
-    setStatus("Preparing PDF...");
     const html2pdf = (await import("html2pdf.js")).default;
-    await html2pdf()
+    return html2pdf()
       .set({
         margin: 0.25,
-        filename: `${invoiceTitle(invoice).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.pdf`,
+        filename: getInvoiceFileName(invoice),
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
       })
       .from(invoiceRef.current)
-      .save();
+      .outputPdf("blob");
+  }
+
+  async function downloadPdf() {
+    setStatus("Preparing PDF...");
+    const blob = await createInvoicePdfBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = getInvoiceFileName(invoice);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
     setStatus("PDF downloaded.");
   }
 
@@ -339,23 +340,35 @@ export default function TuitionBillingModule() {
     window.print();
   }
 
-  function prepareEmail() {
-    const subject = encodeURIComponent(invoiceTitle(invoice));
-    const body = encodeURIComponent(
-      [
-        `Hello ${invoice.parentName || "Parent/Guardian"},`,
-        "",
-        `Attached is your ${invoice.schoolYear || ""} tuition breakdown from Willamette Valley Christian School.`,
-        `Total amount: ${formatCurrency(totals.grandTotal)}`,
-        "",
-        "Please contact the school office with any questions.",
-        "",
-        "Willamette Valley Christian School",
-        "503-393-5236",
-      ].join("\n")
-    );
-    window.location.href = `mailto:${invoice.parentEmail || ""}?subject=${subject}&body=${body}`;
-    setStatus("Email draft opened. Attach the downloaded PDF before sending.");
+  async function sendInvoiceEmail() {
+    if (!invoice.parentEmail.trim()) {
+      setStatus("Enter a parent email before sending.");
+      return;
+    }
+    setSendingEmail(true);
+    setStatus("Preparing and sending tuition breakdown email...");
+    try {
+      const blob = await createInvoicePdfBlob();
+      if (!blob) throw new Error("Unable to create invoice PDF.");
+      const result = await sendTuitionInvoiceEmail({
+        invoice: {
+          ...invoice,
+          total: totals.grandTotal,
+          title: invoiceTitle(invoice),
+        },
+        recipients: [invoice.parentEmail],
+        attachment: {
+          filename: getInvoiceFileName(invoice),
+          mimeType: "application/pdf",
+          contentBase64: await blobToBase64(blob),
+        },
+      });
+      setStatus(result.sent ? `Tuition breakdown sent to ${invoice.parentEmail}.` : result.reason || "Email was not sent.");
+    } catch (error) {
+      setStatus(`Unable to send tuition breakdown email: ${error.message}`);
+    } finally {
+      setSendingEmail(false);
+    }
   }
 
   function saveDraft() {
@@ -375,6 +388,31 @@ export default function TuitionBillingModule() {
     } catch (error) {
       setStatus(`Unable to load saved draft: ${error.message}`);
     }
+  }
+
+  function updateIncidentalInvoice(patch) {
+    setIncidentalInvoice((current) => ({ ...current, ...patch }));
+  }
+
+  function updateCharge(chargeId, patch) {
+    setIncidentalInvoice((current) => ({
+      ...current,
+      charges: current.charges.map((charge) => (charge.id === chargeId ? { ...charge, ...patch } : charge)),
+    }));
+  }
+
+  function addCharge() {
+    setIncidentalInvoice((current) => ({
+      ...current,
+      charges: [...current.charges, { id: uid("charge"), description: "", amount: "" }],
+    }));
+  }
+
+  function removeCharge(chargeId) {
+    setIncidentalInvoice((current) => ({
+      ...current,
+      charges: current.charges.length > 1 ? current.charges.filter((charge) => charge.id !== chargeId) : current.charges,
+    }));
   }
 
   return (
@@ -399,12 +437,13 @@ export default function TuitionBillingModule() {
               <ReceiptText size={15} />
               Office Manager and Payroll
             </div>
-            <h1 className="mt-2 text-2xl font-bold text-white">Tuition & Billing</h1>
+            <h1 className="mt-2 text-2xl font-bold text-white">Office & Payroll</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Build a professional tuition breakdown, include student-specific discounts and fees, add incidental charges, then print or export a PDF for parents.
+              Prepare tuition breakdowns for families and manage separate incidental charge invoices from one office workspace.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          {activeView === "tuition" && (
+            <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={saveDraft}
@@ -427,7 +466,29 @@ export default function TuitionBillingModule() {
             >
               New Invoice
             </button>
-          </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+          {[
+            ["tuition", "Tuition Breakdown", ReceiptText],
+            ["incidentals", "Incidentals", Calculator],
+          ].map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveView(id)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                activeView === id
+                  ? "border-sky-400 bg-sky-500 text-white"
+                  : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+              }`}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
         </div>
 
         {status && (
@@ -436,6 +497,7 @@ export default function TuitionBillingModule() {
           </div>
         )}
 
+        {activeView === "tuition" && (
         <div className="mt-6 grid gap-6 xl:grid-cols-[520px_1fr]">
           <div className="space-y-4">
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -545,39 +607,6 @@ export default function TuitionBillingModule() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-bold text-white">Incidentals</div>
-                <button
-                  type="button"
-                  onClick={addIncidental}
-                  className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
-                >
-                  <Plus size={15} />
-                  Add Charge
-                </button>
-              </div>
-              <div className="mt-4 space-y-3">
-                {invoice.incidentals.map((item) => (
-                  <div key={item.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[1fr_140px_auto]">
-                    <Input
-                      value={item.description}
-                      onChange={(event) => updateIncidental(item.id, { description: event.target.value })}
-                      placeholder="Description, such as lunch balance or activity fee"
-                    />
-                    <MoneyInput value={item.amount} onChange={(event) => updateIncidental(item.id, { amount: event.target.value })} />
-                    <button
-                      type="button"
-                      onClick={() => removeIncidental(item.id)}
-                      className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
-                      aria-label="Remove incidental"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
 
           <div className="space-y-4">
@@ -606,11 +635,12 @@ export default function TuitionBillingModule() {
                   </button>
                   <button
                     type="button"
-                    onClick={prepareEmail}
+                    onClick={sendInvoiceEmail}
+                    disabled={sendingEmail}
                     className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
                   >
                     <Mail size={16} />
-                    Email Parent
+                    {sendingEmail ? "Sending..." : "Send Email"}
                   </button>
                 </div>
               </div>
@@ -622,6 +652,92 @@ export default function TuitionBillingModule() {
             </div>
           </div>
         </div>
+        )}
+
+        {activeView === "incidentals" && (
+          <div className="mt-6 grid gap-6 xl:grid-cols-[520px_1fr]">
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-white">
+                  <Calculator size={16} className="text-sky-300" />
+                  Incidental Invoice Details
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Field label="Family Name">
+                    <Input value={incidentalInvoice.familyName} onChange={(event) => updateIncidentalInvoice({ familyName: event.target.value })} />
+                  </Field>
+                  <Field label="Parent Name">
+                    <Input value={incidentalInvoice.parentName} onChange={(event) => updateIncidentalInvoice({ parentName: event.target.value })} />
+                  </Field>
+                  <Field label="Parent Email">
+                    <Input type="email" value={incidentalInvoice.parentEmail} onChange={(event) => updateIncidentalInvoice({ parentEmail: event.target.value })} />
+                  </Field>
+                  <Field label="Invoice Date">
+                    <Input type="date" value={incidentalInvoice.invoiceDate} onChange={(event) => updateIncidentalInvoice({ invoiceDate: event.target.value })} />
+                  </Field>
+                  <Field label="Due Date">
+                    <Input type="date" value={incidentalInvoice.dueDate} onChange={(event) => updateIncidentalInvoice({ dueDate: event.target.value })} />
+                  </Field>
+                </div>
+                <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
+                  Parent Note
+                  <textarea
+                    value={incidentalInvoice.note}
+                    onChange={(event) => updateIncidentalInvoice({ note: event.target.value })}
+                    className="min-h-24 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-bold text-white">Charges</div>
+                  <button
+                    type="button"
+                    onClick={addCharge}
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                  >
+                    <Plus size={15} />
+                    Add Charge
+                  </button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {incidentalInvoice.charges.map((charge) => (
+                    <div key={charge.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[1fr_140px_auto]">
+                      <Input
+                        value={charge.description}
+                        onChange={(event) => updateCharge(charge.id, { description: event.target.value })}
+                        placeholder="Description, such as lunch balance or activity fee"
+                      />
+                      <MoneyInput value={charge.amount} onChange={(event) => updateCharge(charge.id, { amount: event.target.value })} />
+                      <button
+                        type="button"
+                        onClick={() => removeCharge(charge.id)}
+                        className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                        aria-label="Remove charge"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+              <div className="text-sm font-bold text-white">Incidental Billing Setup</div>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                This is now separated from tuition breakdowns. The next step is to connect this area to the payment method you want families to use for incidental charges, then send a payment invoice from here.
+              </p>
+              <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current Draft Total</div>
+                <div className="mt-2 text-3xl font-bold text-white">
+                  {formatCurrency(incidentalInvoice.charges.reduce((total, charge) => total + money(charge.amount), 0))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
