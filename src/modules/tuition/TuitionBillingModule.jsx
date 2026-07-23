@@ -16,6 +16,7 @@ import {
 import {
   deleteIncidentalInvoice,
   deleteTuitionInvoice,
+  createIncidentalCheckoutSession,
   fetchIncidentalInvoiceByToken,
   fetchIncidentalInvoices,
   fetchTuitionInvoices,
@@ -576,7 +577,7 @@ function InvoicePreview({ invoice, invoiceRef }) {
   );
 }
 
-function IncidentalInvoicePreview({ invoice, publicView = false }) {
+function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment, paymentBusy = false }) {
   const total = incidentalTotal(invoice);
   const portalUrl = !publicView ? getIncidentalPortalUrl(invoice) : "";
   const payUrl = invoice.paymentUrl || "";
@@ -637,11 +638,17 @@ function IncidentalInvoicePreview({ invoice, publicView = false }) {
       <div className="mt-6 rounded-lg border border-sky-200 bg-sky-50 p-4">
         <div className="text-sm font-bold text-slate-950">Payment Portal</div>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          {payUrl
+          {invoice.paymentStatus === "Paid"
+            ? "Thank you. This invoice is marked paid."
+            : payUrl || publicView
             ? "Use the secure payment button below to pay this incidental invoice."
             : "Online payment processing is being prepared. Please contact the school office for payment instructions."}
         </p>
-        {payUrl ? (
+        {invoice.paymentStatus === "Paid" ? (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700">
+            Paid
+          </div>
+        ) : payUrl ? (
           <a
             href={payUrl}
             target="_blank"
@@ -651,6 +658,16 @@ function IncidentalInvoicePreview({ invoice, publicView = false }) {
             <CreditCard size={16} />
             Pay Securely
           </a>
+        ) : publicView ? (
+          <button
+            type="button"
+            onClick={onStartPayment}
+            disabled={paymentBusy}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <CreditCard size={16} />
+            {paymentBusy ? "Opening..." : "Pay Securely"}
+          </button>
         ) : (
           <div className="mt-4 rounded-lg border border-sky-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
             Payment link not connected yet
@@ -670,6 +687,8 @@ function IncidentalInvoicePreview({ invoice, publicView = false }) {
 
 export function IncidentalPaymentPortalPage({ token = "" }) {
   const [state, setState] = useState({ loading: true, invoice: null, error: "" });
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -702,6 +721,19 @@ export function IncidentalPaymentPortalPage({ token = "" }) {
       active = false;
     };
   }, [token]);
+
+  async function startStripePayment() {
+    setPaymentBusy(true);
+    setPaymentMessage("Opening secure checkout...");
+    try {
+      const result = await createIncidentalCheckoutSession(token);
+      if (!result.created || !result.url) throw new Error(result.reason || result.error || "Stripe checkout could not be opened.");
+      window.location.href = result.url;
+    } catch (error) {
+      setPaymentMessage(`Unable to open checkout: ${error.message}`);
+      setPaymentBusy(false);
+    }
+  }
 
   if (state.loading) {
     return (
@@ -737,8 +769,18 @@ export function IncidentalPaymentPortalPage({ token = "" }) {
           <p className="mt-2 text-sm leading-6 text-slate-400">
             Review the invoice below, then use the secure payment button if online payment is available.
           </p>
+          {paymentMessage && (
+            <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+              {paymentMessage}
+            </div>
+          )}
         </div>
-        <IncidentalInvoicePreview invoice={state.invoice} publicView />
+        <IncidentalInvoicePreview
+          invoice={state.invoice}
+          publicView
+          onStartPayment={startStripePayment}
+          paymentBusy={paymentBusy}
+        />
       </div>
     </main>
   );

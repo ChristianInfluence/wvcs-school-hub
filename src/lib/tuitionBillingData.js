@@ -297,6 +297,19 @@ export async function fetchIncidentalInvoiceByToken(token) {
   return data || { loaded: true, found: false };
 }
 
+export async function createIncidentalCheckoutSession(token) {
+  if (!isSupabaseConfigured) {
+    return { created: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("create-stripe-checkout", {
+    body: { token },
+  });
+
+  if (error) throw error;
+  return data || { created: false, reason: "Stripe checkout session was not created." };
+}
+
 export async function sendIncidentalInvoiceEmail(payload) {
   if (!isSupabaseConfigured) {
     return { sent: false, reason: "Supabase is not configured." };
