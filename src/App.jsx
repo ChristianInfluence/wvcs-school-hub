@@ -12,6 +12,7 @@ import {
   Lock,
   LogOut,
   NotebookPen,
+  ReceiptText,
   Search,
   ShieldAlert,
   Settings,
@@ -31,6 +32,7 @@ import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx"
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
+import TuitionBillingModule from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
 import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
@@ -711,6 +713,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
     ["forms", "Forms Admin", FileText],
     ["meetings", "Meetings Admin", Users],
     ["documents", "Documents Admin", Files],
+    ["tuition-billing", "Tuition & Billing", ReceiptText],
     ["suggestions", "Suggestions", Lightbulb],
     ["look-of-the-week", "Look of the Week", Sparkles],
   ];
@@ -777,6 +780,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           {moduleAdminView === "meetings" && <AdminMeetingsModule />}
           {moduleAdminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
           {moduleAdminView === "documents" && <AdminDocumentsModule />}
+          {moduleAdminView === "tuition-billing" && <TuitionBillingModule />}
           {moduleAdminView === "suggestions" && <AdminSuggestionsModule />}
           {moduleAdminView === "look-of-the-week" && <AdminLookOfWeekModule />}
         </>
