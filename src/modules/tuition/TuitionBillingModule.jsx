@@ -1930,13 +1930,21 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     </select>
                   </Field>
                   <div className="sm:col-span-2">
-                    <Field label="Payment / Checkout Link">
-                      <Input
-                        value={incidentalInvoice.paymentUrl}
-                        onChange={(event) => updateIncidentalInvoice({ paymentUrl: event.target.value })}
-                        placeholder="Stripe, PayPal, Venmo, or hosted checkout link"
-                      />
-                    </Field>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="text-sm font-semibold text-slate-200">Parent Payment Portal</div>
+                      {incidentalInvoice.publicToken ? (
+                        <div className="mt-2 break-all rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                          {getIncidentalPortalUrl(incidentalInvoice)}
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-500">
+                          Save the invoice to generate the parent payment portal link automatically.
+                        </div>
+                      )}
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        Families use this Hub portal link. Stripe checkout is created automatically when they click Pay Securely.
+                      </p>
+                    </div>
                   </div>
                 </div>
                 <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
@@ -2030,7 +2038,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   </a>
                 )}
                 <p className="mt-3 text-xs leading-5 text-slate-500">
-                  Card payments can be connected with Stripe Checkout. Venmo usually requires PayPal/Braintree or a compatible processor link, so this field is ready for whichever provider you choose.
+                  Send or copy the Hub portal link. Families click Pay Securely there, and Stripe Checkout opens automatically.
                 </p>
               </div>
             </div>
