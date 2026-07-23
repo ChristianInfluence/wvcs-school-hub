@@ -237,14 +237,30 @@ function getChoiceOptions(field) {
   return options.length ? options : ["Yes", "No"];
 }
 
+function isFacilitiesUsageTemplate(template) {
+  const title = String(template?.title || "").toLowerCase();
+  return (title.includes("facility") || title.includes("facilities")) && title.includes("usage");
+}
+
+function isRepeatableDateField(field, template) {
+  if (field.type !== "date") return false;
+  if (field.allowMultiple) return true;
+  const label = String(field.label || "").toLowerCase();
+  return isFacilitiesUsageTemplate(template) && (label.includes("date") || label.includes("day"));
+}
+
 function hasRequiredAnswer(field, answers) {
   if (!field.required) return true;
+  if (isRepeatableDateField(field) && Array.isArray(answers[field.id])) {
+    return answers[field.id].some(Boolean);
+  }
   if (field.type === "checkbox") return answers[field.id] === true;
   if (field.type === "choice") {
     const answer = answers[field.id];
     return Array.isArray(answer) ? answer.length > 0 : Boolean(answer);
   }
   if (field.type === "file") return Boolean(answers[field.id]?.dataUrl || answers[field.id]?.storagePath);
+  if (Array.isArray(answers[field.id])) return answers[field.id].some(Boolean);
   return Boolean(answers[field.id]);
 }
 
@@ -304,13 +320,14 @@ function getApprovalCalendarEvent(data) {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "date" || label.includes("date") || label.includes("day");
   });
-  if (!dateAnswer?.value) return null;
+  const dateValue = Array.isArray(dateAnswer?.value) ? dateAnswer.value.find(Boolean) : dateAnswer?.value;
+  if (!dateValue) return null;
 
   const timeAnswer = answers.find((answer) => {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "time" || label.includes("time") || label.includes("start");
   });
-  const start = parseLocalDateTime(dateAnswer.value, timeAnswer?.value);
+  const start = parseLocalDateTime(dateValue, timeAnswer?.value);
   if (!start) return null;
   const hasTime = Boolean(timeAnswer?.value);
   const end = hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
@@ -519,9 +536,55 @@ function Badge({ children, status }) {
   );
 }
 
-function FieldInput({ field, value, onChange }) {
+function FieldInput({ field, value, onChange, template = null }) {
   const base =
     "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-sky-400";
+
+  if (isRepeatableDateField(field, template)) {
+    const dateValues = Array.isArray(value) ? value : value ? [value] : [""];
+    const updateDate = (index, nextValue) => {
+      const nextValues = dateValues.map((item, itemIndex) => (itemIndex === index ? nextValue : item));
+      onChange(nextValues.filter((item, itemIndex) => item || itemIndex === 0));
+    };
+    const addDate = () => onChange([...dateValues.filter(Boolean), ""]);
+    const removeDate = (index) => {
+      const nextValues = dateValues.filter((_, itemIndex) => itemIndex !== index);
+      onChange(nextValues.length ? nextValues : [""]);
+    };
+
+    return (
+      <div className="grid gap-2 rounded-lg border border-slate-700 bg-slate-950 p-3">
+        {dateValues.map((dateValue, index) => (
+          <div key={`${field.id}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              type="date"
+              value={dateValue || ""}
+              onChange={(event) => updateDate(index, event.target.value)}
+              className={base}
+              aria-label={`${field.label} ${index + 1}`}
+            />
+            {dateValues.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeDate(index)}
+                className="inline-flex items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-500/20"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addDate}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20 sm:w-fit"
+        >
+          <Plus size={15} />
+          Add Another Date
+        </button>
+      </div>
+    );
+  }
 
   if (field.type === "checkbox") {
     return (
@@ -1156,6 +1219,7 @@ export function PublicSharedFormPage({ token }) {
                       field={field}
                       value={answers[field.id]}
                       onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                      template={template}
                     />
                   </label>
                 ))}
@@ -1896,6 +1960,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                           field={field}
                           value={answers[field.id]}
                           onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                          template={selectedTemplate}
                         />
                       </label>
                     ))}
@@ -2341,6 +2406,16 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
               >
                 <Trash2 size={15} />
               </button>
+              {field.type === "date" && (
+                <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 md:col-span-5">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(field.allowMultiple)}
+                    onChange={(event) => updateField(field.id, { allowMultiple: event.target.checked })}
+                  />
+                  Allow people to add multiple dates
+                </label>
+              )}
               {field.type === "choice" && (
                 <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:col-span-5">
                   <div className="grid gap-3 md:grid-cols-[220px_1fr]">
