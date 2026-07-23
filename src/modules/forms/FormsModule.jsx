@@ -250,6 +250,7 @@ function getPublicFormCategory(form) {
 }
 
 function isRepeatableDateField(field, template) {
+  if (field.type === "dateTime") return true;
   if (field.allowMultiple) return true;
   const label = String(field.label || "").toLowerCase();
   if (field.type === "date") return isFacilitiesUsageTemplate(template) && (label.includes("date") || label.includes("day"));
@@ -347,7 +348,7 @@ function getApprovalCalendarEvent(data) {
   const submission = data?.submission;
   const dateAnswer = answers.find((answer) => {
     const label = String(answer.label || "").toLowerCase();
-    return answer.type === "date" || label.includes("date") || label.includes("day");
+    return answer.type === "date" || answer.type === "dateTime" || label.includes("date") || label.includes("day");
   });
   const repeatableDate = dateAnswer?.value && typeof dateAnswer.value === "object"
     ? normalizeRepeatableDateAnswer(dateAnswer.value).entries.find((entry) => entry.date)
@@ -503,6 +504,10 @@ function getSampleSubmission(template) {
       template.fields.map((field) => {
         const samples = {
           date: "2026-05-04",
+          dateTime: {
+            differentTimes: true,
+            entries: [{ date: "2026-05-04", startTime: "08:30", endTime: "10:00" }],
+          },
           time: "08:30",
           number: "24",
           email: "staff@wvcs.org",
@@ -575,11 +580,13 @@ function FieldInput({ field, value, onChange, template = null }) {
 
   if (isRepeatableDateField(field, template)) {
     const repeatable = normalizeRepeatableDateAnswer(value);
+    const timesAlwaysVisible = field.type === "dateTime" || Boolean(field.includeTimes);
+    const showTimes = timesAlwaysVisible || repeatable.differentTimes;
     const entries = repeatable.entries.length ? repeatable.entries : [{ date: "", startTime: "", endTime: "" }];
     const cleanEntries = (nextEntries) => nextEntries.filter((entry, index) => entry.date || entry.startTime || entry.endTime || index === 0);
     const emit = (nextPatch) => {
       onChange({
-        differentTimes: nextPatch.differentTimes ?? repeatable.differentTimes,
+        differentTimes: timesAlwaysVisible ? true : nextPatch.differentTimes ?? repeatable.differentTimes,
         entries: cleanEntries(nextPatch.entries || entries),
       });
     };
@@ -594,23 +601,25 @@ function FieldInput({ field, value, onChange, template = null }) {
 
     return (
       <div className="grid gap-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
-        <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200">
-          <input
-            type="checkbox"
-            checked={repeatable.differentTimes}
-            onChange={(event) => emit({
-              differentTimes: event.target.checked,
-              entries: event.target.checked
-                ? entries
-                : entries.map((entry) => ({ ...entry, startTime: "", endTime: "" })),
-            })}
-            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
-          />
-          These events are at different times
-        </label>
+        {!timesAlwaysVisible && (
+          <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={repeatable.differentTimes}
+              onChange={(event) => emit({
+                differentTimes: event.target.checked,
+                entries: event.target.checked
+                  ? entries
+                  : entries.map((entry) => ({ ...entry, startTime: "", endTime: "" })),
+              })}
+              className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+            />
+            These events are at different times
+          </label>
+        )}
         {entries.map((entry, index) => (
           <div key={`${field.id}-${index}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-            <div className={repeatable.differentTimes ? "grid gap-2 lg:grid-cols-[1fr_150px_150px_auto]" : "grid gap-2 sm:grid-cols-[1fr_auto]"}>
+            <div className={showTimes ? "grid gap-2 lg:grid-cols-[1fr_150px_150px_auto]" : "grid gap-2 sm:grid-cols-[1fr_auto]"}>
               <input
                 type="date"
                 value={entry.date || ""}
@@ -618,7 +627,7 @@ function FieldInput({ field, value, onChange, template = null }) {
                 className={base}
                 aria-label={`${field.label} ${index + 1}`}
               />
-              {repeatable.differentTimes && (
+              {showTimes && (
                 <>
                   <label className="grid gap-1 text-xs font-semibold text-slate-400">
                     Start
@@ -658,7 +667,7 @@ function FieldInput({ field, value, onChange, template = null }) {
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20 sm:w-fit"
         >
           <Plus size={15} />
-          Add Another Date
+          {showTimes ? "Add Another Event" : "Add Another Date"}
         </button>
       </div>
     );
@@ -2258,6 +2267,8 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
 
   function updateFieldType(field, nextType) {
     const patch = { type: nextType };
+    if (nextType !== "date") patch.allowMultiple = false;
+    if (nextType !== "dateTime") patch.includeTimes = false;
     if (nextType === "choice") {
       patch.choiceMode = field.choiceMode || "single";
       patch.options = getChoiceOptions(field);
@@ -2487,6 +2498,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
                 <option value="text">Text</option>
                 <option value="textarea">Long Text</option>
                 <option value="date">Date</option>
+                <option value="dateTime">Date + Time</option>
                 <option value="time">Time</option>
                 <option value="checkbox">Checkbox</option>
                 <option value="choice">Choice Group</option>
@@ -2518,6 +2530,11 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
                   />
                   Allow people to add multiple dates
                 </label>
+              )}
+              {field.type === "dateTime" && (
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 md:col-span-5">
+                  Each added event will include a date, start time, and end time.
+                </div>
               )}
               {field.type === "choice" && (
                 <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:col-span-5">
