@@ -889,20 +889,6 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                 <Field label="Due Date">
                   <Input type="date" value={invoice.dueDate} onChange={(event) => updateInvoice({ dueDate: event.target.value })} />
                 </Field>
-                <Field label="Registration Fee">
-                  <div className="grid gap-2">
-                    <MoneyInput value={invoice.registrationFee} onChange={(event) => updateInvoice({ registrationFee: event.target.value })} />
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(invoice.registrationFeePaid)}
-                        onChange={(event) => updateInvoice({ registrationFeePaid: event.target.checked })}
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
-                      />
-                      Registration fee already paid
-                    </label>
-                  </div>
-                </Field>
                 <Field label="Prepared By">
                   <Input
                     value={invoice.preparedBy}
@@ -910,6 +896,22 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     placeholder="WVCS Office"
                   />
                 </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Registration Fee">
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <MoneyInput value={invoice.registrationFee} onChange={(event) => updateInvoice({ registrationFee: event.target.value })} />
+                      <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(invoice.registrationFeePaid)}
+                          onChange={(event) => updateInvoice({ registrationFeePaid: event.target.checked })}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                        />
+                        Registration fee already paid
+                      </label>
+                    </div>
+                  </Field>
+                </div>
               </div>
               <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -969,14 +971,6 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
                 />
               </label>
-              <button
-                type="button"
-                onClick={saveDraft}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
-              >
-                <Save size={16} />
-                Save Invoice
-              </button>
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -1104,6 +1098,14 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   </div>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={saveDraft}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+              >
+                <Save size={16} />
+                Save Invoice
+              </button>
             </div>
 
           </div>
