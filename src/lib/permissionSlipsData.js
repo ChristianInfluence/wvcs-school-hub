@@ -69,26 +69,38 @@ function mapRosterParentToDatabase(student, parent, index) {
   };
 }
 
-function mapRosterStudentFromDatabase(row, parents) {
+function fullName(firstName, lastName) {
+  return [firstName, lastName].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
+}
+
+function mapStudentDirectoryRowToRosterStudent(row) {
+  const studentName = fullName(row.student_first_name, row.student_last_name);
+  const parents = [
+    {
+      id: `${row.student_id}-parent-1`,
+      parentFirstName: row.parent1_first_name || "",
+      parentLastName: row.parent1_last_name || "",
+      parentName: fullName(row.parent1_first_name, row.parent1_last_name),
+      parentEmail: row.email1 || "",
+      parentPhone: row.phone1 || "",
+    },
+    {
+      id: `${row.student_id}-parent-2`,
+      parentFirstName: row.parent2_first_name || "",
+      parentLastName: row.parent2_last_name || "",
+      parentName: fullName(row.parent2_first_name, row.parent2_last_name),
+      parentEmail: row.email2 || "",
+      parentPhone: row.phone2 || "",
+    },
+  ].filter((parent) => parent.parentName || parent.parentEmail || parent.parentPhone);
+
   return {
-    ...(row.student || {}),
-    id: row.id,
-    grade: row.grade,
-    studentFirstName: row.student_first_name || row.student?.studentFirstName || "",
-    studentLastName: row.student_last_name || row.student?.studentLastName || "",
-    studentName: row.student_name,
-    parents: parents
-      .filter((parent) => parent.student_id === row.id)
-      .sort((a, b) => (a.parent_order || 0) - (b.parent_order || 0))
-      .map((parent) => ({
-        ...(parent.parent || {}),
-        id: parent.id,
-        parentFirstName: parent.parent_first_name || parent.parent?.parentFirstName || "",
-        parentLastName: parent.parent_last_name || parent.parent?.parentLastName || "",
-        parentName: parent.parent_name || parent.parent?.parentName || "",
-        parentEmail: parent.parent_email || parent.parent?.parentEmail || "",
-        parentPhone: parent.parent_phone || parent.parent?.parentPhone || "",
-      })),
+    id: row.student_id,
+    grade: row.grade || "",
+    studentFirstName: row.student_first_name || "",
+    studentLastName: row.student_last_name || "",
+    studentName,
+    parents,
   };
 }
 
@@ -247,19 +259,16 @@ export async function fetchPermissionRoster() {
     return { loaded: false, reason: "Supabase is not configured.", rosterStudents: [] };
   }
 
-  const [studentsResult, parentsResult] = await Promise.all([
-    supabase.from("permission_roster_students").select("*").order("grade").order("student_name"),
-    supabase.from("permission_roster_parents").select("*").order("parent_order"),
-  ]);
+  const studentsResult = await supabase
+    .from("student_directory")
+    .select("*")
+    .eq("active", true);
 
   if (studentsResult.error) throw studentsResult.error;
-  if (parentsResult.error) throw parentsResult.error;
 
   return {
     loaded: true,
-    rosterStudents: (studentsResult.data || []).map((student) =>
-      mapRosterStudentFromDatabase(student, parentsResult.data || [])
-    ),
+    rosterStudents: (studentsResult.data || []).map(mapStudentDirectoryRowToRosterStudent),
   };
 }
 

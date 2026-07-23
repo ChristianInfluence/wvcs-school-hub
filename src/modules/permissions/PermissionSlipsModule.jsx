@@ -23,18 +23,14 @@ import { PDFDocument } from "pdf-lib";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 import {
   deletePermissionRecipient,
-  deletePermissionRosterStudent,
   fetchPermissionSigningData,
   fetchPermissionEvents,
   fetchPermissionRecipients,
   fetchPermissionRoster,
   fetchPermissionSubmissions,
   createParentPermissionPdfUrl,
-  replacePermissionRoster,
-  replacePermissionRosterGrade,
   savePermissionEvent,
   savePermissionRecipients,
-  savePermissionRosterStudent,
   savePermissionSubmission,
   sendPermissionParentCopyEmail,
   sendPermissionSigningRequestEmail,
@@ -322,113 +318,6 @@ function createRecipientFromStudentParent(student, parent) {
     viewedAt: "",
     signedAt: "",
   };
-}
-
-function parseDelimitedLine(line, delimiter) {
-  const values = [];
-  let current = "";
-  let inQuotes = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    const nextCharacter = line[index + 1];
-    if (character === '"' && nextCharacter === '"') {
-      current += '"';
-      index += 1;
-    } else if (character === '"') {
-      inQuotes = !inQuotes;
-    } else if (character === delimiter && !inQuotes) {
-      values.push(current.trim());
-      current = "";
-    } else {
-      current += character;
-    }
-  }
-  values.push(current.trim());
-  return values;
-}
-
-function normalizeCsvHeader(header) {
-  return String(header || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function getCsvRecordValue(record, aliases) {
-  for (const alias of aliases) {
-    const value = record[normalizeCsvHeader(alias)];
-    if (value != null && String(value).trim()) return String(value).trim();
-  }
-  return "";
-}
-
-function sortRosterStudents(students) {
-  return [...students].sort((a, b) => {
-    const gradeA = Number(a.grade);
-    const gradeB = Number(b.grade);
-    if (Number.isFinite(gradeA) && Number.isFinite(gradeB) && gradeA !== gradeB) return gradeA - gradeB;
-    return String(a.grade || "").localeCompare(String(b.grade || ""), undefined, { numeric: true }) ||
-      a.studentName.localeCompare(b.studentName);
-  });
-}
-
-function groupRosterStudentsByGrade(students) {
-  return students.reduce((groups, student) => {
-    const grade = String(student.grade || "").trim();
-    if (!grade) return groups;
-    groups[grade] = [...(groups[grade] || []), student];
-    return groups;
-  }, {});
-}
-
-function parseRosterCsv(csvText, fallbackGrade = "") {
-  const lines = csvText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 2) return [];
-
-  const delimiter = lines[0].includes("\t") ? "\t" : ",";
-  const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeCsvHeader);
-  const rows = lines.slice(1).map((line) => parseDelimitedLine(line, delimiter));
-
-  return rows
-    .map((row, rowIndex) => {
-      const record = Object.fromEntries(headers.map((header, index) => [header, row[index] || ""]));
-      const grade = getCsvRecordValue(record, ["Grade", "Student Grade", "Student-Grade"]) || fallbackGrade.trim();
-      const studentFirstName = getCsvRecordValue(record, ["Student-FN", "Student FN", "Student First Name", "First Name"]);
-      const studentLastName = getCsvRecordValue(record, ["Student-LN", "Student LN", "Student Last Name", "Last Name"]);
-      if (!grade) return null;
-      if (!studentFirstName && !studentLastName) return null;
-
-      const studentName = [studentFirstName, studentLastName].filter(Boolean).join(" ");
-      const studentId = `grade-${grade}-${studentName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || rowIndex}`;
-      const parents = [
-        {
-          id: `${studentId}-parent-1`,
-          parentName: [
-            getCsvRecordValue(record, ["Parent-1-FN", "Parent 1 FN", "Parent 1 First Name"]),
-            getCsvRecordValue(record, ["Parent-1-LN", "Parent 1 LN", "Parent 1 Last Name"]),
-          ].filter(Boolean).join(" ").trim(),
-          parentEmail: getCsvRecordValue(record, ["EMAIL-1", "Email 1", "Parent 1 Email"]),
-          parentPhone: getCsvRecordValue(record, ["Parent-1-#", "Parent 1 #", "Parent 1 Phone", "Phone 1"]),
-        },
-        {
-          id: `${studentId}-parent-2`,
-          parentName: [
-            getCsvRecordValue(record, ["Parent-2-FN", "Parent 2 FN", "Parent 2 First Name"]),
-            getCsvRecordValue(record, ["Parent-2-LN", "Parent 2 LN", "Parent 2 Last Name"]),
-          ].filter(Boolean).join(" ").trim(),
-          parentEmail: getCsvRecordValue(record, ["EMAIL-2", "Email 2", "Parent 2 Email"]),
-          parentPhone: getCsvRecordValue(record, ["Parent-2-#", "Parent 2 #", "Parent 2 Phone", "Phone 2"]),
-        },
-      ].filter((parent) => parent.parentName || parent.parentEmail || parent.parentPhone);
-
-      return {
-        id: studentId,
-        grade,
-        studentName,
-        parents,
-      };
-    })
-    .filter(Boolean);
 }
 
 function getSigningUrl(token) {
@@ -1518,10 +1407,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [selectedFormTemplateId, setSelectedFormTemplateId] = useState(() => loadState().events[0]?.id || "");
   const [copiedToken, setCopiedToken] = useState("");
   const [expandedSubmissionIds, setExpandedSubmissionIds] = useState([]);
-  const [rosterGrade, setRosterGrade] = useState("5");
   const [activeRosterGrade, setActiveRosterGrade] = useState("");
-  const [rosterCsv, setRosterCsv] = useState("");
-  const [rosterMessage, setRosterMessage] = useState("");
   const [isSendingCheckedStudents, setIsSendingCheckedStudents] = useState(false);
   const [sendingRecipientIds, setSendingRecipientIds] = useState([]);
   const [lastSendResult, setLastSendResult] = useState(null);
@@ -1537,16 +1423,6 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const [addedFieldId, setAddedFieldId] = useState("");
   const selectedEventIdRef = useRef(selectedEventId);
   const [syncStatus, setSyncStatus] = useState("Connecting to shared permission data...");
-  const [manualRosterStudent, setManualRosterStudent] = useState({
-    grade: "5",
-    studentName: "",
-    parent1Name: "",
-    parent1Email: "",
-    parent1Phone: "",
-    parent2Name: "",
-    parent2Email: "",
-    parent2Phone: "",
-  });
   const selectedEvent = state.events.find((event) => event.id === selectedEventId) || state.events[0];
   const formTemplates = state.events.filter((event) => event.recordType !== "send");
   const sendEvents = state.events.filter((event) => event.recordType === "send" || event.recipients?.length || event.selectedStudentIds?.length);
@@ -2059,175 +1935,6 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     );
   }
 
-  function importRosterCsv() {
-    const fallbackGrade = rosterGrade.trim();
-    const importedStudents = parseRosterCsv(rosterCsv, fallbackGrade);
-    if (!importedStudents.length) {
-      setRosterMessage("No students were found. Check the CSV header, grade column, and rows.");
-      return;
-    }
-    const importedGrades = [...new Set(importedStudents.map((student) => student.grade))];
-    const studentsByGrade = groupRosterStudentsByGrade(importedStudents);
-    persist((current) => ({
-      ...current,
-      rosterStudents: sortRosterStudents([
-        ...(current.rosterStudents || []).filter((student) => !importedGrades.includes(student.grade)),
-        ...importedStudents,
-      ]),
-    }));
-    Promise.all(
-      Object.entries(studentsByGrade).map(([grade, students]) => replacePermissionRosterGrade(grade, students))
-    ).catch((error) =>
-      setRosterMessage(`Imported locally. Supabase roster save failed: ${error.message}`)
-    );
-    setActiveRosterGrade(importedGrades[0] || fallbackGrade);
-    setRosterMessage(
-      `Imported ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}.`
-    );
-  }
-
-  function replaceFullRosterFromCsv() {
-    const importedStudents = parseRosterCsv(rosterCsv, rosterGrade.trim());
-    if (!importedStudents.length) {
-      setRosterMessage("No students were found. Check the CSV header, grade column, and rows.");
-      return;
-    }
-
-    const importedGrades = [...new Set(importedStudents.map((student) => student.grade))];
-    const confirmed = window.confirm(
-      `Replace the entire student roster with ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}? This removes students who are not in this CSV.`
-    );
-    if (!confirmed) return;
-
-    persist((current) => ({
-      ...current,
-      rosterStudents: sortRosterStudents(importedStudents),
-    }));
-    replacePermissionRoster(importedStudents).catch((error) =>
-      setRosterMessage(`Replaced locally. Supabase roster replace failed: ${error.message}`)
-    );
-    setActiveRosterGrade(importedGrades[0] || rosterGrade.trim());
-    setRosterMessage(
-      `Replaced roster with ${importedStudents.length} student${importedStudents.length === 1 ? "" : "s"} across grade${importedGrades.length === 1 ? "" : "s"} ${importedGrades.join(", ")}.`
-    );
-  }
-
-  function updateRosterStudent(studentId, patch) {
-    const existingStudent = rosterStudents.find((student) => student.id === studentId);
-    const nextStudent = existingStudent ? { ...existingStudent, ...patch } : null;
-    persist((current) => ({
-      ...current,
-      rosterStudents: (current.rosterStudents || []).map((student) =>
-        student.id === studentId ? { ...student, ...patch } : student
-      ),
-    }));
-    if (nextStudent) {
-      savePermissionRosterStudent(nextStudent).catch((error) =>
-        setRosterMessage(`Saved locally. Supabase roster save failed: ${error.message}`)
-      );
-    }
-  }
-
-  function updateRosterParent(studentId, parentIndex, patch) {
-    let nextStudent = null;
-    persist((current) => ({
-      ...current,
-      rosterStudents: (current.rosterStudents || []).map((student) => {
-        if (student.id !== studentId) return student;
-        const parents = [...student.parents];
-        const existingParent = parents[parentIndex] || {
-          id: `${student.id}-parent-${parentIndex + 1}`,
-          parentName: "",
-          parentEmail: "",
-          parentPhone: "",
-        };
-        parents[parentIndex] = { ...existingParent, ...patch };
-        nextStudent = {
-          ...student,
-          parents: parents.filter((parent) => parent.parentName || parent.parentEmail || parent.parentPhone),
-        };
-        return nextStudent;
-      }),
-    }));
-    if (nextStudent) {
-      savePermissionRosterStudent(nextStudent).catch((error) =>
-        setRosterMessage(`Saved locally. Supabase parent save failed: ${error.message}`)
-      );
-    }
-  }
-
-  function deleteRosterStudent(studentId) {
-    const student = rosterStudents.find((item) => item.id === studentId);
-    if (!window.confirm(`Delete ${student?.studentName || "this student"} from the roster? This cannot be undone.`)) return;
-    persist((current) => ({
-      ...current,
-      rosterStudents: (current.rosterStudents || []).filter((student) => student.id !== studentId),
-      events: current.events.map((event) => ({
-        ...event,
-        selectedStudentIds: (event.selectedStudentIds || []).filter((id) => id !== studentId),
-      })),
-    }));
-    deletePermissionRosterStudent(studentId).catch((error) =>
-      setRosterMessage(`Deleted locally. Supabase roster delete failed: ${error.message}`)
-    );
-  }
-
-  function addManualRosterStudent() {
-    const grade = manualRosterStudent.grade.trim();
-    const studentName = manualRosterStudent.studentName.trim();
-    if (!grade || !studentName) {
-      setRosterMessage("Enter a grade and student name before adding manually.");
-      return;
-    }
-    const studentId = `grade-${grade}-${studentName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || crypto.randomUUID()}`;
-    const parents = [
-      {
-        id: `${studentId}-parent-1`,
-        parentName: manualRosterStudent.parent1Name.trim(),
-        parentEmail: manualRosterStudent.parent1Email.trim(),
-        parentPhone: manualRosterStudent.parent1Phone.trim(),
-      },
-      {
-        id: `${studentId}-parent-2`,
-        parentName: manualRosterStudent.parent2Name.trim(),
-        parentEmail: manualRosterStudent.parent2Email.trim(),
-        parentPhone: manualRosterStudent.parent2Phone.trim(),
-      },
-    ].filter((parent) => parent.parentName || parent.parentEmail || parent.parentPhone);
-
-    const newStudent = { id: studentId, grade, studentName, parents };
-    persist((current) => ({
-      ...current,
-      rosterStudents: sortRosterStudents([
-        ...(current.rosterStudents || []).filter((student) => student.id !== studentId),
-        newStudent,
-      ]),
-    }));
-    savePermissionRosterStudent(newStudent).catch((error) =>
-      setRosterMessage(`Added locally. Supabase roster save failed: ${error.message}`)
-    );
-    setActiveRosterGrade(grade);
-    setManualRosterStudent({
-      grade,
-      studentName: "",
-      parent1Name: "",
-      parent1Email: "",
-      parent1Phone: "",
-      parent2Name: "",
-      parent2Email: "",
-      parent2Phone: "",
-    });
-    setRosterMessage(`Added ${studentName} to grade ${grade}.`);
-  }
-
-  function handleRosterFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setRosterCsv(String(reader.result || ""));
-    reader.readAsText(file);
-  }
-
   async function sendToCheckedStudents() {
     if (isSendingCheckedStudents) return;
     const selectedStudents = rosterStudents.filter((student) => selectedStudentIds.includes(student.id));
@@ -2617,144 +2324,15 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
               <div>
                 <div className="flex items-center gap-2 text-lg font-bold text-white">
                   <Users size={18} />
-                  Grade Rosters
+                  Shared Student Roster
                 </div>
                 <p className="mt-1 max-w-3xl text-sm text-slate-400">
-                  Import, add, and edit student/parent roster records here. Permission slip creation and sending stay in the Permission Slips workspace.
+                  Digital Slips uses the central Supabase student roster. Add or edit students in Admin, Student Directory.
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400">
                 {rosterStudents.length} roster student{rosterStudents.length === 1 ? "" : "s"} loaded
               </div>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-[150px_minmax(0,1fr)_190px_190px] lg:items-end">
-              <label className="text-sm font-semibold text-slate-300">
-                Fallback Grade
-                <input
-                  value={rosterGrade}
-                  onChange={(event) => setRosterGrade(event.target.value)}
-                  placeholder="5"
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-sky-400"
-                />
-                <span className="mt-1 block text-xs font-normal text-slate-500">Used only if the CSV has no Grade column.</span>
-              </label>
-              <label className="text-sm font-semibold text-slate-300">
-                CSV file
-                <input
-                  type="file"
-                  accept=".csv,text/csv,text/plain"
-                  onChange={handleRosterFile}
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-sky-500 file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-white"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={importRosterCsv}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400"
-              >
-                <Save size={16} />
-                Import / Update Grades
-              </button>
-              <button
-                type="button"
-                onClick={replaceFullRosterFromCsv}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-100 transition hover:bg-amber-500/20"
-              >
-                <RotateCcw size={16} />
-                Replace Full Roster
-              </button>
-            </div>
-
-            <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Required CSV Header</div>
-              <div className="mt-2 overflow-x-auto whitespace-nowrap font-mono text-xs text-slate-300">
-                Grade, Student-FN, Student-LN, Parent-1-FN, Parent-1-LN, EMAIL-1, Parent-1-#, Parent-2-FN, Parent-2-LN, Parent-2-#, EMAIL-2
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                Import / Update replaces only the grades included in the CSV. Replace Full Roster removes old students first, then imports this CSV.
-              </div>
-            </div>
-
-            <label className="mt-3 block text-sm font-semibold text-slate-300">
-              Paste CSV
-              <textarea
-                rows={5}
-                value={rosterCsv}
-                onChange={(event) => setRosterCsv(event.target.value)}
-                placeholder="Grade,Student-FN,Student-LN,Parent-1-FN,Parent-1-LN,EMAIL-1,Parent-1-#,Parent-2-FN,Parent-2-LN,Parent-2-#,EMAIL-2"
-                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-sky-400"
-              />
-            </label>
-
-            {rosterMessage && (
-              <div className="mt-3 rounded-lg border border-sky-400/30 bg-sky-500/10 p-3 text-sm font-semibold text-sky-100">
-                {rosterMessage}
-              </div>
-            )}
-
-            <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
-              <div className="mb-3 text-sm font-bold text-white">Manual Student Entry</div>
-              <div className="grid gap-3 lg:grid-cols-[90px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_150px]">
-                <input
-                  value={manualRosterStudent.grade}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, grade: event.target.value }))}
-                  placeholder="Grade"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.studentName}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, studentName: event.target.value }))}
-                  placeholder="Student name"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.parent1Name}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent1Name: event.target.value }))}
-                  placeholder="Parent 1 name"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.parent1Email}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent1Email: event.target.value }))}
-                  placeholder="Parent 1 email"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.parent1Phone}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent1Phone: event.target.value }))}
-                  placeholder="Parent 1 phone"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <div className="hidden lg:block" />
-                <div className="hidden lg:block" />
-                <input
-                  value={manualRosterStudent.parent2Name}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent2Name: event.target.value }))}
-                  placeholder="Parent 2 name"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.parent2Email}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent2Email: event.target.value }))}
-                  placeholder="Parent 2 email"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-                <input
-                  value={manualRosterStudent.parent2Phone}
-                  onChange={(event) => setManualRosterStudent((current) => ({ ...current, parent2Phone: event.target.value }))}
-                  placeholder="Parent 2 phone"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={addManualRosterStudent}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-bold text-emerald-100 transition hover:bg-emerald-500/20"
-              >
-                <Plus size={16} />
-                Add Student to Roster
-              </button>
             </div>
 
             <div className="mt-5">
@@ -2785,84 +2363,47 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         {activeRosterStudents.length} student{activeRosterStudents.length === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <div className="grid grid-cols-[64px_minmax(150px,0.9fr)_minmax(180px,1.1fr)_minmax(180px,1.1fr)_40px] gap-2 border-t border-slate-800 bg-slate-950 px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                      <div>Grade</div>
+                    <div className="grid gap-2 border-t border-slate-800 bg-slate-950 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500 md:grid-cols-[minmax(150px,0.9fr)_minmax(180px,1.1fr)_minmax(180px,1.1fr)]">
                       <div>Student</div>
                       <div>Parent 1</div>
                       <div>Parent 2</div>
-                      <div />
                     </div>
                     {activeRosterStudents.map((student) => {
                       const parent1 = student.parents[0] || {};
                       const parent2 = student.parents[1] || {};
-                      const compactInputClass = "rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white outline-none focus:border-sky-400";
+                      const parentLine = (parent) => [
+                        parent.parentName,
+                        parent.parentEmail,
+                        parent.parentPhone,
+                      ].filter(Boolean);
                       return (
-                        <div key={student.id} className="grid grid-cols-[64px_minmax(150px,0.9fr)_minmax(180px,1.1fr)_minmax(180px,1.1fr)_40px] gap-2 border-t border-slate-800 bg-slate-950 px-2 py-2">
-                          <input
-                            value={student.grade}
-                            onChange={(event) => updateRosterStudent(student.id, { grade: event.target.value })}
-                            className={compactInputClass}
-                          />
-                          <input
-                            value={student.studentName}
-                            onChange={(event) => updateRosterStudent(student.id, { studentName: event.target.value })}
-                            className={compactInputClass}
-                          />
-                          <div className="grid gap-1">
-                            <input
-                              value={parent1.parentName || ""}
-                              onChange={(event) => updateRosterParent(student.id, 0, { parentName: event.target.value })}
-                              placeholder="Name"
-                              className={compactInputClass}
-                            />
-                            <input
-                              value={parent1.parentEmail || ""}
-                              onChange={(event) => updateRosterParent(student.id, 0, { parentEmail: event.target.value })}
-                              placeholder="Email"
-                              className={compactInputClass}
-                            />
-                            <input
-                              value={parent1.parentPhone || ""}
-                              onChange={(event) => updateRosterParent(student.id, 0, { parentPhone: event.target.value })}
-                              placeholder="Phone"
-                              className={compactInputClass}
-                            />
+                        <div key={student.id} className="grid gap-3 border-t border-slate-800 bg-slate-950 px-3 py-3 md:grid-cols-[minmax(150px,0.9fr)_minmax(180px,1.1fr)_minmax(180px,1.1fr)]">
+                          <div>
+                            <div className="font-semibold text-white">{student.studentName}</div>
+                            <div className="mt-1 text-xs text-slate-500">Grade {student.grade}</div>
                           </div>
-                          <div className="grid gap-1">
-                            <input
-                              value={parent2.parentName || ""}
-                              onChange={(event) => updateRosterParent(student.id, 1, { parentName: event.target.value })}
-                              placeholder="Name"
-                              className={compactInputClass}
-                            />
-                            <input
-                              value={parent2.parentEmail || ""}
-                              onChange={(event) => updateRosterParent(student.id, 1, { parentEmail: event.target.value })}
-                              placeholder="Email"
-                              className={compactInputClass}
-                            />
-                            <input
-                              value={parent2.parentPhone || ""}
-                              onChange={(event) => updateRosterParent(student.id, 1, { parentPhone: event.target.value })}
-                              placeholder="Phone"
-                              className={compactInputClass}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => deleteRosterStudent(student.id)}
-                            className="flex h-8 items-center justify-center rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-100"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {[parent1, parent2].map((parent, index) => (
+                            <div key={`${student.id}-parent-${index}`} className="space-y-1 text-xs text-slate-300">
+                              {parentLine(parent).length ? (
+                                parentLine(parent).map((line) => (
+                                  <div key={line}>{line}</div>
+                                ))
+                              ) : (
+                                <div className="text-slate-500">No parent {index + 1} listed</div>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       );
                     })}
                   </div>
+                  <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-xs leading-5 text-sky-100">
+                    Roster edits are managed in Admin, Student Directory so permission slips, parent contacts, and future student features stay consistent.
+                  </div>
                 </>
               ) : (
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-sm text-slate-400">
-                  No roster students yet. Import a CSV or add a student manually.
+                  No roster students are available. Check Admin, Student Directory or refresh shared permission data.
                 </div>
               )}
             </div>
