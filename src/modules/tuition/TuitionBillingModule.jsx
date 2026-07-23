@@ -581,6 +581,7 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
   const total = incidentalTotal(invoice);
   const portalUrl = !publicView ? getIncidentalPortalUrl(invoice) : "";
   const payUrl = invoice.paymentUrl || "";
+  const paymentReady = Boolean(payUrl || publicView || portalUrl);
 
   return (
     <div className="bg-white p-8 text-slate-950 shadow-xl">
@@ -640,7 +641,7 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
         <p className="mt-2 text-sm leading-6 text-slate-600">
           {invoice.paymentStatus === "Paid"
             ? "Thank you. This invoice is marked paid."
-            : payUrl || publicView
+            : paymentReady
             ? "Use the secure payment button below to pay this incidental invoice."
             : "Online payment processing is being prepared. Please contact the school office for payment instructions."}
         </p>
@@ -657,6 +658,16 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
           >
             <CreditCard size={16} />
             Pay Securely
+          </a>
+        ) : portalUrl ? (
+          <a
+            href={portalUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
+          >
+            <CreditCard size={16} />
+            Open Payment Portal
           </a>
         ) : publicView ? (
           <button
