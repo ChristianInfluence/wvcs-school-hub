@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calculator,
   Download,
@@ -9,7 +9,12 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
-import { sendTuitionInvoiceEmail } from "../../lib/tuitionBillingData.js";
+import {
+  deleteTuitionInvoice,
+  fetchTuitionInvoices,
+  saveTuitionInvoice,
+  sendTuitionInvoiceEmail,
+} from "../../lib/tuitionBillingData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -200,6 +205,29 @@ function invoiceTitle(invoice) {
   return `${family} ${schoolYear} Tuition Breakdown`;
 }
 
+function groupInvoicesByYear(invoices) {
+  const sorted = [...invoices].sort((a, b) => {
+    const yearCompare = String(b.schoolYear || "").localeCompare(String(a.schoolYear || ""));
+    if (yearCompare !== 0) return yearCompare;
+    return String(a.familyName || "").localeCompare(String(b.familyName || ""));
+  });
+
+  return sorted.reduce((groups, record) => {
+    const year = record.schoolYear || "No School Year";
+    groups[year] = [...(groups[year] || []), record];
+    return groups;
+  }, {});
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function Field({ label, children }) {
   return (
     <label className="grid gap-1 text-sm font-medium text-slate-200">
@@ -351,14 +379,32 @@ function InvoicePreview({ invoice, invoiceRef }) {
   );
 }
 
-export default function TuitionBillingModule() {
+export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
   const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
+  const [savedInvoices, setSavedInvoices] = useState([]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [status, setStatus] = useState("");
+  const [savedStatus, setSavedStatus] = useState("Loading saved invoices...");
   const [sendingEmail, setSendingEmail] = useState(false);
   const invoiceRef = useRef(null);
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
+  const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
+
+  async function loadSavedInvoices() {
+    try {
+      const result = await fetchTuitionInvoices();
+      setSavedInvoices(result.invoices || []);
+      setSavedStatus(result.loaded ? "Saved invoices loaded." : result.reason || "Showing local saved invoices.");
+    } catch (error) {
+      setSavedStatus(`Unable to load saved invoices: ${error.message}`);
+    }
+  }
+
+  useEffect(() => {
+    loadSavedInvoices();
+  }, []);
 
   function updateInvoice(patch) {
     setInvoice((current) => ({ ...current, ...patch }));
@@ -396,6 +442,72 @@ export default function TuitionBillingModule() {
         parentEmail: firstParent.email,
       };
     });
+  }
+
+  async function saveCurrentInvoice(patch = {}) {
+    const invoiceId = invoice.id || selectedInvoiceId || crypto.randomUUID();
+    const nextInvoice = {
+      ...invoice,
+      id: invoiceId,
+      status: patch.status || invoice.status || "Draft",
+    };
+    const record = {
+      id: invoiceId,
+      invoice: nextInvoice,
+      status: patch.status || "Draft",
+      sentAt: patch.sentAt || invoice.sentAt || "",
+      sentTo: patch.sentTo || invoice.sentTo || [],
+    };
+    const result = await saveTuitionInvoice(record, currentUserEmail);
+    setInvoice({
+      ...result.invoice.invoice,
+      id: result.invoice.id,
+      status: result.invoice.status || "Draft",
+      sentAt: result.invoice.sentAt || "",
+      sentTo: result.invoice.sentTo || [],
+    });
+    setSelectedInvoiceId(result.invoice.id);
+    setSavedInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
+    setSavedStatus(result.local ? "Invoice saved on this device." : "Invoice saved.");
+    return result.invoice;
+  }
+
+  async function handleSaveInvoice() {
+    try {
+      const saved = await saveCurrentInvoice({ status: invoice.status || "Draft" });
+      setStatus(`${saved.familyName || "Invoice"} saved for ${saved.schoolYear || "school year"}.`);
+    } catch (error) {
+      setStatus(`Unable to save invoice: ${error.message}`);
+    }
+  }
+
+  function loadInvoiceRecord(record) {
+    setInvoice({
+      ...defaultInvoice,
+      ...(record.invoice || {}),
+      id: record.id,
+      status: record.status || "Draft",
+      sentAt: record.sentAt || "",
+      sentTo: record.sentTo || [],
+    });
+    setSelectedInvoiceId(record.id);
+    setStatus(`Loaded ${record.familyName || "saved invoice"}.`);
+  }
+
+  async function removeSavedInvoice(record) {
+    const confirmed = window.confirm(`Delete the saved invoice for ${record.familyName || "this family"}?`);
+    if (!confirmed) return;
+    try {
+      await deleteTuitionInvoice(record.id);
+      setSavedInvoices((current) => current.filter((item) => item.id !== record.id));
+      if (selectedInvoiceId === record.id) {
+        setSelectedInvoiceId("");
+        resetInvoice();
+      }
+      setStatus("Saved invoice deleted.");
+    } catch (error) {
+      setStatus(`Unable to delete saved invoice: ${error.message}`);
+    }
   }
 
   function updateStudent(studentId, patch) {
@@ -460,9 +572,12 @@ export default function TuitionBillingModule() {
   function resetInvoice() {
     setInvoice({
       ...defaultInvoice,
+      id: "",
+      status: "Draft",
       invoiceDate: today,
       students: defaultInvoice.students.map((student) => ({ ...student })),
     });
+    setSelectedInvoiceId("");
     setStatus("Started a fresh invoice draft.");
   }
 
@@ -524,6 +639,13 @@ export default function TuitionBillingModule() {
           contentBase64: await blobToBase64(blob),
         },
       });
+      if (result.sent) {
+        await saveCurrentInvoice({
+          status: "Sent",
+          sentAt: new Date().toISOString(),
+          sentTo: recipients,
+        });
+      }
       setStatus(result.sent ? `Tuition breakdown sent to ${recipients.join(", ")}.` : result.reason || "Email was not sent.");
     } catch (error) {
       setStatus(`Unable to send tuition breakdown email: ${error.message}`);
@@ -533,22 +655,7 @@ export default function TuitionBillingModule() {
   }
 
   function saveDraft() {
-    localStorage.setItem("wvcs-tuition-invoice-draft", JSON.stringify(invoice));
-    setStatus("Invoice draft saved on this device.");
-  }
-
-  function loadDraft() {
-    try {
-      const saved = localStorage.getItem("wvcs-tuition-invoice-draft");
-      if (!saved) {
-        setStatus("No saved draft was found on this device.");
-        return;
-      }
-      setInvoice(JSON.parse(saved));
-      setStatus("Saved draft loaded.");
-    } catch (error) {
-      setStatus(`Unable to load saved draft: ${error.message}`);
-    }
+    handleSaveInvoice();
   }
 
   function updateIncidentalInvoice(patch) {
@@ -611,14 +718,14 @@ export default function TuitionBillingModule() {
               className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
             >
               <Save size={16} />
-              Save Draft
+              Save Invoice
             </button>
             <button
               type="button"
-              onClick={loadDraft}
+              onClick={loadSavedInvoices}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
             >
-              Load Draft
+              Refresh List
             </button>
             <button
               type="button"
@@ -659,7 +766,91 @@ export default function TuitionBillingModule() {
         )}
 
         {activeView === "tuition" && (
-        <div className="mt-6 grid gap-6 xl:grid-cols-[520px_1fr]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_520px_1fr]">
+          <div className="rounded-lg border border-slate-800 bg-slate-900">
+            <div className="border-b border-slate-800 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-white">Saved Invoices</div>
+                  <div className="mt-1 text-xs text-slate-500">{savedStatus}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadSavedInvoices}
+                  className="rounded-lg border border-slate-700 px-2.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[860px] overflow-auto p-3">
+              {Object.entries(groupedSavedInvoices).map(([year, records]) => (
+                <div key={year} className="mb-4">
+                  <div className="sticky top-0 z-10 rounded-md bg-slate-800 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-300">
+                    {year}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {records.map((record) => (
+                      <div
+                        key={record.id}
+                        className={`rounded-lg border p-3 ${
+                          selectedInvoiceId === record.id
+                            ? "border-sky-400 bg-sky-500/10"
+                            : "border-slate-800 bg-slate-950"
+                        }`}
+                      >
+                        <button type="button" onClick={() => loadInvoiceRecord(record)} className="w-full text-left">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-bold text-white">{record.familyName || "Unnamed Family"}</div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                Updated {formatShortDate(record.updatedAt) || "recently"}
+                              </div>
+                            </div>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+                                record.status === "Sent"
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                                  : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                              }`}
+                            >
+                              {record.status || "Draft"}
+                            </span>
+                          </div>
+                          {record.sentAt && (
+                            <div className="mt-2 text-xs text-slate-400">
+                              Sent {formatShortDate(record.sentAt)}
+                            </div>
+                          )}
+                        </button>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => loadInvoiceRecord(record)}
+                            className="flex-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSavedInvoice(record)}
+                            className="rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {!savedInvoices.length && (
+                <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-sm leading-6 text-slate-400">
+                  Saved tuition invoices will appear here, grouped by school year and alphabetized by family name.
+                </div>
+              )}
+            </div>
+          </div>
           <div className="space-y-4">
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">

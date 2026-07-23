@@ -755,7 +755,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
         ))}
       </div>
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
-      {adminView === "office-payroll" && <TuitionBillingModule />}
+      {adminView === "office-payroll" && <TuitionBillingModule currentUserEmail={currentUserEmail} />}
       {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "module-admin" && (
         <>
