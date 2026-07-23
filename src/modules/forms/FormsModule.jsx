@@ -242,6 +242,13 @@ function isFacilitiesUsageTemplate(template) {
   return (title.includes("facility") || title.includes("facilities")) && title.includes("usage");
 }
 
+function getPublicFormCategory(form) {
+  const category = String(form?.category || "").trim();
+  if (isFacilitiesUsageTemplate(form)) return "Facilities";
+  if (category.toLowerCase() === "imported pdf" || category.toLowerCase() === "imported pdfs") return "WVCS Forms";
+  return category || "WVCS Forms";
+}
+
 function isRepeatableDateField(field, template) {
   if (field.type !== "date") return false;
   if (field.allowMultiple) return true;
@@ -1115,7 +1122,7 @@ export function PublicSharedFormPage({ token }) {
           <div className="rounded-lg border border-slate-800 bg-slate-900">
             <div className="border-b border-slate-800 p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
-                {template.category || "WVCS Form"}
+                {getPublicFormCategory(template)}
               </div>
               <h2 className="mt-2 text-2xl font-bold text-white">{template.title}</h2>
               <p className="mt-2 max-w-3xl text-sm text-slate-400">{template.description}</p>
@@ -1267,7 +1274,7 @@ export function PublicFormsDirectoryPage() {
 
   const groupedForms = useMemo(() => {
     return directoryState.forms.reduce((groups, form) => {
-      const category = form.category || "WVCS Forms";
+      const category = getPublicFormCategory(form);
       if (!groups[category]) groups[category] = [];
       groups[category].push(form);
       return groups;
@@ -2101,7 +2108,7 @@ async function templateFromFillablePdf(file, settings) {
   return {
     id: uid("template"),
     title: labelFromPdfFieldName(title),
-    category: "Imported PDF",
+    category: "",
     description: "Template created from fillable PDF fields. Review field labels, order, and required settings before publishing.",
     pdfName: file.name,
     approver: settings.approvers[0] || "Administration",
