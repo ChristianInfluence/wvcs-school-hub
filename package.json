@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test",
     "preview": "vite preview",
     "gmail:token": "node scripts/google-oauth-refresh-token.mjs",
     "scheduler:update": "git subtree pull --prefix=vendor/school-scheduler https://github.com/ChristianInfluence/school-scheduler.git main --squash",

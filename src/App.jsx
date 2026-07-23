@@ -7,6 +7,7 @@ import {
   Files,
   FileText,
   FileSignature,
+  GraduationCap,
   LayoutDashboard,
   Lightbulb,
   Lock,
@@ -23,6 +24,7 @@ import {
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
 import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicFormsDirectoryPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
 import AdminSettingsModule from "./modules/admin/InfrastructureModule.jsx";
+import StudentDirectoryModule from "./modules/admin/StudentDirectoryModule.jsx";
 import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
@@ -790,6 +792,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       </div>
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
+          ["student-directory", "Student Directory", GraduationCap],
           ["settings", "Settings", Settings],
           ["module-admin", "Module Admin", LayoutDashboard],
           ...(access.canUseOfficePayroll ? [["office-payroll", "Office & Payroll", ReceiptText]] : []),
@@ -809,6 +812,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           </button>
         ))}
       </div>
+      {adminView === "student-directory" && <StudentDirectoryModule />}
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} canManageUsers={access.canManageUsers} />}
       {adminView === "office-payroll" && access.canUseOfficePayroll && <OfficePayrollWorkspace currentUserEmail={currentUserEmail} />}
       {adminView === "module-admin" && (
