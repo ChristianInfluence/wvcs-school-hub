@@ -3,7 +3,6 @@ import {
   Bell,
   CalendarClock,
   CalendarDays,
-  Cloud,
   ClipboardCheck,
   Files,
   FileText,
@@ -22,8 +21,7 @@ import {
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
 import StaffFormsModule, { AdminFormsModule, FormApprovalActionPage, PublicFormsDirectoryPage, PublicSharedFormPage } from "./modules/forms/FormsModule.jsx";
-import InfrastructureModule from "./modules/admin/InfrastructureModule.jsx";
-import DriveBackupModule from "./modules/admin/DriveBackupModule.jsx";
+import AdminSettingsModule from "./modules/admin/InfrastructureModule.jsx";
 import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.jsx";
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
@@ -726,11 +724,10 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       </div>
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
-          ["infrastructure", "Infrastructure", Settings],
+          ["settings", "Settings", Settings],
           ["substitutes", "Substitutes", CalendarDays],
           ["meetings", "Meetings Admin", Users],
           ["forms", "Forms Admin", FileText],
-          ["drive-backup", "Drive Backup", Cloud],
           ["documents", "Documents Admin", Files],
           ["suggestions", "Suggestions", Lightbulb],
           ["look-of-the-week", "Look of the Week", Sparkles],
@@ -750,11 +747,10 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           </button>
         ))}
       </div>
-      {adminView === "infrastructure" && <InfrastructureModule />}
+      {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
       {adminView === "substitutes" && <SubstituteCalendarModule />}
       {adminView === "meetings" && <AdminMeetingsModule />}
       {adminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
-      {adminView === "drive-backup" && <DriveBackupModule currentUserEmail={currentUserEmail} />}
       {adminView === "documents" && <AdminDocumentsModule />}
       {adminView === "suggestions" && <AdminSuggestionsModule />}
       {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}

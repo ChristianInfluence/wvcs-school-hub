@@ -36,7 +36,7 @@ function jobTone(status) {
   return "slate";
 }
 
-export default function DriveBackupModule({ currentUserEmail = "" }) {
+export default function DriveBackupModule({ currentUserEmail = "", embedded = false }) {
   const [settings, setSettings] = useState(DEFAULT_DRIVE_BACKUP_SETTINGS);
   const [jobs, setJobs] = useState([]);
   const [status, setStatus] = useState("Loading Drive backup settings...");
@@ -117,7 +117,7 @@ export default function DriveBackupModule({ currentUserEmail = "" }) {
   }
 
   return (
-    <div className="mx-auto max-w-[1500px] px-5 py-6">
+    <div className={embedded ? "" : "mx-auto max-w-[1500px] px-5 py-6"}>
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Drive Backup</div>
