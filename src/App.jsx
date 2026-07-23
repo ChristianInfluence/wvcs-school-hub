@@ -705,7 +705,15 @@ function getRoleLabels(access) {
 }
 
 function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
-  const [adminView, setAdminView] = useState("forms");
+  const [adminView, setAdminView] = useState("module-admin");
+  const [moduleAdminView, setModuleAdminView] = useState("forms");
+  const moduleAdminOptions = [
+    ["forms", "Forms Admin", FileText],
+    ["meetings", "Meetings Admin", Users],
+    ["documents", "Documents Admin", Files],
+    ["suggestions", "Suggestions", Lightbulb],
+    ["look-of-the-week", "Look of the Week", Sparkles],
+  ];
 
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
@@ -725,12 +733,8 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
           ["settings", "Settings", Settings],
+          ["module-admin", "Module Admin", LayoutDashboard],
           ["substitutes", "Substitutes", CalendarDays],
-          ["meetings", "Meetings Admin", Users],
-          ["forms", "Forms Admin", FileText],
-          ["documents", "Documents Admin", Files],
-          ["suggestions", "Suggestions", Lightbulb],
-          ["look-of-the-week", "Look of the Week", Sparkles],
         ].map(([id, label, Icon]) => (
           <button
             key={id}
@@ -749,11 +753,34 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       </div>
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
       {adminView === "substitutes" && <SubstituteCalendarModule />}
-      {adminView === "meetings" && <AdminMeetingsModule />}
-      {adminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
-      {adminView === "documents" && <AdminDocumentsModule />}
-      {adminView === "suggestions" && <AdminSuggestionsModule />}
-      {adminView === "look-of-the-week" && <AdminLookOfWeekModule />}
+      {adminView === "module-admin" && (
+        <>
+          <div className="mx-auto max-w-[1500px] px-5 pt-4">
+            <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+              {moduleAdminOptions.map(([id, label, Icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setModuleAdminView(id)}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                    moduleAdminView === id
+                      ? "border-emerald-400 bg-emerald-500 text-white"
+                      : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                  }`}
+                >
+                  <Icon size={16} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {moduleAdminView === "meetings" && <AdminMeetingsModule />}
+          {moduleAdminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
+          {moduleAdminView === "documents" && <AdminDocumentsModule />}
+          {moduleAdminView === "suggestions" && <AdminSuggestionsModule />}
+          {moduleAdminView === "look-of-the-week" && <AdminLookOfWeekModule />}
+        </>
+      )}
     </section>
   );
 }
