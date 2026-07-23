@@ -595,31 +595,52 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   async function createInvoicePdfBlob() {
     if (!invoiceRef.current) return;
     const html2pdf = (await import("html2pdf.js")).default;
-    return html2pdf()
-      .set({
-        margin: 0.25,
-        filename: getInvoiceFileName(invoice),
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-      })
-      .from(invoiceRef.current)
-      .outputPdf("blob");
+    const host = document.createElement("div");
+    host.style.position = "fixed";
+    host.style.left = "-10000px";
+    host.style.top = "0";
+    host.style.width = "7.5in";
+    host.style.background = "#ffffff";
+    const clone = invoiceRef.current.cloneNode(true);
+    clone.classList.add("tuition-invoice-pdf");
+    host.appendChild(clone);
+    document.body.appendChild(host);
+    try {
+      const worker = html2pdf()
+        .set({
+          margin: [0.18, 0.18, 0.18, 0.18],
+          filename: getInvoiceFileName(invoice),
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+          pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+          jsPDF: { unit: "in", format: "letter", orientation: "portrait", compress: true },
+        })
+        .from(clone)
+        .toPdf();
+      const pdf = await worker.get("pdf");
+      return pdf.output("blob");
+    } finally {
+      host.remove();
+    }
   }
 
   async function downloadPdf() {
-    setStatus("Preparing PDF...");
-    const blob = await createInvoicePdfBlob();
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = getInvoiceFileName(invoice);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setStatus("PDF downloaded.");
+    try {
+      setStatus("Preparing PDF...");
+      const blob = await createInvoicePdfBlob();
+      if (!blob) throw new Error("Unable to create invoice PDF.");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = getInvoiceFileName(invoice);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus("PDF downloaded.");
+    } catch (error) {
+      setStatus(`Unable to download PDF: ${error.message}`);
+    }
   }
 
   function printInvoice() {
@@ -697,15 +718,95 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   return (
     <section className="min-h-[680px] bg-slate-950 px-5 py-6 text-slate-100">
       <style>{`
+        .tuition-invoice-pdf {
+          width: 7.5in !important;
+          padding: 0.3in !important;
+          box-shadow: none !important;
+          font-size: 11px !important;
+          line-height: 1.25 !important;
+        }
+        .tuition-invoice-pdf h1 {
+          font-size: 22px !important;
+          line-height: 1.15 !important;
+        }
+        .tuition-invoice-pdf h2 {
+          font-size: 15px !important;
+        }
+        .tuition-invoice-pdf .mt-8 {
+          margin-top: 1rem !important;
+        }
+        .tuition-invoice-pdf .space-y-8 > :not([hidden]) ~ :not([hidden]) {
+          margin-top: 1rem !important;
+        }
+        .tuition-invoice-pdf .p-5 {
+          padding: 0.75rem !important;
+        }
+        .tuition-invoice-pdf .px-5 {
+          padding-left: 0.75rem !important;
+          padding-right: 0.75rem !important;
+        }
+        .tuition-invoice-pdf .py-3 {
+          padding-top: 0.45rem !important;
+          padding-bottom: 0.45rem !important;
+        }
+        .tuition-invoice-pdf img {
+          width: 0.55in !important;
+          height: 0.55in !important;
+        }
+        @page {
+          size: letter portrait;
+          margin: 0.22in;
+        }
         @media print {
+          html, body {
+            width: 8.5in;
+            min-height: 11in;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+          }
           body * { visibility: hidden; }
           .tuition-invoice, .tuition-invoice * { visibility: visible; }
           .tuition-invoice {
             position: absolute;
             left: 0;
             top: 0;
-            width: 100%;
+            width: 7.55in !important;
+            min-height: auto !important;
+            padding: 0.3in !important;
             box-shadow: none !important;
+            font-size: 11px !important;
+            line-height: 1.25 !important;
+            page-break-after: avoid;
+            break-after: avoid;
+          }
+          .tuition-invoice h1 {
+            font-size: 22px !important;
+            line-height: 1.15 !important;
+          }
+          .tuition-invoice h2 {
+            font-size: 15px !important;
+          }
+          .tuition-invoice .mt-8 {
+            margin-top: 1rem !important;
+          }
+          .tuition-invoice .space-y-8 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 1rem !important;
+          }
+          .tuition-invoice .p-5 {
+            padding: 0.75rem !important;
+          }
+          .tuition-invoice .px-5 {
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+          }
+          .tuition-invoice .py-3 {
+            padding-top: 0.45rem !important;
+            padding-bottom: 0.45rem !important;
+          }
+          .tuition-invoice img {
+            width: 0.55in !important;
+            height: 0.55in !important;
           }
         }
       `}</style>
