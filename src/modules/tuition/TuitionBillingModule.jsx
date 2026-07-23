@@ -24,6 +24,7 @@ const DISCOUNT_OPTIONS = [
 
 const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
+const EARLY_PAY_DISCOUNT_RATE = 0.05;
 
 function createBlankParent() {
   return {
@@ -156,14 +157,6 @@ function getStudentDiscounts(student) {
           amount: student.newStudentDiscount,
         }
       : null,
-    money(student.earlyPayDiscount)
-      ? {
-          id: uid("discount"),
-          label: "Manual",
-          customLabel: "Early Pay Discount",
-          amount: student.earlyPayDiscount,
-        }
-      : null,
   ].filter(Boolean);
 }
 
@@ -175,10 +168,18 @@ function studentDiscountTotal(student) {
   return getStudentDiscounts(student).reduce((total, discount) => total + money(discount.amount), 0);
 }
 
+function studentTuitionAfterDiscounts(student) {
+  return Math.max(money(student.tuition) - studentDiscountTotal(student), 0);
+}
+
+function studentEarlyPayDiscount(student) {
+  return studentTuitionAfterDiscounts(student) * EARLY_PAY_DISCOUNT_RATE;
+}
+
 function studentTotal(student) {
   return (
-    money(student.tuition) -
-    studentDiscountTotal(student) +
+    studentTuitionAfterDiscounts(student) -
+    studentEarlyPayDiscount(student) +
     money(student.comprehensiveFee)
   );
 }
@@ -297,6 +298,10 @@ function InvoicePreview({ invoice, invoiceRef }) {
                       <span className="font-semibold">-{formatCurrency(discount.amount)}</span>
                     </div>
                   ))}
+                <div className="flex justify-between gap-4 text-emerald-700">
+                  <span>5% Early Pay Discount</span>
+                  <span className="font-semibold">-{formatCurrency(studentEarlyPayDiscount(student))}</span>
+                </div>
                 <div className="flex justify-between gap-4">
                   <span>
                     Comprehensive Fees
@@ -866,7 +871,14 @@ export default function TuitionBillingModule() {
                       />
                     </label>
                     <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200">
-                      Student Total: {formatCurrency(studentTotal(student))}
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Automatic 5% Early Pay Discount</span>
+                        <span className="text-emerald-300">-{formatCurrency(studentEarlyPayDiscount(student))}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-800 pt-2">
+                        <span>Student Total</span>
+                        <span>{formatCurrency(studentTotal(student))}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
