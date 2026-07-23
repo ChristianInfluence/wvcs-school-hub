@@ -1,5 +1,37 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 
+const GRADE_LABELS = {
+  PS: "Preschool",
+  PK: "Pre-K",
+  K: "Kindergarten",
+  1: "Grade 1",
+  2: "Grade 2",
+  3: "Grade 3",
+  4: "Grade 4",
+  5: "Grade 5",
+  6: "Grade 6",
+  7: "Grade 7",
+  8: "Grade 8",
+  9: "Grade 9",
+  10: "Grade 10",
+  11: "Grade 11",
+  12: "Grade 12",
+};
+
+function compareStudentsByFirstName(a, b) {
+  const displayA = String(a || "").replace(/^([^,]+),\s*(.+)$/, "$2 $1");
+  const displayB = String(b || "").replace(/^([^,]+),\s*(.+)$/, "$2 $1");
+  return displayA.localeCompare(displayB, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function gradeSortValue(gradeLabel) {
+  const match = String(gradeLabel || "").match(/\d+/);
+  if (gradeLabel === "Preschool") return -2;
+  if (gradeLabel === "Pre-K") return -1;
+  if (gradeLabel === "Kindergarten") return 0;
+  return match ? Number(match[0]) : 999;
+}
+
 function mapEntryFromDatabase(row) {
   return {
     id: row.id,
@@ -15,6 +47,15 @@ function mapEntryFromDatabase(row) {
     notes: row.notes || "",
     status: row.status,
     createdAt: row.created_at,
+  };
+}
+
+function mapStudentDirectoryRow(row) {
+  const firstName = String(row.student_first_name || "").trim();
+  const lastName = String(row.student_last_name || "").trim();
+  return {
+    grade: GRADE_LABELS[row.grade] || row.grade || "Unlisted",
+    studentName: [lastName, firstName].filter(Boolean).join(", "),
   };
 }
 
@@ -122,6 +163,51 @@ export async function fetchRecessAttendance() {
 
   if (error) throw error;
   return { loaded: true, attendance: mapAttendanceFromDatabase(data || []) };
+}
+
+export async function fetchStructuredRecessRoster() {
+  if (!isSupabaseConfigured) {
+    return { loaded: false, reason: "Supabase is not configured.", roster: [] };
+  }
+
+  const rpcResult = await supabase.rpc("get_student_directory_basic");
+  let data = rpcResult.data;
+
+  if (rpcResult.error) {
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("student_directory")
+      .select("grade, student_first_name, student_last_name")
+      .eq("active", true)
+      .order("student_last_name", { ascending: true })
+      .order("student_first_name", { ascending: true });
+
+    if (fallbackError) {
+      throw new Error(
+        "Shared roster access is not ready for Structured Recess. Apply the student directory roster database migration."
+      );
+    }
+
+    data = fallbackData;
+  }
+
+  const groupedRoster = (data || []).reduce((groups, row) => {
+    const student = mapStudentDirectoryRow(row);
+    if (!student.studentName) return groups;
+    const group = groups.get(student.grade) || { grade: student.grade, students: [] };
+    group.students.push(student.studentName);
+    groups.set(student.grade, group);
+    return groups;
+  }, new Map());
+
+  return {
+    loaded: true,
+    roster: [...groupedRoster.values()]
+      .map((group) => ({
+        ...group,
+        students: [...new Set(group.students)].sort(compareStudentsByFirstName),
+      }))
+      .sort((a, b) => gradeSortValue(a.grade) - gradeSortValue(b.grade) || a.grade.localeCompare(b.grade)),
+  };
 }
 
 export async function saveRecessAttendanceRecord(record) {

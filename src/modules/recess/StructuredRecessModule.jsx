@@ -23,6 +23,7 @@ import {
   deleteRecessEntry,
   fetchRecessAttendance,
   fetchRecessEntries,
+  fetchStructuredRecessRoster,
   saveRecessAttendanceRecord,
   saveRecessEntry,
   subscribeToRecessDataChanges,
@@ -32,13 +33,6 @@ import {
 const STORE_KEY = "wvcs-structured-recess-v1";
 const ATTENDANCE_STORE_KEY = "wvcs-recess-attendance-v1";
 const RECESS_POLICY_URL = "https://docs.google.com/document/d/19N3wXVuqtXZzRuugWmJNS635G2E7i4TL6xELwZ0-fMg/edit?usp=sharing";
-const ROSTER_SHEET_ID = "1E47sLmoHmz7Cc68DDaYP1YEgBrg2QJAwOB_w-Pas1nI";
-const ROSTER_CSV_URL = `https://docs.google.com/spreadsheets/d/${ROSTER_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
-const ROSTER_URLS = [
-  ROSTER_CSV_URL,
-  `https://api.allorigins.win/raw?url=${encodeURIComponent(ROSTER_CSV_URL)}`,
-  `https://docs.google.com/spreadsheets/d/${ROSTER_SHEET_ID}/export?format=csv&gid=0`,
-];
 
 const attendanceRecesses = {
   early: {
@@ -231,76 +225,6 @@ function getDurationOptionsForDraft(draft) {
   if (!draft.needsWorkTime) return baseOptions;
   const maxWorkTime = getWorkTimeLimit(draft.recessType);
   return baseOptions.filter((duration) => duration !== "ALL" && Number(duration) <= maxWorkTime);
-}
-
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const nextChar = text[index + 1];
-
-    if (char === '"' && inQuotes && nextChar === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && nextChar === "\n") index += 1;
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-
-  row.push(cell);
-  rows.push(row);
-  return rows.filter((cells) => cells.some((value) => value.trim()));
-}
-
-function buildRosterFromCsv(csvText) {
-  if (/sign in to your google account|<!doctype html|<html/i.test(csvText)) {
-    throw new Error("Google is requiring sign-in for the roster sheet.");
-  }
-
-  const rows = parseCsv(csvText);
-  const headers = rows[0]?.map((header, index) => header.trim() || `Grade ${index}`).filter(Boolean) || [];
-  if (headers.length < 6) throw new Error("The roster sheet needs grade headers starting in A1.");
-
-  return headers.map((grade, columnIndex) => ({
-    grade,
-    students: rows
-      .slice(1)
-      .map((row) => row[columnIndex]?.trim())
-      .filter(Boolean)
-      .sort(compareStudentsByFirstName),
-  }));
-}
-
-async function fetchRosterFromSheet() {
-  const errors = [];
-
-  for (const url of ROSTER_URLS) {
-    try {
-      const response = await fetch(url);
-      const text = await response.text();
-      if (!response.ok) throw new Error(`Google returned ${response.status}`);
-      return buildRosterFromCsv(text);
-    } catch (error) {
-      errors.push(error.message);
-    }
-  }
-
-  throw new Error([...new Set(errors)].join(" "));
 }
 
 function getAttendanceKey(recessId, slotId, grade, studentName) {
@@ -1652,9 +1576,9 @@ function RecessAttendanceBoard({
         <div className="m-4 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
           <AlertCircle size={17} className="mt-0.5 shrink-0" />
           <div>
-            The attendance roster could not be loaded from Google Sheets.
+            The attendance roster could not be loaded from the shared Student Directory.
             <div className="mt-1 text-xs text-amber-200/80">
-              Share the sheet so anyone with the link can view it, or publish it to the web, then refresh the roster.
+              Confirm the student directory has active students and this user has Hub access, then refresh the roster.
             </div>
             <div className="mt-1 text-xs text-amber-200/70">{error}</div>
           </div>
@@ -1663,7 +1587,7 @@ function RecessAttendanceBoard({
 
       {isLoading && !roster.length ? (
         <div className="p-4">
-          <EmptyState>Loading the K-5 attendance roster...</EmptyState>
+          <EmptyState>Loading the shared student roster...</EmptyState>
         </div>
       ) : roster.length ? (
         <div className="space-y-4 p-4">
@@ -1951,7 +1875,8 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
     setIsLoadingRoster(true);
     setRosterError("");
     try {
-      const nextRoster = await fetchRosterFromSheet();
+      const rosterResult = await fetchStructuredRecessRoster();
+      const nextRoster = rosterResult.roster || [];
       setRoster(nextRoster);
       setDraft((current) => {
         if (current.studentGrade || !nextRoster.length) return current;
@@ -1962,7 +1887,7 @@ export default function StructuredRecessModule({ initialView = "full", currentUs
         };
       });
     } catch (error) {
-      setRosterError(error.message || "Unable to load the roster.");
+      setRosterError(error.message || "Unable to load the shared student roster.");
     } finally {
       setIsLoadingRoster(false);
     }
