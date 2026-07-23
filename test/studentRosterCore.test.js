@@ -174,15 +174,3 @@ test("CSV export excludes Student-ID", () => {
   assert.equal(rows[1].length, 11);
   assert.equal(rows[1].includes("id-123"), false);
 });
-
-test("documented Apps Script keeps existing menu commands available", async () => {
-  const script = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../docs/student-roster-apps-script.gs", import.meta.url), "utf8"));
-  [
-    "Add Student from Form",
-    "Remove Selected Student",
-    "Sort Students",
-    "Advance to Next School Year",
-    "Export Active Roster CSV",
-    "Ensure Student IDs",
-  ].forEach((label) => assert.match(script, new RegExp(label)));
-});

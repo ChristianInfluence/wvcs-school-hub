@@ -210,7 +210,7 @@ export default function StudentDirectoryModule() {
     try {
       const roster = await getStudents({ grade, q: query });
       setStudents(roster);
-      setStatus(`${roster.length} student${roster.length === 1 ? "" : "s"} loaded from Google Sheets.`);
+      setStatus(`${roster.length} student${roster.length === 1 ? "" : "s"} loaded from Supabase.`);
     } catch (error) {
       setStatus(error.message || "Unable to load students.");
     } finally {
@@ -256,7 +256,7 @@ export default function StudentDirectoryModule() {
               Student Directory
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Active WVCS roster pulled directly from the private Google Sheet. Changes here write back to the Sheet.
+              Active WVCS roster stored in Supabase for use across the Hub. Changes here update the central Hub roster.
             </p>
           </div>
           <button
