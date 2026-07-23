@@ -32,7 +32,7 @@ import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx"
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
-import TuitionBillingModule from "./modules/tuition/TuitionBillingModule.jsx";
+import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
 import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
@@ -44,6 +44,7 @@ const defaultAccess = {
   canUseAdmin: false,
   canUseScheduler: false,
   canUseDigitalSlips: false,
+  canUseOfficePayroll: false,
 };
 
 const modules = [
@@ -149,9 +150,23 @@ const moduleIds = new Set(modules.map((module) => module.id));
 const moduleHashPaths = Object.fromEntries(modules.map((module) => [module.id, `#/${module.id}`]));
 
 function getRouteFromHash(hash = window.location.hash) {
+  const incidentalPaymentMatch = hash.match(/^#\/incidental-pay\/(.+)$/);
+  if (incidentalPaymentMatch) {
+    return {
+      incidentalPaymentToken: decodeURIComponent(incidentalPaymentMatch[1]),
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
   const permissionMatch = hash.match(/^#\/permission-sign\/(.+)$/);
   if (permissionMatch) {
     return {
+      incidentalPaymentToken: "",
       parentSigningToken: decodeURIComponent(permissionMatch[1]),
       formApprovalToken: "",
       formShareToken: "",
@@ -164,6 +179,7 @@ function getRouteFromHash(hash = window.location.hash) {
   const formApprovalMatch = hash.match(/^#\/form-approval\/(.+)$/);
   if (formApprovalMatch) {
     return {
+      incidentalPaymentToken: "",
       parentSigningToken: "",
       formApprovalToken: decodeURIComponent(formApprovalMatch[1]),
       formShareToken: "",
@@ -176,6 +192,7 @@ function getRouteFromHash(hash = window.location.hash) {
   const formShareMatch = hash.match(/^#\/form-share\/(.+)$/);
   if (formShareMatch) {
     return {
+      incidentalPaymentToken: "",
       parentSigningToken: "",
       formApprovalToken: "",
       formShareToken: decodeURIComponent(formShareMatch[1]),
@@ -187,6 +204,7 @@ function getRouteFromHash(hash = window.location.hash) {
 
   if (hash === "#/structured-recess/aide") {
     return {
+      incidentalPaymentToken: "",
       parentSigningToken: "",
       formApprovalToken: "",
       formShareToken: "",
@@ -198,6 +216,7 @@ function getRouteFromHash(hash = window.location.hash) {
 
   if (hash === "#/public-forms") {
     return {
+      incidentalPaymentToken: "",
       parentSigningToken: "",
       formApprovalToken: "",
       formShareToken: "",
@@ -210,6 +229,7 @@ function getRouteFromHash(hash = window.location.hash) {
   const moduleMatch = hash.match(/^#\/([^/?#]+)$/);
   const moduleId = moduleMatch?.[1];
   return {
+    incidentalPaymentToken: "",
     parentSigningToken: "",
     formApprovalToken: "",
     formShareToken: "",
@@ -702,8 +722,42 @@ function getRoleLabels(access) {
   if (access.canUseAdmin) roles.push("Administrator");
   if (access.canUseScheduler) roles.push("Scheduler");
   if (access.canUseDigitalSlips) roles.push("Digital Slips");
+  if (access.canUseOfficePayroll) roles.push("Office & Payroll");
   if (access.canUseHub) roles.push("Hub User");
   return roles.length ? roles : ["No active role"];
+}
+
+function OfficePayrollWorkspace({ currentUserEmail = "" }) {
+  const [officeView, setOfficeView] = useState("billing");
+
+  return (
+    <section>
+      <div className="mx-auto max-w-[1500px] px-5 pt-4">
+        <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+          {[
+            ["billing", "Billing", ReceiptText],
+            ["substitutes", "Substitutes", CalendarDays],
+          ].map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setOfficeView(id)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                officeView === id
+                  ? "border-sky-400 bg-sky-500 text-white"
+                  : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+              }`}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {officeView === "billing" && <TuitionBillingModule currentUserEmail={currentUserEmail} />}
+      {officeView === "substitutes" && <SubstituteCalendarModule />}
+    </section>
+  );
 }
 
 function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
@@ -736,8 +790,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
         {[
           ["settings", "Settings", Settings],
           ["module-admin", "Module Admin", LayoutDashboard],
-          ["office-payroll", "Office & Payroll", ReceiptText],
-          ["substitutes", "Substitutes", CalendarDays],
+          ...(access.canUseOfficePayroll ? [["office-payroll", "Office & Payroll", ReceiptText]] : []),
         ].map(([id, label, Icon]) => (
           <button
             key={id}
@@ -755,8 +808,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
         ))}
       </div>
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
-      {adminView === "office-payroll" && <TuitionBillingModule currentUserEmail={currentUserEmail} />}
-      {adminView === "substitutes" && <SubstituteCalendarModule />}
+      {adminView === "office-payroll" && access.canUseOfficePayroll && <OfficePayrollWorkspace currentUserEmail={currentUserEmail} />}
       {adminView === "module-admin" && (
         <>
           <div className="mx-auto max-w-[1500px] px-5 pt-4">
@@ -840,7 +892,7 @@ function AuthGate({ children }) {
 
       const { data, error } = await supabase
         .from("staff_access")
-        .select("can_use_hub, can_use_admin, can_use_scheduler, can_use_digital_slips")
+        .select("*")
         .eq("email", email.toLowerCase())
         .maybeSingle();
 
@@ -861,6 +913,7 @@ function AuthGate({ children }) {
         canUseAdmin: data?.can_use_admin ?? false,
         canUseScheduler: data?.can_use_scheduler ?? false,
         canUseDigitalSlips: data?.can_use_digital_slips ?? false,
+        canUseOfficePayroll: data?.can_use_office_payroll ?? data?.can_use_admin ?? false,
       };
 
       if (!access.canUseHub) {
@@ -1033,6 +1086,7 @@ export default function App() {
   const initialRoute = getRouteFromHash();
   const [activeModule, setActiveModule] = useState(initialRoute.moduleId);
   const [structuredRecessView, setStructuredRecessView] = useState(initialRoute.structuredRecessView);
+  const [incidentalPaymentToken, setIncidentalPaymentToken] = useState(initialRoute.incidentalPaymentToken);
   const [parentSigningToken, setParentSigningToken] = useState(initialRoute.parentSigningToken);
   const [formApprovalToken, setFormApprovalToken] = useState(initialRoute.formApprovalToken);
   const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
@@ -1046,6 +1100,7 @@ export default function App() {
   useEffect(() => {
     function handleHashRoute() {
       const route = getRouteFromHash();
+      setIncidentalPaymentToken(route.incidentalPaymentToken);
       setParentSigningToken(route.parentSigningToken);
       setFormApprovalToken(route.formApprovalToken);
       setFormShareToken(route.formShareToken);
@@ -1060,6 +1115,7 @@ export default function App() {
   }, []);
 
   function openModule(moduleId) {
+    setIncidentalPaymentToken("");
     setParentSigningToken("");
     setFormApprovalToken("");
     setFormShareToken("");
@@ -1068,11 +1124,16 @@ export default function App() {
   }
 
   function openStructuredRecessAideView() {
+    setIncidentalPaymentToken("");
     setParentSigningToken("");
     setFormApprovalToken("");
     setFormShareToken("");
     setPublicFormsDirectory(false);
     setModuleHash("structured-recess", "aide");
+  }
+
+  if (incidentalPaymentToken) {
+    return <IncidentalPaymentPortalPage token={incidentalPaymentToken} />;
   }
 
   if (parentSigningToken) {

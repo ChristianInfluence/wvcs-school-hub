@@ -9,6 +9,7 @@ function mapStaffAccess(row) {
     canUseAdmin: row.can_use_admin,
     canUseScheduler: row.can_use_scheduler,
     canUseDigitalSlips: row.can_use_digital_slips,
+    canUseOfficePayroll: row.can_use_office_payroll,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     superuser: row.email === SUPERUSER_EMAIL,
@@ -16,7 +17,7 @@ function mapStaffAccess(row) {
 }
 
 function mapStaffAccessToDatabase(access) {
-  return {
+  const row = {
     email: access.email.toLowerCase(),
     can_use_hub: access.canUseHub !== false,
     can_use_admin: Boolean(access.canUseAdmin),
@@ -24,6 +25,10 @@ function mapStaffAccessToDatabase(access) {
     can_use_digital_slips: Boolean(access.canUseDigitalSlips),
     updated_at: new Date().toISOString(),
   };
+  if ("canUseOfficePayroll" in access) {
+    row.can_use_office_payroll = Boolean(access.canUseOfficePayroll);
+  }
+  return row;
 }
 
 export async function fetchStaffAccessList() {
@@ -43,9 +48,20 @@ export async function fetchStaffAccessList() {
 export async function saveStaffAccess(access) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
 
+  const row = mapStaffAccessToDatabase(access);
   const { error } = await supabase
     .from("staff_access")
-    .upsert(mapStaffAccessToDatabase(access), { onConflict: "email" });
+    .upsert(row, { onConflict: "email" });
+
+  if (error && row.can_use_office_payroll !== undefined && /can_use_office_payroll/i.test(error.message || "")) {
+    const legacyRow = { ...row };
+    delete legacyRow.can_use_office_payroll;
+    const { error: legacyError } = await supabase
+      .from("staff_access")
+      .upsert(legacyRow, { onConflict: "email" });
+    if (legacyError) throw legacyError;
+    return { saved: true, legacy: true };
+  }
 
   if (error) throw error;
   return { saved: true };

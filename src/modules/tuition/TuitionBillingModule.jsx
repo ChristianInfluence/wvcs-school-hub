@@ -1,18 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calculator,
+  Copy,
+  CreditCard,
   Download,
+  ExternalLink,
   Mail,
   Plus,
   Printer,
   ReceiptText,
+  RefreshCw,
   Save,
   Trash2,
 } from "lucide-react";
 import {
+  deleteIncidentalInvoice,
   deleteTuitionInvoice,
+  fetchIncidentalInvoiceByToken,
+  fetchIncidentalInvoices,
   fetchTuitionInvoices,
+  saveIncidentalInvoice,
   saveTuitionInvoice,
+  sendIncidentalInvoiceEmail,
   sendTuitionInvoiceEmail,
 } from "../../lib/tuitionBillingData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
@@ -82,6 +91,9 @@ const defaultIncidentalInvoice = {
   parentEmail: "",
   invoiceDate: today,
   dueDate: "",
+  status: "Draft",
+  paymentStatus: "Unpaid",
+  paymentUrl: "",
   note: "Please contact the school office with any questions about these incidental charges.",
   charges: [{ id: "charge-1", description: "", amount: "" }],
 };
@@ -206,6 +218,20 @@ function invoiceTitle(invoice) {
   const family = invoice.familyName?.trim() || "Family";
   const schoolYear = invoice.schoolYear?.trim() || "School Year";
   return `${family} ${schoolYear} Tuition Breakdown`;
+}
+
+function incidentalTotal(invoice) {
+  return (invoice.charges || []).reduce((total, charge) => total + money(charge.amount), 0);
+}
+
+function incidentalTitle(invoice) {
+  const family = invoice.familyName?.trim() || "Family";
+  return `${family} Incidental Invoice`;
+}
+
+function getIncidentalPortalUrl(invoice) {
+  if (!invoice.publicToken) return "";
+  return `${window.location.origin}${window.location.pathname}#/incidental-pay/${encodeURIComponent(invoice.publicToken)}`;
 }
 
 function groupInvoicesByYear(invoices) {
@@ -550,18 +576,191 @@ function InvoicePreview({ invoice, invoiceRef }) {
   );
 }
 
+function IncidentalInvoicePreview({ invoice, publicView = false }) {
+  const total = incidentalTotal(invoice);
+  const portalUrl = !publicView ? getIncidentalPortalUrl(invoice) : "";
+  const payUrl = invoice.paymentUrl || "";
+
+  return (
+    <div className="bg-white p-8 text-slate-950 shadow-xl">
+      <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <img src={warriorHeadNew} alt="Willamette Valley Christian School" className="h-14 w-14 object-contain" />
+          <div>
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-sky-700">Willamette Valley Christian School</div>
+            <h1 className="mt-2 text-2xl font-bold text-slate-950">{incidentalTitle(invoice)}</h1>
+            <div className="mt-3 text-sm leading-6 text-slate-600">
+              <div>{invoice.parentName || "Parent/Guardian"}</div>
+              {invoice.parentEmail && <div>{invoice.parentEmail}</div>}
+            </div>
+          </div>
+        </div>
+        <div className="min-w-48 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+          <div className="flex justify-between gap-4">
+            <span className="font-semibold text-slate-500">Invoice Date</span>
+            <span>{formatDate(invoice.invoiceDate) || "Not set"}</span>
+          </div>
+          <div className="mt-2 flex justify-between gap-4">
+            <span className="font-semibold text-slate-500">Due Date</span>
+            <span>{formatDate(invoice.dueDate) || "Not set"}</span>
+          </div>
+          <div className="mt-2 flex justify-between gap-4">
+            <span className="font-semibold text-slate-500">Payment</span>
+            <span>{invoice.paymentStatus || "Unpaid"}</span>
+          </div>
+        </div>
+      </div>
+
+      <section className="mt-6 overflow-hidden rounded-lg border border-slate-200">
+        <div className="grid grid-cols-[1fr_140px] bg-slate-50 px-5 py-3 text-sm font-bold text-slate-700">
+          <div>Description</div>
+          <div className="text-right">Amount</div>
+        </div>
+        {(invoice.charges || []).map((charge) => (
+          <div key={charge.id} className="grid grid-cols-[1fr_140px] border-t border-slate-200 px-5 py-3 text-sm">
+            <div>{charge.description || "Charge description"}</div>
+            <div className="text-right font-semibold">{formatCurrency(charge.amount)}</div>
+          </div>
+        ))}
+        <div className="grid grid-cols-[1fr_140px] border-t-2 border-slate-900 px-5 py-4 text-lg font-bold">
+          <div>Total Due</div>
+          <div className="text-right">{formatCurrency(total)}</div>
+        </div>
+      </section>
+
+      {invoice.note && (
+        <div className="mt-6 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+          {invoice.note}
+        </div>
+      )}
+
+      <div className="mt-6 rounded-lg border border-sky-200 bg-sky-50 p-4">
+        <div className="text-sm font-bold text-slate-950">Payment Portal</div>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          {payUrl
+            ? "Use the secure payment button below to pay this incidental invoice."
+            : "Online payment processing is being prepared. Please contact the school office for payment instructions."}
+        </p>
+        {payUrl ? (
+          <a
+            href={payUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
+          >
+            <CreditCard size={16} />
+            Pay Securely
+          </a>
+        ) : (
+          <div className="mt-4 rounded-lg border border-sky-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+            Payment link not connected yet
+          </div>
+        )}
+        {!publicView && portalUrl && (
+          <div className="mt-3 break-all text-xs text-slate-500">{portalUrl}</div>
+        )}
+      </div>
+
+      <div className="mt-6 border-t border-slate-200 pt-4 text-xs text-slate-500">
+        Willamette Valley Christian School | 9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236 | wvcs.org
+      </div>
+    </div>
+  );
+}
+
+export function IncidentalPaymentPortalPage({ token = "" }) {
+  const [state, setState] = useState({ loading: true, invoice: null, error: "" });
+
+  useEffect(() => {
+    let active = true;
+    async function loadInvoice() {
+      try {
+        const result = await fetchIncidentalInvoiceByToken(token);
+        if (!active) return;
+        if (!result.found) {
+          setState({ loading: false, invoice: null, error: "This invoice link could not be found." });
+          return;
+        }
+        const invoice = {
+          ...defaultIncidentalInvoice,
+          ...(result.invoice?.invoice || {}),
+          id: result.invoice?.id || "",
+          publicToken: result.invoice?.publicToken || token,
+          status: result.invoice?.status || "Sent",
+          paymentStatus: result.invoice?.paymentStatus || "Unpaid",
+          paymentUrl: result.invoice?.paymentUrl || result.invoice?.invoice?.paymentUrl || "",
+          sentAt: result.invoice?.sentAt || "",
+          paidAt: result.invoice?.paidAt || "",
+        };
+        setState({ loading: false, invoice, error: "" });
+      } catch (error) {
+        if (active) setState({ loading: false, invoice: null, error: `Unable to load invoice: ${error.message}` });
+      }
+    }
+    loadInvoice();
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  if (state.loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
+          Loading invoice...
+        </div>
+      </div>
+    );
+  }
+
+  if (state.error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
+        <div className="w-full max-w-lg rounded-lg border border-slate-800 bg-slate-900 p-6 text-center">
+          <img src={warriorHeadNew} alt="WVCS Warrior" className="mx-auto h-14 w-14 object-contain" />
+          <h1 className="mt-4 text-xl font-bold text-white">Invoice Not Available</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-400">{state.error}</p>
+          <a href="https://wvcs.org" className="mt-5 inline-flex rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-2 text-sm font-semibold text-sky-100">
+            Return to WVCS
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">WVCS Payment Portal</div>
+          <h1 className="mt-2 text-2xl font-bold text-white">Incidental Invoice</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            Review the invoice below, then use the secure payment button if online payment is available.
+          </p>
+        </div>
+        <IncidentalInvoicePreview invoice={state.invoice} publicView />
+      </div>
+    </main>
+  );
+}
+
 export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
   const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
   const [savedInvoices, setSavedInvoices] = useState([]);
+  const [savedIncidentalInvoices, setSavedIncidentalInvoices] = useState([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
+  const [selectedIncidentalInvoiceId, setSelectedIncidentalInvoiceId] = useState("");
   const [status, setStatus] = useState("");
   const [savedStatus, setSavedStatus] = useState("Loading saved invoices...");
+  const [incidentalStatus, setIncidentalStatus] = useState("Loading incidental invoices...");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendingIncidentalEmail, setSendingIncidentalEmail] = useState(false);
   const invoiceRef = useRef(null);
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
   const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
+  const incidentalDraftTotal = useMemo(() => incidentalTotal(incidentalInvoice), [incidentalInvoice]);
 
   async function loadSavedInvoices() {
     try {
@@ -573,8 +772,19 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
     }
   }
 
+  async function loadSavedIncidentalInvoices() {
+    try {
+      const result = await fetchIncidentalInvoices();
+      setSavedIncidentalInvoices(result.invoices || []);
+      setIncidentalStatus(result.loaded ? "Incidental invoices loaded." : result.reason || "Showing local incidental invoices.");
+    } catch (error) {
+      setIncidentalStatus(`Unable to load incidental invoices: ${error.message}`);
+    }
+  }
+
   useEffect(() => {
     loadSavedInvoices();
+    loadSavedIncidentalInvoices();
   }, []);
 
   function updateInvoice(patch) {
@@ -858,6 +1068,147 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
 
   function saveDraft() {
     handleSaveInvoice();
+  }
+
+  async function saveCurrentIncidentalInvoice(patch = {}) {
+    const invoiceId = incidentalInvoice.id || selectedIncidentalInvoiceId || crypto.randomUUID();
+    const publicToken = incidentalInvoice.publicToken || crypto.randomUUID().replaceAll("-", "");
+    const nextInvoice = {
+      ...incidentalInvoice,
+      id: invoiceId,
+      publicToken,
+      status: patch.status || incidentalInvoice.status || "Draft",
+      paymentStatus: patch.paymentStatus || incidentalInvoice.paymentStatus || "Unpaid",
+    };
+    const record = {
+      id: invoiceId,
+      publicToken,
+      invoice: nextInvoice,
+      status: nextInvoice.status,
+      paymentStatus: nextInvoice.paymentStatus,
+      paymentUrl: nextInvoice.paymentUrl || "",
+      sentAt: patch.sentAt || incidentalInvoice.sentAt || "",
+      sentTo: patch.sentTo || incidentalInvoice.sentTo || [],
+      paidAt: patch.paidAt || incidentalInvoice.paidAt || "",
+    };
+    const result = await saveIncidentalInvoice(record, currentUserEmail);
+    setIncidentalInvoice({
+      ...defaultIncidentalInvoice,
+      ...result.invoice.invoice,
+      id: result.invoice.id,
+      publicToken: result.invoice.publicToken,
+      status: result.invoice.status || "Draft",
+      paymentStatus: result.invoice.paymentStatus || "Unpaid",
+      paymentUrl: result.invoice.paymentUrl || result.invoice.invoice?.paymentUrl || "",
+      sentAt: result.invoice.sentAt || "",
+      sentTo: result.invoice.sentTo || [],
+      paidAt: result.invoice.paidAt || "",
+    });
+    setSelectedIncidentalInvoiceId(result.invoice.id);
+    setSavedIncidentalInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
+    setIncidentalStatus(result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved.");
+    return result.invoice;
+  }
+
+  async function saveIncidentalDraft() {
+    try {
+      const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
+      setStatus(`${saved.familyName || "Incidental invoice"} saved.`);
+    } catch (error) {
+      setStatus(`Unable to save incidental invoice: ${error.message}`);
+    }
+  }
+
+  function loadIncidentalRecord(record) {
+    setIncidentalInvoice({
+      ...defaultIncidentalInvoice,
+      ...(record.invoice || {}),
+      id: record.id,
+      publicToken: record.publicToken || record.invoice?.publicToken || "",
+      status: record.status || "Draft",
+      paymentStatus: record.paymentStatus || "Unpaid",
+      paymentUrl: record.paymentUrl || record.invoice?.paymentUrl || "",
+      sentAt: record.sentAt || "",
+      sentTo: record.sentTo || [],
+      paidAt: record.paidAt || "",
+    });
+    setSelectedIncidentalInvoiceId(record.id);
+    setStatus(`Loaded ${record.familyName || "incidental invoice"}.`);
+  }
+
+  async function removeSavedIncidentalInvoice(record) {
+    const confirmed = window.confirm(`Delete the incidental invoice for ${record.familyName || "this family"}?`);
+    if (!confirmed) return;
+    try {
+      await deleteIncidentalInvoice(record.id);
+      setSavedIncidentalInvoices((current) => current.filter((item) => item.id !== record.id));
+      if (selectedIncidentalInvoiceId === record.id) {
+        resetIncidentalInvoice();
+      }
+      setStatus("Incidental invoice deleted.");
+    } catch (error) {
+      setStatus(`Unable to delete incidental invoice: ${error.message}`);
+    }
+  }
+
+  function resetIncidentalInvoice() {
+    setIncidentalInvoice({
+      ...defaultIncidentalInvoice,
+      id: "",
+      publicToken: "",
+      invoiceDate: today,
+      charges: defaultIncidentalInvoice.charges.map((charge) => ({ ...charge })),
+    });
+    setSelectedIncidentalInvoiceId("");
+    setStatus("Started a fresh incidental invoice.");
+  }
+
+  async function copyIncidentalPortalLink() {
+    try {
+      const saved = incidentalInvoice.publicToken
+        ? { invoice: { ...incidentalInvoice } }
+        : await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
+      const portalInvoice = saved.invoice?.invoice || saved.invoice || incidentalInvoice;
+      const url = getIncidentalPortalUrl(portalInvoice);
+      await navigator.clipboard.writeText(url);
+      setStatus("Payment portal link copied.");
+    } catch (error) {
+      setStatus(`Unable to copy payment portal link: ${error.message}`);
+    }
+  }
+
+  async function sendIncidentalEmail() {
+    const recipient = incidentalInvoice.parentEmail?.trim().toLowerCase();
+    if (!recipient) {
+      setStatus("Enter a parent email before sending.");
+      return;
+    }
+    setSendingIncidentalEmail(true);
+    setStatus("Saving and sending incidental invoice email...");
+    try {
+      const savedRecord = await saveCurrentIncidentalInvoice({
+        status: "Sent",
+        sentAt: new Date().toISOString(),
+        sentTo: [recipient],
+      });
+      const savedInvoice = {
+        ...savedRecord.invoice,
+        id: savedRecord.id,
+        publicToken: savedRecord.publicToken,
+        paymentUrl: savedRecord.paymentUrl || savedRecord.invoice?.paymentUrl || "",
+      };
+      const result = await sendIncidentalInvoiceEmail({
+        invoice: savedInvoice,
+        total: incidentalTotal(savedInvoice),
+        portalUrl: getIncidentalPortalUrl(savedInvoice),
+        recipients: [recipient],
+      });
+      setStatus(result.sent ? `Incidental invoice sent to ${recipient}.` : result.reason || "Email was not sent.");
+    } catch (error) {
+      setStatus(`Unable to send incidental invoice: ${error.message}`);
+    } finally {
+      setSendingIncidentalEmail(false);
+    }
   }
 
   function updateIncidentalInvoice(patch) {
@@ -1425,7 +1776,83 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         )}
 
         {activeView === "incidentals" && (
-          <div className="mt-6 grid gap-6 xl:grid-cols-[520px_1fr]">
+          <div className="mt-6 grid gap-4 xl:grid-cols-[240px_480px_minmax(640px,1fr)]">
+            <div className="rounded-lg border border-slate-800 bg-slate-900">
+              <div className="border-b border-slate-800 p-3">
+                <div className="text-sm font-bold text-white">Saved Incidentals</div>
+                <div className="mt-1 text-xs text-slate-500">{incidentalStatus}</div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={loadSavedIncidentalInvoices}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                  >
+                    <RefreshCw size={13} />
+                    Refresh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetIncidentalInvoice}
+                    className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                  >
+                    New
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-[820px] overflow-auto p-2">
+                {savedIncidentalInvoices.map((record) => (
+                  <div
+                    key={record.id}
+                    className={`mb-2 rounded-lg border p-2 ${
+                      selectedIncidentalInvoiceId === record.id
+                        ? "border-sky-400 bg-sky-500/10"
+                        : "border-slate-800 bg-slate-950"
+                    }`}
+                  >
+                    <button type="button" onClick={() => loadIncidentalRecord(record)} className="w-full text-left">
+                      <div className="truncate text-sm font-bold text-white">{record.familyName || "Unnamed Family"}</div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className="rounded-full border border-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+                          {record.status || "Draft"}
+                        </span>
+                        <span
+                          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
+                            record.paymentStatus === "Paid"
+                              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                              : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                          }`}
+                        >
+                          {record.paymentStatus || "Unpaid"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">{formatShortDate(record.updatedAt) || "Recent"}</div>
+                    </button>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadIncidentalRecord(record)}
+                        className="flex-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeSavedIncidentalInvoice(record)}
+                        className="rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!savedIncidentalInvoices.length && (
+                  <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+                    Saved incidental invoices will appear here.
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-4">
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-white">
@@ -1448,6 +1875,27 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Field label="Due Date">
                     <Input type="date" value={incidentalInvoice.dueDate} onChange={(event) => updateIncidentalInvoice({ dueDate: event.target.value })} />
                   </Field>
+                  <Field label="Payment Status">
+                    <select
+                      value={incidentalInvoice.paymentStatus || "Unpaid"}
+                      onChange={(event) => updateIncidentalInvoice({ paymentStatus: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                    >
+                      <option>Unpaid</option>
+                      <option>Pending</option>
+                      <option>Paid</option>
+                      <option>Voided</option>
+                    </select>
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Payment / Checkout Link">
+                      <Input
+                        value={incidentalInvoice.paymentUrl}
+                        onChange={(event) => updateIncidentalInvoice({ paymentUrl: event.target.value })}
+                        placeholder="Stripe, PayPal, Venmo, or hosted checkout link"
+                      />
+                    </Field>
+                  </div>
                 </div>
                 <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
                   Parent Note
@@ -1492,17 +1940,79 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   ))}
                 </div>
               </div>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-white">Payment Portal</div>
+                    <div className="mt-1 text-xs text-slate-500">Save once to generate the parent-facing link.</div>
+                  </div>
+                  <div className="text-right text-lg font-bold text-white">{formatCurrency(incidentalDraftTotal)}</div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={saveIncidentalDraft}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                  >
+                    <Save size={16} />
+                    Save Invoice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyIncidentalPortalLink}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  >
+                    <Copy size={16} />
+                    Copy Portal Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendIncidentalEmail}
+                    disabled={sendingIncidentalEmail}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Mail size={16} />
+                    {sendingIncidentalEmail ? "Sending..." : "Send Email"}
+                  </button>
+                </div>
+                {incidentalInvoice.publicToken && (
+                  <a
+                    href={getIncidentalPortalUrl(incidentalInvoice)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-sky-300 hover:text-sky-200"
+                  >
+                    <ExternalLink size={14} />
+                    Open parent payment portal
+                  </a>
+                )}
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  Card payments can be connected with Stripe Checkout. Venmo usually requires PayPal/Braintree or a compatible processor link, so this field is ready for whichever provider you choose.
+                </p>
+              </div>
             </div>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-              <div className="text-sm font-bold text-white">Incidental Billing Setup</div>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                This is now separated from tuition breakdowns. The next step is to connect this area to the payment method you want families to use for incidental charges, then send a payment invoice from here.
-              </p>
-              <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current Draft Total</div>
-                <div className="mt-2 text-3xl font-bold text-white">
-                  {formatCurrency(incidentalInvoice.charges.reduce((total, charge) => total + money(charge.amount), 0))}
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-white">Live Preview</div>
+                    <div className="mt-1 text-xs text-slate-500">This is the parent-facing invoice layout.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={saveIncidentalDraft}
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                  >
+                    <Save size={16} />
+                    Save
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg bg-slate-800 p-3">
+                <div className="mx-auto max-w-[8.5in]">
+                  <IncidentalInvoicePreview invoice={incidentalInvoice} />
                 </div>
               </div>
             </div>
