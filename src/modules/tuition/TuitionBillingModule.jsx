@@ -14,40 +14,47 @@ import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
 
+const DISCOUNT_OPTIONS = [
+  "Staff Discount",
+  "Pastoral Discount",
+  "New Family Discount",
+  "Financial Aid",
+  "Multi-student",
+];
+
+function createBlankDiscount(label = DISCOUNT_OPTIONS[0]) {
+  return {
+    id: uid("discount"),
+    label,
+    customLabel: "",
+    amount: "",
+  };
+}
+
+function createBlankStudent() {
+  return {
+    id: uid("student"),
+    name: "",
+    grade: "",
+    tuition: "",
+    discounts: [],
+    comprehensiveFee: "",
+    feeNote: "",
+  };
+}
+
 const defaultInvoice = {
-  schoolYear: "2026-2027",
-  familyName: "Example Family",
-  parentName: "Parent/Guardian Name",
+  schoolYear: "",
+  familyName: "",
+  parentName: "",
   parentEmail: "",
   invoiceDate: today,
   dueDate: "",
-  preparedBy: "WVCS Office",
-  note:
-    "Thank you for partnering with Willamette Valley Christian School. Please contact the school office with any questions about this tuition breakdown.",
-  paymentNote: "Early pay discount applies when paid by check, cashier's check, or money order by August 31.",
-  registrationFee: "250.00",
-  students: [
-    {
-      id: "student-1",
-      name: "Student One",
-      grade: "8th",
-      tuition: "8155.00",
-      newStudentDiscount: "2038.75",
-      earlyPayDiscount: "305.81",
-      comprehensiveFee: "450.00",
-      feeNote: "Includes consumable materials, field trips, retreats, and yearbooks.",
-    },
-    {
-      id: "student-2",
-      name: "Student Two",
-      grade: "9th",
-      tuition: "8630.00",
-      newStudentDiscount: "2157.50",
-      earlyPayDiscount: "323.63",
-      comprehensiveFee: "450.00",
-      feeNote: "Includes consumable materials, field trips, retreats, and yearbooks.",
-    },
-  ],
+  preparedBy: "",
+  note: "",
+  paymentNote: "",
+  registrationFee: "",
+  students: [createBlankStudent()],
 };
 
 const defaultIncidentalInvoice = {
@@ -87,11 +94,48 @@ function formatDate(value) {
   });
 }
 
+function getStudentDiscounts(student) {
+  if (Array.isArray(student.discounts)) {
+    return student.discounts.map((discount) => ({
+      id: discount.id || uid("discount"),
+      label: discount.label || DISCOUNT_OPTIONS[0],
+      customLabel: discount.customLabel || "",
+      amount: discount.amount || "",
+    }));
+  }
+
+  return [
+    money(student.newStudentDiscount)
+      ? {
+          id: uid("discount"),
+          label: "New Family Discount",
+          customLabel: "",
+          amount: student.newStudentDiscount,
+        }
+      : null,
+    money(student.earlyPayDiscount)
+      ? {
+          id: uid("discount"),
+          label: "Manual",
+          customLabel: "Early Pay Discount",
+          amount: student.earlyPayDiscount,
+        }
+      : null,
+  ].filter(Boolean);
+}
+
+function getDiscountLabel(discount) {
+  return discount.label === "Manual" ? discount.customLabel || "Custom Discount" : discount.label;
+}
+
+function studentDiscountTotal(student) {
+  return getStudentDiscounts(student).reduce((total, discount) => total + money(discount.amount), 0);
+}
+
 function studentTotal(student) {
   return (
     money(student.tuition) -
-    money(student.newStudentDiscount) -
-    money(student.earlyPayDiscount) +
+    studentDiscountTotal(student) +
     money(student.comprehensiveFee)
   );
 }
@@ -125,7 +169,7 @@ function Input(props) {
   return (
     <input
       {...props}
-      className={`w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400 ${props.className || ""}`}
+      className={`w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400 ${props.className || ""}`}
     />
   );
 }
@@ -196,14 +240,14 @@ function InvoicePreview({ invoice, invoiceRef }) {
                   <span>Tuition</span>
                   <span className="font-semibold">{formatCurrency(student.tuition)}</span>
                 </div>
-                <div className="flex justify-between gap-4 text-emerald-700">
-                  <span>New Student Discount</span>
-                  <span className="font-semibold">-{formatCurrency(student.newStudentDiscount)}</span>
-                </div>
-                <div className="flex justify-between gap-4 text-emerald-700">
-                  <span>Early Pay Discount</span>
-                  <span className="font-semibold">-{formatCurrency(student.earlyPayDiscount)}</span>
-                </div>
+                {getStudentDiscounts(student)
+                  .filter((discount) => money(discount.amount))
+                  .map((discount) => (
+                    <div key={discount.id} className="flex justify-between gap-4 text-emerald-700">
+                      <span>{getDiscountLabel(discount)}</span>
+                      <span className="font-semibold">-{formatCurrency(discount.amount)}</span>
+                    </div>
+                  ))}
                 <div className="flex justify-between gap-4">
                   <span>
                     Comprehensive Fees
@@ -240,9 +284,11 @@ function InvoicePreview({ invoice, invoiceRef }) {
         </section>
       </div>
 
-      <div className="mt-8 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-        {invoice.note}
-      </div>
+      {invoice.note && (
+        <div className="mt-8 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+          {invoice.note}
+        </div>
+      )}
 
       <div className="mt-8 border-t border-slate-200 pt-4 text-xs text-slate-500">
         Willamette Valley Christian School | 9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236 | wvcs.org
@@ -274,19 +320,7 @@ export default function TuitionBillingModule() {
   function addStudent() {
     setInvoice((current) => ({
       ...current,
-      students: [
-        ...current.students,
-        {
-          id: uid("student"),
-          name: "",
-          grade: "",
-          tuition: "",
-          newStudentDiscount: "",
-          earlyPayDiscount: "",
-          comprehensiveFee: "450.00",
-          feeNote: "Includes consumable materials, field trips, retreats, and yearbooks.",
-        },
-      ],
+      students: [...current.students, createBlankStudent()],
     }));
   }
 
@@ -294,6 +328,44 @@ export default function TuitionBillingModule() {
     setInvoice((current) => ({
       ...current,
       students: current.students.length > 1 ? current.students.filter((student) => student.id !== studentId) : current.students,
+    }));
+  }
+
+  function addStudentDiscount(studentId) {
+    setInvoice((current) => ({
+      ...current,
+      students: current.students.map((student) =>
+        student.id === studentId
+          ? { ...student, discounts: [...getStudentDiscounts(student), createBlankDiscount()] }
+          : student
+      ),
+    }));
+  }
+
+  function updateStudentDiscount(studentId, discountId, patch) {
+    setInvoice((current) => ({
+      ...current,
+      students: current.students.map((student) =>
+        student.id === studentId
+          ? {
+              ...student,
+              discounts: getStudentDiscounts(student).map((discount) =>
+                discount.id === discountId ? { ...discount, ...patch } : discount
+              ),
+            }
+          : student
+      ),
+    }));
+  }
+
+  function removeStudentDiscount(studentId, discountId) {
+    setInvoice((current) => ({
+      ...current,
+      students: current.students.map((student) =>
+        student.id === studentId
+          ? { ...student, discounts: getStudentDiscounts(student).filter((discount) => discount.id !== discountId) }
+          : student
+      ),
     }));
   }
 
@@ -507,16 +579,33 @@ export default function TuitionBillingModule() {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Field label="Family Name">
-                  <Input value={invoice.familyName} onChange={(event) => updateInvoice({ familyName: event.target.value })} />
+                  <Input
+                    value={invoice.familyName}
+                    onChange={(event) => updateInvoice({ familyName: event.target.value })}
+                    placeholder="Example: Johnson Family"
+                  />
                 </Field>
                 <Field label="School Year">
-                  <Input value={invoice.schoolYear} onChange={(event) => updateInvoice({ schoolYear: event.target.value })} />
+                  <Input
+                    value={invoice.schoolYear}
+                    onChange={(event) => updateInvoice({ schoolYear: event.target.value })}
+                    placeholder="2026-2027"
+                  />
                 </Field>
                 <Field label="Parent Name">
-                  <Input value={invoice.parentName} onChange={(event) => updateInvoice({ parentName: event.target.value })} />
+                  <Input
+                    value={invoice.parentName}
+                    onChange={(event) => updateInvoice({ parentName: event.target.value })}
+                    placeholder="Parent/guardian name"
+                  />
                 </Field>
                 <Field label="Parent Email">
-                  <Input type="email" value={invoice.parentEmail} onChange={(event) => updateInvoice({ parentEmail: event.target.value })} />
+                  <Input
+                    type="email"
+                    value={invoice.parentEmail}
+                    onChange={(event) => updateInvoice({ parentEmail: event.target.value })}
+                    placeholder="parent@example.com"
+                  />
                 </Field>
                 <Field label="Invoice Date">
                   <Input type="date" value={invoice.invoiceDate} onChange={(event) => updateInvoice({ invoiceDate: event.target.value })} />
@@ -528,7 +617,11 @@ export default function TuitionBillingModule() {
                   <MoneyInput value={invoice.registrationFee} onChange={(event) => updateInvoice({ registrationFee: event.target.value })} />
                 </Field>
                 <Field label="Prepared By">
-                  <Input value={invoice.preparedBy} onChange={(event) => updateInvoice({ preparedBy: event.target.value })} />
+                  <Input
+                    value={invoice.preparedBy}
+                    onChange={(event) => updateInvoice({ preparedBy: event.target.value })}
+                    placeholder="WVCS Office"
+                  />
                 </Field>
               </div>
               <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
@@ -536,7 +629,8 @@ export default function TuitionBillingModule() {
                 <textarea
                   value={invoice.note}
                   onChange={(event) => updateInvoice({ note: event.target.value })}
-                  className="min-h-24 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  placeholder="Optional note for the family"
+                  className="min-h-24 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
                 />
               </label>
               <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
@@ -544,7 +638,8 @@ export default function TuitionBillingModule() {
                 <textarea
                   value={invoice.paymentNote}
                   onChange={(event) => updateInvoice({ paymentNote: event.target.value })}
-                  className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  placeholder="Example: Early pay discount applies when paid by check, cashier's check, or money order by August 31."
+                  className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
                 />
               </label>
             </div>
@@ -577,27 +672,89 @@ export default function TuitionBillingModule() {
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <Field label="Student Name">
-                        <Input value={student.name} onChange={(event) => updateStudent(student.id, { name: event.target.value })} />
+                        <Input
+                          value={student.name}
+                          onChange={(event) => updateStudent(student.id, { name: event.target.value })}
+                          placeholder="Student name"
+                        />
                       </Field>
                       <Field label="Grade">
-                        <Input value={student.grade} onChange={(event) => updateStudent(student.id, { grade: event.target.value })} />
+                        <Input value={student.grade} onChange={(event) => updateStudent(student.id, { grade: event.target.value })} placeholder="8th" />
                       </Field>
                       <Field label="Tuition">
                         <MoneyInput value={student.tuition} onChange={(event) => updateStudent(student.id, { tuition: event.target.value })} />
-                      </Field>
-                      <Field label="New Student Discount">
-                        <MoneyInput value={student.newStudentDiscount} onChange={(event) => updateStudent(student.id, { newStudentDiscount: event.target.value })} />
-                      </Field>
-                      <Field label="Early Pay Discount">
-                        <MoneyInput value={student.earlyPayDiscount} onChange={(event) => updateStudent(student.id, { earlyPayDiscount: event.target.value })} />
                       </Field>
                       <Field label="Comprehensive Fee">
                         <MoneyInput value={student.comprehensiveFee} onChange={(event) => updateStudent(student.id, { comprehensiveFee: event.target.value })} />
                       </Field>
                     </div>
+                    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-white">Discounts</div>
+                        <button
+                          type="button"
+                          onClick={() => addStudentDiscount(student.id)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                        >
+                          <Plus size={15} />
+                          Add Discount
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {getStudentDiscounts(student).map((discount) => (
+                          <div key={discount.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-2 sm:grid-cols-[1fr_1fr_120px_auto]">
+                            <select
+                              value={discount.label}
+                              onChange={(event) =>
+                                updateStudentDiscount(student.id, discount.id, {
+                                  label: event.target.value,
+                                  customLabel: event.target.value === "Manual" ? discount.customLabel : "",
+                                })
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                            >
+                              {DISCOUNT_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                              <option value="Manual">Manual</option>
+                            </select>
+                            <Input
+                              value={discount.customLabel}
+                              onChange={(event) => updateStudentDiscount(student.id, discount.id, { customLabel: event.target.value })}
+                              placeholder="Custom discount name"
+                              disabled={discount.label !== "Manual"}
+                              className={discount.label !== "Manual" ? "opacity-50" : ""}
+                            />
+                            <MoneyInput
+                              value={discount.amount}
+                              onChange={(event) => updateStudentDiscount(student.id, discount.id, { amount: event.target.value })}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeStudentDiscount(student.id, discount.id)}
+                              className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                              aria-label="Remove discount"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        ))}
+                        {!getStudentDiscounts(student).length && (
+                          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-500">
+                            No discounts added for this student.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
                       Fee Note
-                      <Input value={student.feeNote} onChange={(event) => updateStudent(student.id, { feeNote: event.target.value })} />
+                      <Input
+                        value={student.feeNote}
+                        onChange={(event) => updateStudent(student.id, { feeNote: event.target.value })}
+                        placeholder="Includes consumable materials, field trips, retreats, and yearbooks."
+                      />
                     </label>
                     <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200">
                       Student Total: {formatCurrency(studentTotal(student))}
