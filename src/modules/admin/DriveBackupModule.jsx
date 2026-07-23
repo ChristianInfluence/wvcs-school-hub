@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Cloud, Database, FolderTree, RefreshCw, Save, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Cloud, Database, FolderTree, Info, RefreshCw, Save, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import {
   DEFAULT_DRIVE_BACKUP_SETTINGS,
   fetchDriveBackupJobs,
@@ -42,6 +42,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
   const [status, setStatus] = useState("Loading Drive backup settings...");
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showSetupHelp, setShowSetupHelp] = useState(false);
 
   const readyChecks = useMemo(
     () => [
@@ -130,6 +131,15 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            onClick={() => setShowSetupHelp(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-400/60 bg-sky-500/15 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/25"
+            aria-label="Show Google Drive backup setup steps"
+          >
+            <Info size={16} />
+            Setup Steps
+          </button>
+          <button
+            type="button"
             onClick={loadDriveBackup}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
           >
@@ -141,6 +151,84 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
           </StatusPill>
         </div>
       </div>
+
+      {showSetupHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-full w-full max-w-2xl overflow-auto rounded-lg border border-sky-400/40 bg-slate-900 shadow-2xl">
+            <div className="sticky top-0 flex items-start justify-between gap-4 border-b border-slate-800 bg-slate-900 px-5 py-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-sky-200">
+                  <Info size={16} />
+                  Google Drive Backup Setup
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  These are the pieces needed before automatic PDF backups can run.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSetupHelp(false)}
+                className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-300 hover:bg-slate-800"
+                aria-label="Close setup steps"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="grid gap-3 p-5">
+              {[
+                [
+                  "1",
+                  "Create or choose the Drive folder",
+                  "In Google Drive, create the main folder where backups should live, such as WVCS Hub Backups. A shared drive folder is best.",
+                ],
+                [
+                  "2",
+                  "Copy the folder ID",
+                  "Open that folder in Drive and copy the long ID from the URL. Paste it into Root Folder ID in this Hub screen.",
+                ],
+                [
+                  "3",
+                  "Create a Google service account",
+                  "In Google Cloud, create a service account for Drive backups and generate a JSON key. The private JSON key must stay server-side.",
+                ],
+                [
+                  "4",
+                  "Share the Drive folder",
+                  "Share the backup folder with the service account email as Editor, then paste that email into Service Account Email here.",
+                ],
+                [
+                  "5",
+                  "Save the server secret",
+                  "Add the JSON key as the Supabase function secret GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON. This lets the backend upload files without exposing the key in the browser.",
+                ],
+                [
+                  "6",
+                  "Save and test",
+                  "Turn on automatic Drive backup, save the settings, then use Test Connection. Signed permission slips and approved form PDFs will queue for backup.",
+                ],
+              ].map(([step, title, description]) => (
+                <div key={step} className="flex gap-3 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-400 bg-sky-500 text-sm font-bold text-white">
+                    {step}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-white">{title}</div>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-slate-800 bg-slate-950 px-5 py-4">
+              <p className="text-xs leading-5 text-slate-500">
+                Security note: never paste the service account JSON key into this page. Only the folder ID, folder name,
+                and service account email belong in the Hub settings.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-5 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200">
         {status}
