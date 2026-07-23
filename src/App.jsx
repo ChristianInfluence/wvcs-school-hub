@@ -1228,7 +1228,7 @@ export default function App() {
         />
       )}
 
-      {activeModule === "scheduler" && access.canUseScheduler && <SchedulerModule />}
+      {activeModule === "scheduler" && access.canUseScheduler && <SchedulerModule currentUserEmail={user.email} />}
 
       {activeModule === "meetings" && (
         <MeetingsModule />

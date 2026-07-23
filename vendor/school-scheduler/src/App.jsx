@@ -28,6 +28,11 @@ import {
   ZoomOut,
   RefreshCw,
 } from "lucide-react";
+import {
+  deleteSchedulerVersion,
+  fetchSchedulerVersions,
+  saveSchedulerVersion,
+} from "../../../src/lib/schedulerVersionsData.js";
 
 function Button({ children, className = "", variant, disabled, ...props }) {
   const base =
@@ -456,9 +461,11 @@ function ScheduleBlockCard({ block, fill = false, onRemove }) {
   );
 }
 
-export default function MasterSchoolSchedulerPrototype() {
+export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }) {
   const [workingState, setWorkingState] = useState(getInitialWorkingState);
   const [versions, setVersions] = useState(getInitialVersions);
+  const [versionStatus, setVersionStatus] = useState("Loading shared versions...");
+  const [savingVersion, setSavingVersion] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
@@ -490,6 +497,20 @@ export default function MasterSchoolSchedulerPrototype() {
     localStorage.setItem(VERSIONS_KEY, JSON.stringify(versions));
   }, [versions]);
 
+  async function loadSharedVersions() {
+    try {
+      const result = await fetchSchedulerVersions();
+      setVersions(result.versions || []);
+      setVersionStatus(result.loaded ? "Shared versions loaded." : result.reason || "Showing local saved versions.");
+    } catch (error) {
+      setVersionStatus(`Unable to load shared versions: ${getErrorMessage(error)}`);
+    }
+  }
+
+  useEffect(() => {
+    loadSharedVersions();
+  }, []);
+
   function commit(updateFn) {
     setUndoStack((prev) => [...prev, workingState]);
     setRedoStack([]);
@@ -520,30 +541,112 @@ export default function MasterSchoolSchedulerPrototype() {
     setWorkingState(next);
   }
 
-  function saveVersion() {
+  async function saveVersion() {
     const name = prompt("Name this schedule version:", `Draft ${versions.length + 1}`);
     if (!name) return;
 
-    setVersions((prev) => [
-      {
-        id: crypto.randomUUID(),
-        name,
-        savedAt: new Date().toISOString(),
-        data: workingState,
+    setSavingVersion(true);
+    setVersionStatus("Saving shared version...");
+    try {
+      const result = await saveSchedulerVersion(
+        {
+          id: crypto.randomUUID(),
+          name,
+          savedAt: new Date().toISOString(),
+          data: workingState,
+        },
+        currentUserEmail
+      );
+      setVersions((prev) => [result.version, ...prev.filter((version) => version.id !== result.version.id)]);
+      setVersionStatus(result.local ? "Version saved on this device. Shared scheduler table is not ready yet." : "Version saved for all scheduler users.");
+    } catch (error) {
+      setVersionStatus(`Unable to save version: ${getErrorMessage(error)}`);
+    } finally {
+      setSavingVersion(false);
+    }
+  }
+
+  function normalizeVersionData(data) {
+    return {
+      ...initialState,
+      ...(data || {}),
+      teachers: data?.teachers || [],
+      classes: data?.classes || [],
+      scheduleBlocks: data?.scheduleBlocks || [],
+      periodTimes: data?.periodTimes || initialPeriodTimes,
+      appSettings: {
+        ...initialState.appSettings,
+        ...(data?.appSettings || {}),
+        lunch: {
+          ...initialState.appSettings.lunch,
+          ...(data?.appSettings?.lunch || {}),
+        },
       },
-      ...prev,
+    };
+  }
+
+  function upsertVersionList(savedVersion) {
+    setVersions((prev) => [
+      savedVersion,
+      ...prev.filter((version) => version.id !== savedVersion.id),
     ]);
+  }
+
+  async function saveExistingVersion(updatedVersion, successMessage = "Version updated.") {
+    setSavingVersion(true);
+    setVersionStatus("Saving shared version...");
+    try {
+      const result = await saveSchedulerVersion(updatedVersion, currentUserEmail);
+      upsertVersionList(result.version);
+      setVersionStatus(result.local ? "Version saved on this device. Shared scheduler table is not ready yet." : successMessage);
+      return result.version;
+    } catch (error) {
+      setVersionStatus(`Unable to save version: ${getErrorMessage(error)}`);
+      return null;
+    } finally {
+      setSavingVersion(false);
+    }
   }
 
   function loadVersion(version) {
     if (!confirm(`Load "${version.name}"? Your current working schedule will be replaced.`)) return;
-    commit(() => version.data);
+    commit(() => normalizeVersionData(version.data));
     setVersionHistoryOpen(false);
+    setVersionStatus(`Loaded "${version.name}" with ${version.data?.teachers?.length || 0} teacher${version.data?.teachers?.length === 1 ? "" : "s"}.`);
   }
 
-  function deleteVersion(versionId) {
+  async function deleteVersion(versionId) {
     if (!confirm("Delete this saved version?")) return;
+    const currentVersions = versions;
     setVersions((prev) => prev.filter((v) => v.id !== versionId));
+    setVersionStatus("Deleting shared version...");
+    try {
+      const result = await deleteSchedulerVersion(versionId);
+      setVersionStatus(result.local ? "Version deleted from this device. Shared scheduler table is not ready yet." : "Version deleted.");
+    } catch (error) {
+      setVersions(currentVersions);
+      setVersionStatus(`Unable to delete version: ${getErrorMessage(error)}`);
+    }
+  }
+
+  async function renameVersion(versionId) {
+    const version = versions.find((v) => v.id === versionId);
+    if (!version) return;
+    const name = prompt("Rename version:", version.name);
+    if (!name) return;
+    await saveExistingVersion({ ...version, name, savedAt: new Date().toISOString() }, "Version renamed.");
+  }
+
+  async function duplicateVersion(version) {
+    await saveExistingVersion(
+      {
+        id: crypto.randomUUID(),
+        name: `${version.name} Copy`,
+        savedAt: new Date().toISOString(),
+        data: version.data,
+      },
+      "Version duplicated."
+    );
   }
 
   function parseCsv(text) {
@@ -1456,26 +1559,6 @@ export default function MasterSchoolSchedulerPrototype() {
     }
   }
 
-  function renameVersion(versionId) {
-    const version = versions.find((v) => v.id === versionId);
-    if (!version) return;
-    const name = prompt("Rename version:", version.name);
-    if (!name) return;
-    setVersions((prev) => prev.map((v) => (v.id === versionId ? { ...v, name } : v)));
-  }
-
-  function duplicateVersion(version) {
-    setVersions((prev) => [
-      {
-        ...version,
-        id: crypto.randomUUID(),
-        name: `${version.name} Copy`,
-        savedAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-  }
-
   const conflictMap = useMemo(() => {
     const conflicts = new Map();
 
@@ -2006,13 +2089,17 @@ export default function MasterSchoolSchedulerPrototype() {
               <Redo2 size={16} className="mr-1 inline" /> Redo
             </Button>
 
-            <Button variant="success" onClick={saveVersion}>
-              <Save size={16} className="mr-1 inline" /> Save Version
+            <Button variant="success" onClick={saveVersion} disabled={savingVersion}>
+              <Save size={16} className="mr-1 inline" /> {savingVersion ? "Saving..." : "Save Version"}
             </Button>
 
             <Button variant="outline" onClick={() => setVersionHistoryOpen(true)}>
               <History size={16} className="mr-1 inline" /> Versions
             </Button>
+
+            <div className="max-w-72 truncate rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300">
+              {versionStatus}
+            </div>
 
             <MenuButton label="File">
               <MenuItem icon={Upload} onClick={() => fileInputRef.current?.click()}>
@@ -2578,7 +2665,10 @@ export default function MasterSchoolSchedulerPrototype() {
       {versionHistoryOpen && (
         <VersionHistoryModal
           versions={versions}
+          status={versionStatus}
+          saving={savingVersion}
           onClose={() => setVersionHistoryOpen(false)}
+          onRefresh={loadSharedVersions}
           onLoad={loadVersion}
           onDelete={deleteVersion}
           onRename={renameVersion}
@@ -2845,16 +2935,24 @@ function SettingsModal({ settings, onClose, onSave }) {
   );
 }
 
-function VersionHistoryModal({ versions, onClose, onLoad, onDelete, onRename, onDuplicate }) {
+function VersionHistoryModal({ versions, status, saving, onClose, onRefresh, onLoad, onDelete, onRename, onDuplicate }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <Card className="w-full max-w-3xl rounded-2xl shadow-xl">
         <CardContent className="p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Version History</h2>
-            <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-800">
-              <X size={18} />
-            </button>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Version History</h2>
+              <div className="mt-1 text-xs text-slate-400">{status}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={onRefresh} disabled={saving}>
+                <RefreshCw size={16} className="mr-1 inline" /> Refresh
+              </Button>
+              <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-800">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {versions.length === 0 ? (
@@ -2873,19 +2971,22 @@ function VersionHistoryModal({ versions, onClose, onLoad, onDelete, onRename, on
                     <div className="text-xs text-slate-400">
                       Saved {new Date(version.savedAt).toLocaleString()}
                     </div>
+                    {version.updatedByEmail && (
+                      <div className="mt-1 text-xs text-slate-500">By {version.updatedByEmail}</div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => onLoad(version)}>
+                    <Button onClick={() => onLoad(version)} disabled={saving}>
                       <RotateCcw size={16} className="mr-1 inline" /> Load
                     </Button>
-                    <Button variant="outline" onClick={() => onDuplicate(version)}>
+                    <Button variant="outline" onClick={() => onDuplicate(version)} disabled={saving}>
                       Duplicate
                     </Button>
-                    <Button variant="outline" onClick={() => onRename(version.id)}>
+                    <Button variant="outline" onClick={() => onRename(version.id)} disabled={saving}>
                       Rename
                     </Button>
-                    <Button variant="danger" onClick={() => onDelete(version.id)}>
+                    <Button variant="danger" onClick={() => onDelete(version.id)} disabled={saving}>
                       Delete
                     </Button>
                   </div>
