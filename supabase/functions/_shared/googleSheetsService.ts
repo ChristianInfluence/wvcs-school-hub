@@ -123,6 +123,13 @@ export class GoogleSheetsService {
     });
   }
 
+  async clearValues(range: string) {
+    return this.request(`/values/${encodeRange(range)}:clear`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
   async batchUpdate(requests: Record<string, unknown>[]) {
     return this.request(":batchUpdate", {
       method: "POST",
@@ -138,5 +145,11 @@ export class GoogleSheetsService {
     const data = await this.metadata();
     const sheet = (data.sheets || []).find((entry: any) => entry.properties?.title === title);
     return sheet?.properties?.sheetId;
+  }
+
+  async requiredSheetId(title: string) {
+    const sheetId = await this.sheetIdByTitle(title);
+    if (sheetId === undefined) throw new Error(`Missing required sheet: ${title}`);
+    return sheetId;
   }
 }

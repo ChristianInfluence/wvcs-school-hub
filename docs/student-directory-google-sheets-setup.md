@@ -21,14 +21,16 @@ npx supabase secrets set GOOGLE_SERVICE_ACCOUNT_EMAIL='service-account-name@proj
 npx supabase secrets set GOOGLE_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n'
 ```
 
-9. Replace the Apps Script in the workbook with [student-roster-apps-script.gs](./student-roster-apps-script.gs), or merge the Student-ID portions into the existing script.
+9. Install [student-roster-apps-script.gs](./student-roster-apps-script.gs), or merge it into the existing Apps Script while preserving the existing WVCS workflow.
 10. In the Sheet, add `Student-ID` to `Students!L1`.
-11. Run the guarded `ensureStudentIds()` Apps Script function once.
-12. Deploy the `admin-students` Supabase function.
-13. Open the Hub Admin area and refresh Student Directory.
-14. Add one test student in the Hub and verify the row appears in Google Sheets.
-15. Edit that student directly in Google Sheets, refresh the Hub, and verify the change appears.
-16. Remove the test student in the Hub and verify it moves to `Former Students` with archive fields.
+11. Run `WVCS Roster` → `Migrate Archive Layouts`.
+12. Run `WVCS Roster` → `Ensure Student IDs`.
+13. Run `WVCS Roster` → `Sort Students`.
+14. Deploy the `admin-students` Supabase function.
+15. Open the Hub Admin area and refresh Student Directory.
+16. Add one test student in the Hub and verify the row appears in Google Sheets.
+17. Edit that student directly in Google Sheets, refresh the Hub, and verify the change appears.
+18. Remove the test student in the Hub and verify it moves to `Former Students` with archive fields.
 
 ## Required Sheet Layout
 
@@ -55,6 +57,22 @@ CSV exports should still export only columns `A:K`.
 Archive sheets should use:
 
 `A:K` original fields, `L Student-ID`, `M Archive-Date`, `N School-Year`, `O Reason`.
+
+If `Former Students` or `Graduates` currently use the older 14-column layout, run `Migrate Archive Layouts` before Hub removals. The migration is safe to run more than once. It shifts legacy archive metadata from `L:N` to `M:O` and assigns `Student-ID` values to historical archive rows.
+
+## Apps Script Menu
+
+The WVCS Roster menu should include:
+
+- Add Student from Form
+- Remove Selected Student
+- Sort Students
+- Advance to Next School Year
+- Export Active Roster CSV
+- Ensure Student IDs
+- Migrate Archive Layouts
+
+`Ensure Student IDs` and `Migrate Archive Layouts` are migration/repair commands. Normal day-to-day work should continue using the familiar add, remove, sort, advance, and export commands.
 
 ## Security Notes
 

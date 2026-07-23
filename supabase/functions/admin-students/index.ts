@@ -6,13 +6,15 @@ import {
   STUDENT_HEADERS,
   changedFields,
   archiveStudentRow,
+  gradeSortKey,
   rowToStudent,
   sanitizeStudent,
   searchStudents,
-  sortStudents,
   studentToRow,
   trimValue,
   validateStudent,
+  rowsMatchHeaders,
+  schoolYearFromSettingsValues,
 } from "../_shared/studentRosterCore.js";
 
 const corsHeaders = {
@@ -23,6 +25,8 @@ const corsHeaders = {
 const STUDENTS_SHEET = "Students";
 const FORMER_STUDENTS_SHEET = "Former Students";
 const AUDIT_SHEET = "Roster Audit";
+const SETTINGS_SHEET = "Settings";
+const TEMP_SORT_HEADER = "__WVCS_SORT_KEY__";
 
 function safeError(error: unknown) {
   const message = error instanceof Error ? error.message : "Request failed.";
@@ -34,38 +38,69 @@ function json(body: Record<string, unknown>, status = 200) {
   return jsonResponse(body, status, corsHeaders);
 }
 
-function currentSchoolYear(date = new Date()) {
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth() + 1;
-  const start = month >= 7 ? year : year - 1;
-  return `${start}-${start + 1}`;
-}
-
 async function ensureSheet(sheets: GoogleSheetsService, title: string, headers: string[]) {
   const sheetId = await sheets.sheetIdByTitle(title);
   if (sheetId === undefined) {
     await sheets.batchUpdate([{ addSheet: { properties: { title } } }]);
+    await sheets.updateValues(`${title}!A1:${String.fromCharCode(64 + headers.length)}1`, [headers]);
+    return;
   }
 
   const currentHeaders = await sheets.getValues(`${title}!A1:O1`);
-  if (!currentHeaders.length || !currentHeaders[0]?.length) {
+  const headerRow = currentHeaders[0] || [];
+  if (!headerRow.length) {
     await sheets.updateValues(`${title}!A1:${String.fromCharCode(64 + headers.length)}1`, [headers]);
+    return;
+  }
+  if (!rowsMatchHeaders(headerRow, headers)) {
+    throw new Error(`${title} sheet headers do not match the expected Student Directory layout.`);
   }
 }
 
 async function readActiveStudents(sheets: GoogleSheetsService) {
+  await ensureSheet(sheets, STUDENTS_SHEET, STUDENT_HEADERS);
   const rows = await sheets.getValues(`${STUDENTS_SHEET}!A2:L`);
   return rows
     .map((row: string[], index: number) => ({ student: rowToStudent(row), rowNumber: index + 2 }))
     .filter(({ student }) => student.grade || student.studentFirstName || student.studentLastName || student.studentId);
 }
 
-async function writeSortedActiveStudents(sheets: GoogleSheetsService, students: Record<string, string>[]) {
-  const sortedRows = sortStudents(students).map(studentToRow);
-  const blankRow = ["", "", "", "", "", "", "", "", "", "", "", ""];
-  const paddedRows = [...sortedRows, ...Array.from({ length: 25 }, () => blankRow)];
-  await sheets.updateValues(`${STUDENTS_SHEET}!A2:L${paddedRows.length + 1}`, paddedRows);
-  return sortedRows.map(rowToStudent);
+async function readCurrentSchoolYear(sheets: GoogleSheetsService) {
+  const values = await sheets.getValues(`${SETTINGS_SHEET}!B2:B2`);
+  return schoolYearFromSettingsValues(values);
+}
+
+async function sortActiveStudents(sheets: GoogleSheetsService) {
+  const rows = await readActiveStudents(sheets);
+  if (!rows.length) return;
+
+  const sheetId = await sheets.requiredSheetId(STUDENTS_SHEET);
+  const maxRow = Math.max(...rows.map((row) => row.rowNumber));
+  const sortKeys = Array.from({ length: maxRow - 1 }, (_, index) => {
+    const found = rows.find((row) => row.rowNumber === index + 2);
+    return [found ? gradeSortKey(found.student.grade) : ""];
+  });
+
+  await sheets.updateValues(`${STUDENTS_SHEET}!M1:M${maxRow}`, [[TEMP_SORT_HEADER], ...sortKeys]);
+  await sheets.batchUpdate([
+    {
+      sortRange: {
+        range: {
+          sheetId,
+          startRowIndex: 1,
+          endRowIndex: maxRow,
+          startColumnIndex: 0,
+          endColumnIndex: 13,
+        },
+        sortSpecs: [
+          { dimensionIndex: 12, sortOrder: "ASCENDING" },
+          { dimensionIndex: 2, sortOrder: "ASCENDING" },
+          { dimensionIndex: 1, sortOrder: "ASCENDING" },
+        ],
+      },
+    },
+  ]);
+  await sheets.clearValues(`${STUDENTS_SHEET}!M1:M${maxRow}`);
 }
 
 async function appendAudit(
@@ -104,7 +139,7 @@ async function handleList(sheets: GoogleSheetsService, payload: Record<string, u
   const grade = trimValue(payload.grade);
   if (grade && grade !== "all") students = students.filter((student) => student.grade === grade);
   students = searchStudents(students, String(payload.q || ""));
-  return json({ students: sortStudents(students), grades: GRADE_ORDER });
+  return json({ students, grades: GRADE_ORDER });
 }
 
 async function handleGet(sheets: GoogleSheetsService, studentId: string) {
@@ -119,12 +154,11 @@ async function handleCreate(sheets: GoogleSheetsService, payload: Record<string,
   const validation = validateStudent(student);
   if (!validation.valid) return json({ error: validation.errors.join(" ") }, 400);
 
-  const rows = await readActiveStudents(sheets);
-  const students = rows.map(({ student: existing }) => existing);
-  students.push(validation.student);
-  const sorted = await writeSortedActiveStudents(sheets, students);
+  await ensureSheet(sheets, STUDENTS_SHEET, STUDENT_HEADERS);
+  await sheets.appendValues(`${STUDENTS_SHEET}!A:L`, [studentToRow(validation.student)]);
+  await sortActiveStudents(sheets);
   await appendAudit(sheets, { adminEmail, action: "CREATE", student: validation.student });
-  return json({ student: sorted.find((entry) => entry.studentId === validation.student.studentId) || validation.student }, 201);
+  return json({ student: validation.student }, 201);
 }
 
 async function handleUpdate(sheets: GoogleSheetsService, payload: Record<string, unknown>, adminEmail: string) {
@@ -140,10 +174,10 @@ async function handleUpdate(sheets: GoogleSheetsService, payload: Record<string,
   if (!validation.valid) return json({ error: validation.errors.join(" ") }, 400);
 
   const changed = changedFields(existing.student, validation.student);
-  const students = rows.map(({ student }) => (student.studentId === studentId ? validation.student : student));
-  const sorted = await writeSortedActiveStudents(sheets, students);
+  await sheets.updateValues(`${STUDENTS_SHEET}!A${existing.rowNumber}:L${existing.rowNumber}`, [studentToRow(validation.student)]);
+  await sortActiveStudents(sheets);
   await appendAudit(sheets, { adminEmail, action: "UPDATE", student: validation.student, changed });
-  return json({ student: sorted.find((entry) => entry.studentId === studentId) || validation.student });
+  return json({ student: validation.student });
 }
 
 async function handleRemove(sheets: GoogleSheetsService, payload: Record<string, unknown>, adminEmail: string) {
@@ -155,13 +189,25 @@ async function handleRemove(sheets: GoogleSheetsService, payload: Record<string,
   if (!existing) return json({ error: "Student not found." }, 404);
 
   await ensureSheet(sheets, FORMER_STUDENTS_SHEET, ARCHIVE_HEADERS);
+  const schoolYear = await readCurrentSchoolYear(sheets);
   const reason = trimValue(payload.reason) || "Removed from active roster";
   await sheets.appendValues(`${FORMER_STUDENTS_SHEET}!A:O`, [
-    archiveStudentRow(existing.student, { archiveDate: new Date().toISOString(), schoolYear: currentSchoolYear(), reason }),
+    archiveStudentRow(existing.student, { archiveDate: new Date().toISOString(), schoolYear, reason }),
   ]);
 
-  const remaining = rows.filter(({ student }) => student.studentId !== studentId).map(({ student }) => student);
-  await writeSortedActiveStudents(sheets, remaining);
+  const sheetId = await sheets.requiredSheetId(STUDENTS_SHEET);
+  await sheets.batchUpdate([
+    {
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: "ROWS",
+          startIndex: existing.rowNumber - 1,
+          endIndex: existing.rowNumber,
+        },
+      },
+    },
+  ]);
   await appendAudit(sheets, { adminEmail, action: "REMOVE", student: existing.student, reason });
   return json({ removed: true });
 }

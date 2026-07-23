@@ -323,7 +323,6 @@ export default function StudentDirectoryModule() {
                 <div className="text-base font-bold text-white">
                   {student.studentFirstName} {student.studentLastName}
                 </div>
-                <div className="mt-1 text-xs text-slate-500">ID: {student.studentId}</div>
               </div>
               <div>
                 <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1 text-xs font-bold text-sky-100">

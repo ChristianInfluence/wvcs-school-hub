@@ -20,6 +20,13 @@ export const ARCHIVE_HEADERS = [
   "Reason",
 ];
 
+export const LEGACY_ARCHIVE_HEADERS = [
+  ...STUDENT_HEADERS.slice(0, 11),
+  "Archive-Date",
+  "School-Year",
+  "Reason",
+];
+
 export const GRADE_ORDER = ["PS", "PK", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
 const FIELD_MAP = [
@@ -159,4 +166,90 @@ export function hasAdminAccess(accessRow = {}) {
 
 export function archiveStudentRow(student, { archiveDate = new Date().toISOString(), schoolYear = "", reason = "" } = {}) {
   return [...studentToRow(student), trimValue(archiveDate), trimValue(schoolYear), trimValue(reason)];
+}
+
+export function gradeSortKey(grade) {
+  const index = GRADE_ORDER.indexOf(normalizeGrade(grade));
+  return index === -1 ? 999 : index;
+}
+
+export function rowsMatchHeaders(actual = [], expected = []) {
+  return expected.every((header, index) => trimValue(actual[index]) === header);
+}
+
+export function migrateArchiveRows(rows = [], createId = () => "") {
+  if (!rows.length) return { headers: ARCHIVE_HEADERS, rows: [], changed: false };
+  const [headerRow = [], ...dataRows] = rows;
+  const isCurrent = rowsMatchHeaders(headerRow, ARCHIVE_HEADERS);
+  const isLegacy = rowsMatchHeaders(headerRow, LEGACY_ARCHIVE_HEADERS);
+
+  if (isCurrent) {
+    const migratedRows = dataRows.map((row) => {
+      const next = Array.from({ length: 15 }, (_, index) => trimValue(row[index]));
+      if (next.some(Boolean) && !next[11]) next[11] = createId();
+      return next;
+    });
+    return { headers: ARCHIVE_HEADERS, rows: migratedRows, changed: migratedRows.some((row, index) => row[11] !== trimValue(dataRows[index]?.[11])) };
+  }
+
+  if (!isLegacy) {
+    throw new Error("Archive sheet headers do not match the expected legacy or current layout.");
+  }
+
+  return {
+    headers: ARCHIVE_HEADERS,
+    changed: true,
+    rows: dataRows.map((row) => {
+      const hasData = row.some((value) => trimValue(value));
+      return [
+        ...Array.from({ length: 11 }, (_, index) => trimValue(row[index])),
+        hasData ? createId() : "",
+        trimValue(row[11]),
+        trimValue(row[12]),
+        trimValue(row[13]),
+      ];
+    }),
+  };
+}
+
+export function promoteStudent(student) {
+  const currentIndex = GRADE_ORDER.indexOf(normalizeGrade(student.grade));
+  if (currentIndex === -1) return { student, graduate: false };
+  if (student.grade === "12") return { student, graduate: true };
+  return { student: { ...student, grade: GRADE_ORDER[currentIndex + 1] }, graduate: false };
+}
+
+export function csvExportRows(students = []) {
+  return [
+    STUDENT_HEADERS.slice(0, 11),
+    ...students.map((student) => studentToRow(student).slice(0, 11)),
+  ];
+}
+
+export function schoolYearFromSettingsValues(values = []) {
+  const schoolYear = trimValue(values[0]?.[0]);
+  if (!schoolYear) throw new Error("Settings!B2 current school year is blank.");
+  return schoolYear;
+}
+
+export function locateStudentRow(rows = [], studentId = "", startingRowNumber = 2) {
+  const cleanId = trimValue(studentId);
+  const index = rows.findIndex((row) => rowToStudent(row).studentId === cleanId);
+  if (index === -1) return null;
+  return { rowNumber: startingRowNumber + index, student: rowToStudent(rows[index]) };
+}
+
+export function updateRowByStudentId(rows = [], studentId = "", nextStudent = {}) {
+  const located = locateStudentRow(rows, studentId);
+  if (!located) throw new Error("Student not found.");
+  return rows.map((row) => (rowToStudent(row).studentId === studentId ? studentToRow({ ...nextStudent, studentId }) : row));
+}
+
+export function removeRowByStudentId(rows = [], studentId = "") {
+  const located = locateStudentRow(rows, studentId);
+  if (!located) throw new Error("Student not found.");
+  return {
+    removed: located.student,
+    rows: rows.filter((row) => rowToStudent(row).studentId !== studentId),
+  };
 }
