@@ -25,6 +25,7 @@ function StaffAccessManager() {
     canUseScheduler: false,
     canUseDigitalSlips: false,
     canUseOfficePayroll: false,
+    canManageUsers: false,
   });
   const [status, setStatus] = useState("Loading authorized users...");
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -64,6 +65,7 @@ function StaffAccessManager() {
         canUseScheduler: draft.canUseScheduler,
         canUseDigitalSlips: draft.canUseDigitalSlips,
         canUseOfficePayroll: draft.canUseOfficePayroll,
+        canManageUsers: draft.canManageUsers,
       });
       setDraft({
         email: "",
@@ -72,6 +74,7 @@ function StaffAccessManager() {
         canUseScheduler: false,
         canUseDigitalSlips: false,
         canUseOfficePayroll: false,
+        canManageUsers: false,
       });
       setStatus(`${email} added.`);
       await loadStaff();
@@ -116,8 +119,7 @@ function StaffAccessManager() {
             Authorized Hub Users
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Add the WVCS accounts that can sign in to the hub, then optionally grant Admin, Master Scheduler, Digital Slips, or Office & Payroll access.
-            {SUPERUSER_EMAIL} is the protected superuser.
+            Only superusers can add people or change access. {SUPERUSER_EMAIL} is the protected root superuser and can grant superuser access to others.
           </p>
         </div>
         <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
@@ -125,7 +127,7 @@ function StaffAccessManager() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_140px_120px_140px_150px_170px_auto] lg:items-end">
+      <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_135px_105px_120px_140px_160px_140px_auto] xl:items-end">
         <label className="space-y-1 text-sm font-medium text-slate-200">
           WVCS Email
           <input
@@ -181,6 +183,15 @@ function StaffAccessManager() {
           />
           Office & Payroll
         </label>
+        <label className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100">
+          <input
+            type="checkbox"
+            checked={draft.canManageUsers}
+            onChange={(event) => setDraft({ ...draft, canManageUsers: event.target.checked })}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-amber-500"
+          />
+          Superuser
+        </label>
         <button
           type="button"
           onClick={addUser}
@@ -195,7 +206,7 @@ function StaffAccessManager() {
         {staff.map((user) => (
           <div
             key={user.email}
-            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 xl:grid-cols-[1fr_110px_110px_120px_145px_160px_135px] xl:items-center"
+            className="grid gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 last:border-b-0 xl:grid-cols-[1fr_95px_95px_110px_130px_145px_125px_125px] xl:items-center"
           >
             <div>
               <div className="font-semibold text-white">{user.email}</div>
@@ -208,20 +219,23 @@ function StaffAccessManager() {
               ["canUseScheduler", "Scheduler"],
               ["canUseDigitalSlips", "Digital Slips"],
               ["canUseOfficePayroll", "Office & Payroll"],
+              ["canManageUsers", "Superuser"],
             ].map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm font-semibold text-slate-300">
                 <input
                   type="checkbox"
                   checked={Boolean(user[key])}
-                  disabled={savingEmail === user.email || user.superuser}
+                  disabled={savingEmail === user.email || (user.protectedSuperuser && key === "canManageUsers")}
                   onChange={(event) => updateUserAccess(user, { [key]: event.target.checked })}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 disabled:opacity-50"
+                  className={`h-4 w-4 rounded border-slate-600 bg-slate-900 disabled:opacity-50 ${
+                    key === "canManageUsers" ? "text-amber-500" : "text-sky-500"
+                  }`}
                 />
                 {label}
               </label>
             ))}
             <div className="flex justify-end">
-              {user.superuser ? (
+              {user.protectedSuperuser ? (
                 <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-400">
                   Protected
                 </span>
@@ -313,8 +327,13 @@ function SystemStatusPanel() {
   );
 }
 
-export default function AdminSettingsModule({ currentUserEmail = "" }) {
-  const [settingsView, setSettingsView] = useState("users");
+export default function AdminSettingsModule({ currentUserEmail = "", canManageUsers = false }) {
+  const [settingsView, setSettingsView] = useState(canManageUsers ? "users" : "drive");
+  const settingOptions = [
+    ...(canManageUsers ? [["users", "Users", Users]] : []),
+    ["drive", "Drive Backup", Cloud],
+    ["system", "System Status", Settings],
+  ];
 
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
@@ -324,18 +343,14 @@ export default function AdminSettingsModule({ currentUserEmail = "" }) {
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Settings</div>
             <h1 className="mt-2 text-2xl font-bold text-white">Admin Settings</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-400">
-              Manage hub access, connected services, and backend readiness in one place.
+              Manage connected services and backend readiness. User access controls are only available to superusers.
             </p>
           </div>
           <div className="text-xs text-slate-500">{currentUserEmail}</div>
         </div>
 
         <div className="mb-5 flex flex-wrap gap-2">
-          {[
-            ["users", "Users", Users],
-            ["drive", "Drive Backup", Cloud],
-            ["system", "System Status", Settings],
-          ].map(([id, label, Icon]) => (
+          {settingOptions.map(([id, label, Icon]) => (
             <button
               key={id}
               type="button"
@@ -352,7 +367,7 @@ export default function AdminSettingsModule({ currentUserEmail = "" }) {
           ))}
         </div>
 
-        {settingsView === "users" && <StaffAccessManager />}
+        {settingsView === "users" && canManageUsers && <StaffAccessManager />}
         {settingsView === "drive" && <DriveBackupModule currentUserEmail={currentUserEmail} embedded />}
         {settingsView === "system" && <SystemStatusPanel />}
       </div>

@@ -3,16 +3,19 @@ import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 export const SUPERUSER_EMAIL = "mconniry@wvcs.org";
 
 function mapStaffAccess(row) {
+  const email = row.email?.toLowerCase() || "";
   return {
-    email: row.email,
+    email,
     canUseHub: row.can_use_hub,
     canUseAdmin: row.can_use_admin,
     canUseScheduler: row.can_use_scheduler,
     canUseDigitalSlips: row.can_use_digital_slips,
     canUseOfficePayroll: row.can_use_office_payroll,
+    canManageUsers: email === SUPERUSER_EMAIL || Boolean(row.can_manage_users),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    superuser: row.email === SUPERUSER_EMAIL,
+    superuser: email === SUPERUSER_EMAIL || Boolean(row.can_manage_users),
+    protectedSuperuser: email === SUPERUSER_EMAIL,
   };
 }
 
@@ -27,6 +30,9 @@ function mapStaffAccessToDatabase(access) {
   };
   if ("canUseOfficePayroll" in access) {
     row.can_use_office_payroll = Boolean(access.canUseOfficePayroll);
+  }
+  if ("canManageUsers" in access) {
+    row.can_manage_users = access.email.toLowerCase() === SUPERUSER_EMAIL || Boolean(access.canManageUsers);
   }
   return row;
 }
@@ -53,9 +59,10 @@ export async function saveStaffAccess(access) {
     .from("staff_access")
     .upsert(row, { onConflict: "email" });
 
-  if (error && row.can_use_office_payroll !== undefined && /can_use_office_payroll/i.test(error.message || "")) {
+  if (error && /can_use_office_payroll|can_manage_users/i.test(error.message || "")) {
     const legacyRow = { ...row };
     delete legacyRow.can_use_office_payroll;
+    delete legacyRow.can_manage_users;
     const { error: legacyError } = await supabase
       .from("staff_access")
       .upsert(legacyRow, { onConflict: "email" });

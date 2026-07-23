@@ -45,6 +45,7 @@ const defaultAccess = {
   canUseScheduler: false,
   canUseDigitalSlips: false,
   canUseOfficePayroll: false,
+  canManageUsers: false,
 };
 
 const modules = [
@@ -723,6 +724,7 @@ function getRoleLabels(access) {
   if (access.canUseScheduler) roles.push("Scheduler");
   if (access.canUseDigitalSlips) roles.push("Digital Slips");
   if (access.canUseOfficePayroll) roles.push("Office & Payroll");
+  if (access.canManageUsers) roles.push("Superuser");
   if (access.canUseHub) roles.push("Hub User");
   return roles.length ? roles : ["No active role"];
 }
@@ -807,7 +809,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           </button>
         ))}
       </div>
-      {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} />}
+      {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} canManageUsers={access.canManageUsers} />}
       {adminView === "office-payroll" && access.canUseOfficePayroll && <OfficePayrollWorkspace currentUserEmail={currentUserEmail} />}
       {adminView === "module-admin" && (
         <>
@@ -914,6 +916,7 @@ function AuthGate({ children }) {
         canUseScheduler: data?.can_use_scheduler ?? false,
         canUseDigitalSlips: data?.can_use_digital_slips ?? false,
         canUseOfficePayroll: data?.can_use_office_payroll ?? data?.can_use_admin ?? false,
+        canManageUsers: email.toLowerCase() === "mconniry@wvcs.org" || Boolean(data?.can_manage_users),
       };
 
       if (!access.canUseHub) {
