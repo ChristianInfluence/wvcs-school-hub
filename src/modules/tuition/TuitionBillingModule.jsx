@@ -777,34 +777,34 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         )}
 
         {activeView === "tuition" && (
-        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_520px_1fr]">
+        <div className="mt-6 grid gap-4 xl:grid-cols-[220px_430px_minmax(760px,1fr)]">
           <div className="rounded-lg border border-slate-800 bg-slate-900">
-            <div className="border-b border-slate-800 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
+            <div className="border-b border-slate-800 p-3">
+              <div className="grid gap-2">
+                <div className="min-w-0">
                   <div className="text-sm font-bold text-white">Saved Invoices</div>
-                  <div className="mt-1 text-xs text-slate-500">{savedStatus}</div>
+                  <div className="mt-1 truncate text-xs text-slate-500">{savedStatus}</div>
                 </div>
                 <button
                   type="button"
                   onClick={loadSavedInvoices}
-                  className="rounded-lg border border-slate-700 px-2.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                  className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
                 >
                   Refresh
                 </button>
               </div>
             </div>
-            <div className="max-h-[860px] overflow-auto p-3">
+            <div className="max-h-[860px] overflow-auto p-2">
               {Object.entries(groupedSavedInvoices).map(([year, records]) => (
-                <div key={year} className="mb-4">
-                  <div className="sticky top-0 z-10 rounded-md bg-slate-800 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-300">
+                <div key={year} className="mb-3">
+                  <div className="sticky top-0 z-10 rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-300">
                     {year}
                   </div>
                   <div className="mt-2 space-y-2">
                     {records.map((record) => (
                       <div
                         key={record.id}
-                        className={`rounded-lg border p-3 ${
+                        className={`rounded-lg border p-2 ${
                           selectedInvoiceId === record.id
                             ? "border-sky-400 bg-sky-500/10"
                             : "border-slate-800 bg-slate-950"
@@ -815,11 +815,11 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                             <div className="min-w-0">
                               <div className="truncate text-sm font-bold text-white">{record.familyName || "Unnamed Family"}</div>
                               <div className="mt-1 text-xs text-slate-500">
-                                Updated {formatShortDate(record.updatedAt) || "recently"}
+                                {formatShortDate(record.updatedAt) || "Recent"}
                               </div>
                             </div>
                             <span
-                              className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
                                 record.status === "Sent"
                                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
                                   : "border-amber-500/40 bg-amber-500/10 text-amber-200"
@@ -834,11 +834,11 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                             </div>
                           )}
                         </button>
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-2 flex gap-2">
                           <button
                             type="button"
                             onClick={() => loadInvoiceRecord(record)}
-                            className="flex-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            className="flex-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
                           >
                             Open
                           </button>
@@ -856,8 +856,8 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                 </div>
               ))}
               {!savedInvoices.length && (
-                <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-sm leading-6 text-slate-400">
-                  Saved tuition invoices will appear here, grouped by school year and alphabetized by family name.
+                <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+                  Saved invoices will appear here by year and family.
                 </div>
               )}
             </div>
@@ -969,6 +969,14 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
                 />
               </label>
+              <button
+                type="button"
+                onClick={saveDraft}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+              >
+                <Save size={16} />
+                Save Invoice
+              </button>
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -1102,16 +1110,13 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
 
           <div className="space-y-4">
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white">Invoice Preview</div>
-                  <div className="mt-1 text-xs text-slate-400">Current total: {formatCurrency(totals.grandTotal)}</div>
-                </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-sm font-bold text-white">Invoice Preview</div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={downloadPdf}
-                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
                   >
                     <Download size={16} />
                     Download PDF
@@ -1119,7 +1124,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <button
                     type="button"
                     onClick={printInvoice}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
                   >
                     <Printer size={16} />
                     Print
@@ -1128,15 +1133,16 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     type="button"
                     onClick={sendInvoiceEmail}
                     disabled={sendingEmail}
-                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
                   >
                     <Mail size={16} />
                     {sendingEmail ? "Sending..." : "Send Email"}
                   </button>
                 </div>
+                <div className="basis-full text-xs text-slate-400">Current total: {formatCurrency(totals.grandTotal)}</div>
               </div>
             </div>
-            <div className="overflow-auto rounded-lg bg-slate-800 p-4">
+            <div className="overflow-hidden rounded-lg bg-slate-800 p-3">
               <div className="mx-auto w-[8.5in] max-w-full">
                 <InvoicePreview invoice={invoice} invoiceRef={invoiceRef} />
               </div>
