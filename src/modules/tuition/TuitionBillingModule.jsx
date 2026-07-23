@@ -267,6 +267,166 @@ async function blobToBase64(blob) {
   return String(dataUrl).split(",")[1];
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildTuitionInvoiceDocument(invoice) {
+  const totals = invoiceTotals(invoice);
+  const parents = getInvoiceParents(invoice);
+  const parentEmails = parents.map((parent) => parent.email).filter(Boolean);
+  const studentCards = invoice.students
+    .map((student) => {
+      const discountRows = getStudentDiscounts(student)
+        .filter((discount) => money(discount.amount))
+        .map(
+          (discount) => `
+            <div class="line discount">
+              <span>${escapeHtml(getDiscountLabel(discount))}</span>
+              <strong>-${escapeHtml(formatCurrency(discount.amount))}</strong>
+            </div>
+          `
+        )
+        .join("");
+      return `
+        <section class="card student-card">
+          <div class="card-head">
+            <h2>${escapeHtml(student.name || "Student")}${student.grade ? ` - ${escapeHtml(student.grade)}` : ""}</h2>
+            <strong>${escapeHtml(formatCurrency(studentTotal(student)))}</strong>
+          </div>
+          <div class="card-body">
+            <div class="line">
+              <span>Tuition</span>
+              <strong>${escapeHtml(formatCurrency(student.tuition))}</strong>
+            </div>
+            ${discountRows}
+            <div class="line discount">
+              <span>5% Early Pay Discount</span>
+              <strong>-${escapeHtml(formatCurrency(studentEarlyPayDiscount(student)))}</strong>
+            </div>
+            <div class="line">
+              <span>Comprehensive Fees${student.feeNote ? ` <small>(${escapeHtml(student.feeNote)})</small>` : ""}</span>
+              <strong>${escapeHtml(formatCurrency(student.comprehensiveFee))}</strong>
+            </div>
+            ${invoice.paymentNote ? `<p class="note-line">${escapeHtml(invoice.paymentNote)}</p>` : ""}
+          </div>
+        </section>
+      `;
+    })
+    .join("");
+
+  const totalRows = invoice.students
+    .map(
+      (student) => `
+        <div class="line">
+          <span>${escapeHtml(student.name || "Student")} tuition total</span>
+          <strong>${escapeHtml(formatCurrency(studentTotal(student)))}</strong>
+        </div>
+      `
+    )
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(invoiceTitle(invoice))}</title>
+    <style>
+      @page { size: letter portrait; margin: 0.22in; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; }
+      body { width: 8.5in; min-height: 11in; }
+      .invoice-print-page {
+        width: 7.55in;
+        min-height: 10.35in;
+        margin: 0 auto;
+        padding: 0.22in 0.18in;
+        background: #ffffff;
+        color: #0f172a;
+        font-size: 10.5px;
+        line-height: 1.25;
+      }
+      .top { display: flex; justify-content: space-between; gap: 0.25in; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.12in; }
+      .brand { display: flex; gap: 0.12in; align-items: flex-start; }
+      .brand img { width: 0.55in; height: 0.55in; object-fit: contain; }
+      .eyebrow { color: #0369a1; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+      h1 { margin: 0.04in 0 0; font-size: 20px; line-height: 1.1; color: #020617; }
+      h2 { margin: 0; font-size: 13px; color: #020617; }
+      .parent { margin-top: 0.07in; color: #475569; font-size: 10.5px; }
+      .meta { min-width: 1.7in; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; padding: 0.09in; }
+      .meta-row { display: flex; justify-content: space-between; gap: 0.12in; margin-bottom: 0.04in; }
+      .meta-row:last-child { margin-bottom: 0; }
+      .meta-row span:first-child { color: #64748b; font-weight: 700; }
+      .cards { margin-top: 0.16in; }
+      .card { border: 1px solid #cbd5e1; border-radius: 7px; overflow: hidden; break-inside: avoid; page-break-inside: avoid; margin-bottom: 0.13in; }
+      .card-head { display: flex; justify-content: space-between; gap: 0.2in; align-items: center; background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 0.07in 0.1in; }
+      .card-body { padding: 0.09in 0.1in; }
+      .line { display: flex; justify-content: space-between; gap: 0.18in; margin-bottom: 0.045in; }
+      .line:last-child { margin-bottom: 0; }
+      .line strong { white-space: nowrap; }
+      .discount { color: #047857; }
+      small { color: #64748b; font-size: 8.5px; }
+      .note-line { margin: 0.08in 0 0; color: #64748b; font-size: 9px; }
+      .paid { color: #047857; font-size: 8.5px; font-weight: 800; margin-left: 0.06in; }
+      .strike { color: #64748b; text-decoration: line-through; }
+      .grand { border-top: 2px solid #020617; margin-top: 0.08in; padding-top: 0.08in; font-size: 15px; font-weight: 800; }
+      .family-note { margin-top: 0.13in; border-radius: 7px; background: #f8fafc; padding: 0.09in 0.1in; color: #475569; }
+      .footer { margin-top: 0.16in; border-top: 1px solid #cbd5e1; padding-top: 0.08in; color: #64748b; font-size: 9px; }
+      @media print {
+        html, body { width: 8.5in; height: 11in; overflow: hidden; }
+        .invoice-print-page { margin: 0 auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="invoice-print-page">
+      <header class="top">
+        <div class="brand">
+          <img src="${warriorHeadNew}" alt="Willamette Valley Christian School">
+          <div>
+            <div class="eyebrow">Willamette Valley Christian School</div>
+            <h1>${escapeHtml(invoiceTitle(invoice))}</h1>
+            <div class="parent">
+              <div>${escapeHtml(getParentDisplayName(invoice))}</div>
+              ${parentEmails.map((email) => `<div>${escapeHtml(email)}</div>`).join("")}
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="meta-row"><span>Invoice Date</span><strong>${escapeHtml(formatDate(invoice.invoiceDate) || "Not set")}</strong></div>
+          <div class="meta-row"><span>Due Date</span><strong>${escapeHtml(formatDate(invoice.dueDate) || "Not set")}</strong></div>
+          <div class="meta-row"><span>Prepared By</span><strong>${escapeHtml(invoice.preparedBy || "WVCS Office")}</strong></div>
+        </div>
+      </header>
+      <section class="cards">
+        ${studentCards}
+        <section class="card total-card">
+          <div class="card-head"><h2>Total for the ${escapeHtml(invoice.schoolYear || "School")} Year</h2></div>
+          <div class="card-body">
+            ${totalRows}
+            <div class="line">
+              <span>Registration Fee${invoice.registrationFeePaid ? '<span class="paid">Already paid</span>' : ""}</span>
+              <strong>${invoice.registrationFeePaid ? `<span class="strike">${escapeHtml(formatCurrency(invoice.registrationFee))}</span> <span class="paid">$0 due</span>` : escapeHtml(formatCurrency(invoice.registrationFee))}</strong>
+            </div>
+            <div class="line grand">
+              <span>Total Amount</span>
+              <strong>${escapeHtml(formatCurrency(totals.grandTotal))}</strong>
+            </div>
+          </div>
+        </section>
+      </section>
+      ${invoice.note ? `<div class="family-note">${escapeHtml(invoice.note)}</div>` : ""}
+      <footer class="footer">Willamette Valley Christian School | 9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236 | wvcs.org</footer>
+    </main>
+  </body>
+</html>`;
+}
+
 function InvoicePreview({ invoice, invoiceRef }) {
   const totals = invoiceTotals(invoice);
   const parents = getInvoiceParents(invoice);
@@ -593,29 +753,27 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   async function createInvoicePdfBlob() {
-    if (!invoiceRef.current) return;
     const html2pdf = (await import("html2pdf.js")).default;
     const host = document.createElement("div");
     host.style.position = "fixed";
     host.style.left = "-10000px";
     host.style.top = "0";
-    host.style.width = "7.5in";
+    host.style.width = "8.5in";
     host.style.background = "#ffffff";
-    const clone = invoiceRef.current.cloneNode(true);
-    clone.classList.add("tuition-invoice-pdf");
-    host.appendChild(clone);
+    host.innerHTML = buildTuitionInvoiceDocument(invoice);
     document.body.appendChild(host);
     try {
+      const page = host.querySelector(".invoice-print-page");
       const worker = html2pdf()
         .set({
-          margin: [0.18, 0.18, 0.18, 0.18],
+          margin: [0.22, 0.475, 0.22, 0.475],
           filename: getInvoiceFileName(invoice),
           image: { type: "jpeg", quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-          pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 816 },
+          pagebreak: { mode: ["css", "legacy"], avoid: [".student-card", ".total-card"] },
           jsPDF: { unit: "in", format: "letter", orientation: "portrait", compress: true },
         })
-        .from(clone)
+        .from(page)
         .toPdf();
       const pdf = await worker.get("pdf");
       return pdf.output("blob");
@@ -644,7 +802,19 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   function printInvoice() {
-    window.print();
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setStatus("Unable to open print window. Check your popup settings and try again.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(buildTuitionInvoiceDocument(invoice));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
   }
 
   async function sendInvoiceEmail() {
