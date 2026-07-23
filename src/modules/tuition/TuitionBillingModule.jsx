@@ -72,6 +72,7 @@ const defaultInvoice = {
   note: "",
   paymentNote: DEFAULT_PAYMENT_NOTE,
   registrationFee: "250.00",
+  registrationFeePaid: false,
   students: [createBlankStudent()],
 };
 
@@ -192,10 +193,12 @@ function studentTotal(student) {
 function invoiceTotals(invoice) {
   const studentSubtotal = invoice.students.reduce((total, student) => total + studentTotal(student), 0);
   const registrationFee = money(invoice.registrationFee);
+  const registrationFeeDue = invoice.registrationFeePaid ? 0 : registrationFee;
   return {
     studentSubtotal,
     registrationFee,
-    grandTotal: studentSubtotal + registrationFee,
+    registrationFeeDue,
+    grandTotal: studentSubtotal + registrationFeeDue,
   };
 }
 
@@ -355,8 +358,16 @@ function InvoicePreview({ invoice, invoiceRef }) {
               </div>
             ))}
             <div className="flex justify-between gap-4">
-              <span>Registration Fee</span>
-              <span className="font-semibold">{formatCurrency(invoice.registrationFee)}</span>
+              <span>
+                Registration Fee
+                {invoice.registrationFeePaid && <span className="ml-2 text-xs font-semibold text-emerald-700">Already paid</span>}
+              </span>
+              <span className="text-right">
+                <span className={`font-semibold ${invoice.registrationFeePaid ? "text-slate-500 line-through" : ""}`}>
+                  {formatCurrency(invoice.registrationFee)}
+                </span>
+                {invoice.registrationFeePaid && <span className="ml-2 text-xs font-semibold text-emerald-700">$0 due</span>}
+              </span>
             </div>
             <div className="mt-4 flex items-center justify-between gap-4 border-t-2 border-slate-900 pt-4 text-xl font-bold">
               <span>Total Amount</span>
@@ -879,7 +890,18 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Input type="date" value={invoice.dueDate} onChange={(event) => updateInvoice({ dueDate: event.target.value })} />
                 </Field>
                 <Field label="Registration Fee">
-                  <MoneyInput value={invoice.registrationFee} onChange={(event) => updateInvoice({ registrationFee: event.target.value })} />
+                  <div className="grid gap-2">
+                    <MoneyInput value={invoice.registrationFee} onChange={(event) => updateInvoice({ registrationFee: event.target.value })} />
+                    <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(invoice.registrationFeePaid)}
+                        onChange={(event) => updateInvoice({ registrationFeePaid: event.target.checked })}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                      />
+                      Registration fee already paid
+                    </label>
+                  </div>
                 </Field>
                 <Field label="Prepared By">
                   <Input
