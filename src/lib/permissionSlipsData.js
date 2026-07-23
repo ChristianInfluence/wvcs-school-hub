@@ -563,13 +563,13 @@ export async function sendPermissionParentCopyEmail({ submissionId, token = "" }
   return data || { sent: true };
 }
 
-export async function sendPermissionSigningRequestEmail({ eventId, recipientIds, signingBaseUrl }) {
+export async function sendPermissionSigningRequestEmail({ eventId, recipientIds, signingBaseUrl, templateKey = "initial" }) {
   if (!isSupabaseConfigured) {
     return { sent: false, reason: "Supabase is not configured." };
   }
 
   const { data, error } = await supabase.functions.invoke("send-permission-signing-request", {
-    body: { eventId, recipientIds, signingBaseUrl },
+    body: { eventId, recipientIds, signingBaseUrl, templateKey },
   });
 
   if (error) throw error;

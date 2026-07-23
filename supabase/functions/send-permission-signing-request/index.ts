@@ -56,20 +56,54 @@ function firstName(value: string) {
   return String(value || "").trim().split(/\s+/)[0] || "your student";
 }
 
-const defaultInitialTemplate = {
-  subject: "WVCS Permission Slip: {eventTitle}",
-  body: [
-    "Dear {parentName},",
-    "",
-    "Willamette Valley Christian School has a permission slip for {studentName} for {eventTitle} on {eventDate}.",
-    "",
-    "Please review and sign here: {signingUrl}",
-    "",
-    "Thank you,",
-    "Willamette Valley Christian School",
-    "9075 Pueblo Ave NE, Brooks, OR 97305",
-    "TEL: 503-393-5236",
-  ].join("\r\n"),
+const defaultTemplates = {
+  initial: {
+    subject: "WVCS Permission Slip: {eventTitle}",
+    body: [
+      "Dear {parentName},",
+      "",
+      "Willamette Valley Christian School has a permission slip for {studentName} for {eventTitle} on {eventDate}.",
+      "",
+      "Please review and sign here: {signingUrl}",
+      "",
+      "Thank you,",
+      "Willamette Valley Christian School",
+      "9075 Pueblo Ave NE, Brooks, OR 97305",
+      "TEL: 503-393-5236",
+    ].join("\r\n"),
+    heading: "Permission Slip Ready",
+    action: "Review & Sign Permission Slip",
+  },
+  reminder: {
+    subject: "Reminder: WVCS Permission Slip for {studentName}",
+    body: [
+      "Dear {parentName},",
+      "",
+      "This is a friendly reminder that {studentName}'s permission slip for {eventTitle} is still waiting for a signature.",
+      "",
+      "Please review and sign here: {signingUrl}",
+      "",
+      "Thank you,",
+      "Willamette Valley Christian School",
+    ].join("\r\n"),
+    heading: "Permission Slip Reminder",
+    action: "Review & Sign Permission Slip",
+  },
+  finalReminder: {
+    subject: "Final Reminder: Permission Slip Needed for {eventTitle}",
+    body: [
+      "Dear {parentName},",
+      "",
+      "We still need a signed permission slip for {studentName} for {eventTitle}. Please complete it as soon as possible so your student can participate.",
+      "",
+      "Sign here: {signingUrl}",
+      "",
+      "Thank you,",
+      "Willamette Valley Christian School",
+    ].join("\r\n"),
+    heading: "Final Permission Slip Reminder",
+    action: "Sign Permission Slip",
+  },
 };
 
 function formatDate(value: string) {
@@ -103,15 +137,18 @@ function buildMessage({
   recipient,
   event,
   signingUrl,
+  templateKey,
 }: {
   senderEmail: string;
   recipient: Record<string, any>;
   event: Record<string, any>;
   signingUrl: string;
+  templateKey: string;
 }) {
   const eventJson = event.event || {};
-  const savedTemplate = eventJson.messageTemplates?.initial || {};
-  const template = { ...defaultInitialTemplate, ...savedTemplate };
+  const normalizedTemplateKey = ["initial", "reminder", "finalReminder"].includes(templateKey) ? templateKey : "initial";
+  const savedTemplate = eventJson.messageTemplates?.[normalizedTemplateKey] || {};
+  const template = { ...defaultTemplates[normalizedTemplateKey], ...savedTemplate };
   const eventTitle = event.title || "Field Trip";
   const values = {
     parentName: recipient.parent_name || "Parent/Guardian",
@@ -135,7 +172,7 @@ function buildMessage({
             <tr>
               <td style="background:#0f172a;padding:24px 28px;">
                 <div style="color:#93c5fd;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;">WVCS School Hub</div>
-                <h1 style="margin:8px 0 0;color:#ffffff;font-size:24px;line-height:1.25;">Permission Slip Ready</h1>
+                <h1 style="margin:8px 0 0;color:#ffffff;font-size:24px;line-height:1.25;">${escapeHtml(template.heading)}</h1>
               </td>
             </tr>
             <tr>
@@ -153,7 +190,7 @@ function buildMessage({
                 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
                   <tr>
                     <td style="border-radius:10px;background:#0284c7;">
-                      <a href="${escapeHtml(signingUrl)}" style="display:inline-block;padding:13px 20px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;border-radius:10px;">Review &amp; Sign Permission Slip</a>
+                      <a href="${escapeHtml(signingUrl)}" style="display:inline-block;padding:13px 20px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;border-radius:10px;">${escapeHtml(template.action)}</a>
                     </td>
                   </tr>
                 </table>
@@ -229,6 +266,7 @@ Deno.serve(async (request) => {
     const payload = await request.json();
     const eventId = payload.eventId;
     const recipientIds = Array.isArray(payload.recipientIds) ? payload.recipientIds : [];
+    const templateKey = ["initial", "reminder", "finalReminder"].includes(payload.templateKey) ? payload.templateKey : "initial";
     if (!eventId) throw new Error("Missing eventId.");
     if (!recipientIds.length) throw new Error("Missing recipientIds.");
 
@@ -268,7 +306,7 @@ Deno.serve(async (request) => {
       }
 
       const signingUrl = buildSigningUrl(payload, recipient);
-      const raw = encodeBase64Url(buildMessage({ senderEmail, recipient, event, signingUrl }));
+      const raw = encodeBase64Url(buildMessage({ senderEmail, recipient, event, signingUrl, templateKey }));
       const gmailResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: {
@@ -293,8 +331,8 @@ Deno.serve(async (request) => {
       await supabase
         .from("permission_recipients")
         .update({
-          status: "Email Sent",
-          delivery_channel: "email",
+          status: templateKey === "finalReminder" ? "Final Reminder Sent" : templateKey === "reminder" ? "Reminder Sent" : "Email Sent",
+          delivery_channel: recipient.delivery_channel === "sms" || recipient.delivery_channel === "email+sms" ? "email+sms" : "email",
           sent_at: sentAt,
           emailed_at: sentAt,
           updated_at: sentAt,
@@ -306,7 +344,7 @@ Deno.serve(async (request) => {
         .insert({
           event_id: eventId,
           recipient_id: recipient.id,
-          action: "permission_signing_email_sent",
+          action: templateKey === "initial" ? "permission_signing_email_sent" : "permission_signing_reminder_sent",
           actor_label: "WVCS School Hub",
           actor_email: actor.email,
           details: {
@@ -314,6 +352,7 @@ Deno.serve(async (request) => {
             studentName: recipient.student_name,
             eventTitle: event.title,
             gmailMessageId: gmailData.id,
+            templateKey,
           },
         });
 
@@ -322,6 +361,7 @@ Deno.serve(async (request) => {
         recipientEmail: recipient.parent_email,
         gmailMessageId: gmailData.id,
         sentAt,
+        templateKey,
       });
     }
 

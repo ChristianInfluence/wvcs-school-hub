@@ -1591,7 +1591,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
   const signedStudentIds = new Set(submissionsForEvent.map((submission) => getStudentKey(submission)));
   const signedCount = signedStudentIds.size;
   const eventRecipients = selectedEvent?.recipients || [];
-  const sentStatusLabels = ["Email Sent", "Email + SMS Sent", "SMS Sent", "SMS Previewed", "Viewed", "Signed"];
+  const sentStatusLabels = ["Email Sent", "Reminder Sent", "Final Reminder Sent", "Email + SMS Sent", "SMS Sent", "SMS Previewed", "Viewed", "Signed"];
   const sentRecipients = eventRecipients.filter((recipient) => sentStatusLabels.includes(recipient.status) || recipient.sentAt || recipient.emailedAt);
   const viewedRecipients = eventRecipients.filter((recipient) => recipient.viewedAt);
   const unsignedRecipients = eventRecipients.filter((recipient) => !signedStudentIds.has(getStudentKey(recipient)));
@@ -1840,10 +1840,12 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     setSyncStatus(`Sending test email to ${targetEmail}...`);
     try {
       await savePermissionRecipients(selectedEvent.id, [testRecipient]);
+      const testTemplateKey = ["initial", "reminder", "finalReminder"].includes(activeTemplateKey) ? activeTemplateKey : "initial";
       const result = await sendPermissionSigningRequestEmail({
         eventId: selectedEvent.id,
         recipientIds: [testRecipient.id],
         signingBaseUrl: `${window.location.origin}${window.location.pathname}`,
+        templateKey: testTemplateKey,
       });
       deletePermissionRecipient(testRecipient.id).catch(() => {});
       const failedReason = result.failed?.[0]?.reason || result.skipped?.[0]?.reason;
@@ -1860,14 +1862,33 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     }
   }
 
-  async function sendRecipientBatch(recipients, label) {
+  async function sendRecipientBatch(recipients, label, templateKey = "initial") {
     const emailableRecipients = recipients.filter((recipient) => recipient.parentEmail);
     if (!emailableRecipients.length) {
       setSyncStatus(`No ${label.toLowerCase()} recipients have parent email addresses.`);
       return;
     }
+    const recipientPreview = emailableRecipients
+      .slice(0, 8)
+      .map((recipient) => `${recipient.studentName} / ${recipient.parentName || recipient.parentEmail}`)
+      .join("\n");
+    const moreCount = emailableRecipients.length - 8;
+    const shouldSend = window.confirm(
+      [
+        `${label}?`,
+        "",
+        `This will email ${emailableRecipients.length} parent contact${emailableRecipients.length === 1 ? "" : "s"} using the ${messageTemplates[templateKey]?.label || "Initial Request"} template.`,
+        "",
+        recipientPreview,
+        moreCount > 0 ? `...and ${moreCount} more.` : "",
+      ].filter(Boolean).join("\n")
+    );
+    if (!shouldSend) {
+      setSyncStatus(`${label} cancelled.`);
+      return;
+    }
     for (const recipient of emailableRecipients) {
-      await resendPermissionEmail(recipient);
+      await resendPermissionEmail(recipient, templateKey);
     }
     setSyncStatus(`${label} complete for ${emailableRecipients.length} parent email${emailableRecipients.length === 1 ? "" : "s"}.`);
   }
@@ -2344,7 +2365,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
     }
   }
 
-  async function resendPermissionEmail(recipient) {
+  async function resendPermissionEmail(recipient, templateKey = "initial") {
     if (!recipient.parentEmail || sendingRecipientIds.includes(recipient.id)) return;
     setSendingRecipientIds((current) => [...current, recipient.id]);
     try {
@@ -2353,16 +2374,18 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
         eventId: selectedEvent.id,
         recipientIds: [recipient.id],
         signingBaseUrl: `${window.location.origin}${window.location.pathname}`,
+        templateKey,
       });
       const message = result.messages?.[0];
       if (message) {
+        const status = templateKey === "finalReminder" ? "Final Reminder Sent" : templateKey === "reminder" ? "Reminder Sent" : "Email Sent";
         updateRecipient(recipient.id, {
-          status: "Email Sent",
-          deliveryChannel: "email",
+          status,
+          deliveryChannel: recipient.deliveryChannel === "sms" || recipient.deliveryChannel === "email+sms" ? "email+sms" : "email",
           sentAt: message.sentAt || new Date().toISOString(),
           emailedAt: message.sentAt || new Date().toISOString(),
         });
-        setSyncStatus(`Resent permission email to ${recipient.parentEmail}.`);
+        setSyncStatus(`${messageTemplates[templateKey]?.label || "Permission email"} sent to ${recipient.parentEmail}.`);
       } else {
         setSyncStatus(result.skipped?.[0]?.reason || `No email sent to ${recipient.parentEmail}.`);
       }
@@ -3281,12 +3304,30 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => sendRecipientBatch(unsignedRecipients, "Resend unsigned")}
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Resend unsigned", "initial")}
                     disabled={!unsignedRecipients.length}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <RotateCcw size={15} />
                     Resend Unsigned
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Send reminder to unsigned", "reminder")}
+                    disabled={!unsignedRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-bold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Send Reminder
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Send final reminder to unsigned", "finalReminder")}
+                    disabled={!unsignedRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-bold text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Final Reminder
                   </button>
                   <button
                     type="button"
@@ -3632,6 +3673,24 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                   >
                     <Download size={15} />
                     Export Signed List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Send reminder to unsigned", "reminder")}
+                    disabled={!unsignedRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-600 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Send Reminder
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendRecipientBatch(unsignedRecipients, "Send final reminder to unsigned", "finalReminder")}
+                    disabled={!unsignedRecipients.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-600 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Final Reminder
                   </button>
                   <button
                     type="button"
