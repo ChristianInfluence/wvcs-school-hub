@@ -337,46 +337,46 @@ function buildTuitionInvoiceDocument(invoice) {
     <meta charset="utf-8">
     <title>${escapeHtml(invoiceTitle(invoice))}</title>
     <style>
-      @page { size: letter portrait; margin: 0.22in; }
+      @page { size: letter portrait; margin: 0.16in; }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; background: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; }
       body { width: 8.5in; min-height: 11in; }
       .invoice-print-page {
-        width: 7.55in;
-        min-height: 10.35in;
+        width: 7.95in;
+        min-height: 10.5in;
         margin: 0 auto;
-        padding: 0.22in 0.18in;
+        padding: 0.3in 0.28in;
         background: #ffffff;
         color: #0f172a;
-        font-size: 10.5px;
-        line-height: 1.25;
+        font-size: 11.75px;
+        line-height: 1.35;
       }
-      .top { display: flex; justify-content: space-between; gap: 0.25in; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.12in; }
-      .brand { display: flex; gap: 0.12in; align-items: flex-start; }
-      .brand img { width: 0.55in; height: 0.55in; object-fit: contain; }
-      .eyebrow { color: #0369a1; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-      h1 { margin: 0.04in 0 0; font-size: 20px; line-height: 1.1; color: #020617; }
-      h2 { margin: 0; font-size: 13px; color: #020617; }
-      .parent { margin-top: 0.07in; color: #475569; font-size: 10.5px; }
-      .meta { min-width: 1.7in; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; padding: 0.09in; }
-      .meta-row { display: flex; justify-content: space-between; gap: 0.12in; margin-bottom: 0.04in; }
+      .top { display: flex; justify-content: space-between; gap: 0.32in; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.16in; }
+      .brand { display: flex; gap: 0.15in; align-items: flex-start; }
+      .brand img { width: 0.68in; height: 0.68in; object-fit: contain; }
+      .eyebrow { color: #0369a1; font-size: 9.75px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+      h1 { margin: 0.045in 0 0; font-size: 24px; line-height: 1.08; color: #020617; }
+      h2 { margin: 0; font-size: 14.5px; color: #020617; }
+      .parent { margin-top: 0.08in; color: #475569; font-size: 11.25px; }
+      .meta { min-width: 2.0in; border: 1px solid #e2e8f0; border-radius: 7px; background: #f8fafc; padding: 0.12in; }
+      .meta-row { display: flex; justify-content: space-between; gap: 0.14in; margin-bottom: 0.05in; }
       .meta-row:last-child { margin-bottom: 0; }
       .meta-row span:first-child { color: #64748b; font-weight: 700; }
-      .cards { margin-top: 0.16in; }
-      .card { border: 1px solid #cbd5e1; border-radius: 7px; overflow: hidden; break-inside: avoid; page-break-inside: avoid; margin-bottom: 0.13in; }
-      .card-head { display: flex; justify-content: space-between; gap: 0.2in; align-items: center; background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 0.07in 0.1in; }
-      .card-body { padding: 0.09in 0.1in; }
-      .line { display: flex; justify-content: space-between; gap: 0.18in; margin-bottom: 0.045in; }
+      .cards { margin-top: 0.19in; }
+      .card { border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; break-inside: avoid; page-break-inside: avoid; margin-bottom: 0.16in; }
+      .card-head { display: flex; justify-content: space-between; gap: 0.22in; align-items: center; background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 0.09in 0.13in; }
+      .card-body { padding: 0.12in 0.13in; }
+      .line { display: flex; justify-content: space-between; gap: 0.2in; margin-bottom: 0.052in; }
       .line:last-child { margin-bottom: 0; }
       .line strong { white-space: nowrap; }
       .discount { color: #047857; }
-      small { color: #64748b; font-size: 8.5px; }
-      .note-line { margin: 0.08in 0 0; color: #64748b; font-size: 9px; }
-      .paid { color: #047857; font-size: 8.5px; font-weight: 800; margin-left: 0.06in; }
+      small { color: #64748b; font-size: 9.5px; }
+      .note-line { margin: 0.09in 0 0; color: #64748b; font-size: 10px; }
+      .paid { color: #047857; font-size: 9.5px; font-weight: 800; margin-left: 0.07in; }
       .strike { color: #64748b; text-decoration: line-through; }
-      .grand { border-top: 2px solid #020617; margin-top: 0.08in; padding-top: 0.08in; font-size: 15px; font-weight: 800; }
-      .family-note { margin-top: 0.13in; border-radius: 7px; background: #f8fafc; padding: 0.09in 0.1in; color: #475569; }
-      .footer { margin-top: 0.16in; border-top: 1px solid #cbd5e1; padding-top: 0.08in; color: #64748b; font-size: 9px; }
+      .grand { border-top: 2px solid #020617; margin-top: 0.1in; padding-top: 0.1in; font-size: 16.5px; font-weight: 800; }
+      .family-note { margin-top: 0.16in; border-radius: 8px; background: #f8fafc; padding: 0.12in 0.13in; color: #475569; }
+      .footer { margin-top: 0.18in; border-top: 1px solid #cbd5e1; padding-top: 0.1in; color: #64748b; font-size: 10px; }
       @media print {
         html, body { width: 8.5in; height: 11in; overflow: hidden; }
         .invoice-print-page { margin: 0 auto; }
@@ -766,7 +766,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       const page = host.querySelector(".invoice-print-page");
       const worker = html2pdf()
         .set({
-          margin: [0.22, 0.475, 0.22, 0.475],
+          margin: [0.16, 0.275, 0.16, 0.275],
           filename: getInvoiceFileName(invoice),
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 816 },
