@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ExternalLink, Mail, RefreshCw, Search, XCircle } from "lucide-react";
 import { fetchOfficeFamilyDirectory } from "../../lib/tuitionBillingData.js";
 import {
+  DEFAULT_FOS_REMINDER_TEMPLATE,
   FOS_BUYOUT_AMOUNT,
   FOS_HOUR_VALUE,
   calculateFosBalance,
   ensureFamilyPortalAccess,
   fetchFamilyPortalAccessRecords,
+  fetchFosReminderTemplate,
   fetchFosEntries,
   reviewFosEntry,
+  saveFosReminderTemplate,
   sendFamilyFosReminder,
   sendFamilyPortalInvite,
   updateFamilyFosSettings,
@@ -37,6 +40,15 @@ function Input(props) {
   );
 }
 
+function Textarea(props) {
+  return (
+    <textarea
+      {...props}
+      className={`w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400 ${props.className || ""}`}
+    />
+  );
+}
+
 function familyMatches(family, query) {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
@@ -59,10 +71,19 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [portalAccess, setPortalAccess] = useState({});
   const [liabilityDrafts, setLiabilityDrafts] = useState({});
   const [inviteDrafts, setInviteDrafts] = useState({});
+  const [bulkSelectedKeys, setBulkSelectedKeys] = useState([]);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [reminderTemplate, setReminderTemplate] = useState(DEFAULT_FOS_REMINDER_TEMPLATE);
 
   async function loadData() {
     try {
-      const [entryResult, familyResult, accessResult] = await Promise.all([fetchFosEntries(), fetchOfficeFamilyDirectory(), fetchFamilyPortalAccessRecords()]);
+      const [entryResult, familyResult, accessResult, templateResult] = await Promise.all([
+        fetchFosEntries(),
+        fetchOfficeFamilyDirectory(),
+        fetchFamilyPortalAccessRecords(),
+        fetchFosReminderTemplate(),
+      ]);
       setEntries(entryResult.entries || []);
       setFamilies(familyResult.families || []);
       const accessMap = {};
@@ -76,6 +97,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setPortalAccess(accessMap);
       setLiabilityDrafts((current) => ({ ...draftMap, ...current }));
       setInviteDrafts((current) => ({ ...inviteMap, ...current }));
+      setReminderTemplate(templateResult.template || DEFAULT_FOS_REMINDER_TEMPLATE);
       setStatus("FOS records loaded.");
     } catch (error) {
       setStatus(`Unable to load FOS records: ${error.message}`);
@@ -101,6 +123,18 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     liabilityAmount: selectedLiabilityAmount,
     hourValue: selectedAccess?.hourValue || FOS_HOUR_VALUE,
   });
+  const bulkSelectedFamilies = useMemo(
+    () => families.filter((family) => bulkSelectedKeys.includes(family.familyKey)),
+    [families, bulkSelectedKeys]
+  );
+  const bulkEligibleFamilies = useMemo(
+    () => bulkSelectedFamilies.filter((family) => (portalAccess[family.familyKey]?.contactEmails || []).length),
+    [bulkSelectedFamilies, portalAccess]
+  );
+  const bulkRecipientCount = useMemo(
+    () => bulkEligibleFamilies.reduce((total, family) => total + (portalAccess[family.familyKey]?.contactEmails || []).length, 0),
+    [bulkEligibleFamilies, portalAccess]
+  );
 
   async function ensureAccessForFamily(family) {
     try {
@@ -155,11 +189,43 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setPortalLoadingKey(family.familyKey);
       setStatus(`Sending FOS reminder for ${family.familyName}...`);
       const result = await sendFamilyFosReminder(family.familyKey, recipients);
-      setStatus(`FOS reminder sent to ${result.recipients.join(", ")}.`);
+      const sentRecipients = result.results?.[0]?.recipients || result.recipients || [];
+      setStatus(`FOS reminder sent to ${sentRecipients.join(", ")}.`);
     } catch (error) {
       setStatus(`Unable to send FOS reminder: ${error.message}`);
     } finally {
       setPortalLoadingKey("");
+    }
+  }
+
+  async function sendBulkReminders() {
+    const familyKeys = bulkEligibleFamilies.map((family) => family.familyKey);
+    if (!familyKeys.length) {
+      setStatus("Select at least one family with authorized parent portal access.");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Send FOS balance reminders to ${bulkRecipientCount} authorized recipient${bulkRecipientCount === 1 ? "" : "s"} across ${familyKeys.length} famil${familyKeys.length === 1 ? "y" : "ies"}?`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBulkSending(true);
+      setStatus(`Sending FOS reminders to ${familyKeys.length} families...`);
+      const recipientsByFamily = Object.fromEntries(
+        bulkEligibleFamilies.map((family) => [family.familyKey, portalAccess[family.familyKey]?.contactEmails || []])
+      );
+      const result = await sendFamilyFosReminder(familyKeys, recipientsByFamily);
+      const failed = (result.results || []).filter((item) => !item.sent);
+      setStatus(
+        failed.length
+          ? `FOS reminders sent to ${result.sentCount || 0} recipients. ${failed.length} families were skipped because they need authorized portal access.`
+          : `FOS reminders sent to ${result.sentCount || 0} recipients.`
+      );
+    } catch (error) {
+      setStatus(`Unable to send bulk FOS reminders: ${error.message}`);
+    } finally {
+      setBulkSending(false);
     }
   }
 
@@ -188,6 +254,18 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
         [selectedFamily.familyKey]: exists ? selected.filter((item) => item !== email) : [...selected, email],
       };
     });
+  }
+
+  function toggleBulkFamily(familyKey) {
+    setBulkSelectedKeys((current) => (current.includes(familyKey) ? current.filter((key) => key !== familyKey) : [...current, familyKey]));
+  }
+
+  function selectAllVisibleFamilies() {
+    setBulkSelectedKeys((current) => Array.from(new Set([...current, ...familyResults.map((family) => family.familyKey)])));
+  }
+
+  function clearBulkFamilies() {
+    setBulkSelectedKeys([]);
   }
 
   async function review(entry, action) {
@@ -233,6 +311,21 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setStatus(`FOS liability saved for ${selectedFamily.familyName}.`);
     } catch (error) {
       setStatus(`Unable to save FOS liability: ${error.message}`);
+    }
+  }
+
+  async function saveReminderTemplate() {
+    if (!reminderTemplate.subject.trim() || !reminderTemplate.heading.trim() || !reminderTemplate.body.trim()) {
+      setStatus("The reminder template needs a subject, heading, and body.");
+      return;
+    }
+    try {
+      setStatus("Saving FOS reminder email template...");
+      const result = await saveFosReminderTemplate(reminderTemplate, currentUserEmail);
+      setReminderTemplate(result.template);
+      setStatus("FOS reminder email template saved.");
+    } catch (error) {
+      setStatus(`Unable to save FOS reminder template: ${error.message}`);
     }
   }
 
@@ -384,39 +477,141 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   key={family.familyKey}
                   type="button"
                   onClick={() => selectFamily(family)}
-                  className={`block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 ${
+                  className={`flex w-full items-start gap-2 border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 ${
                     selectedFamily?.familyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-sm font-bold">
-                    <span className="block min-w-0 flex-1 truncate">{family.familyName}</span>
-                    {portalAccess[family.familyKey]?.lastParentLoginAt ? (
-                      <span
-                        title={`Last login: ${dateTime(portalAccess[family.familyKey].lastParentLoginAt)}${portalAccess[family.familyKey].lastParentLoginEmail ? ` by ${portalAccess[family.familyKey].lastParentLoginEmail}` : ""}`}
-                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                      >
-                        <CheckCircle2 size={12} />
-                      </span>
-                    ) : (
-                      <span
-                        title="No parent login recorded yet"
-                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-[10px] font-bold text-slate-500"
-                      >
-                        -
-                      </span>
-                    )}
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {(family.students || []).map((student) => student.name).join(", ")}
+                  <input
+                    type="checkbox"
+                    checked={bulkSelectedKeys.includes(family.familyKey)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => toggleBulkFamily(family.familyKey)}
+                    className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
+                    aria-label={`Select ${family.familyName} for FOS reminder`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-sm font-bold">
+                      <span className="block min-w-0 flex-1 truncate">{family.familyName}</span>
+                      {portalAccess[family.familyKey]?.lastParentLoginAt ? (
+                        <span
+                          title={`Last login: ${dateTime(portalAccess[family.familyKey].lastParentLoginAt)}${portalAccess[family.familyKey].lastParentLoginEmail ? ` by ${portalAccess[family.familyKey].lastParentLoginEmail}` : ""}`}
+                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                        >
+                          <CheckCircle2 size={12} />
+                        </span>
+                      ) : (
+                        <span
+                          title="No parent login recorded yet"
+                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-[10px] font-bold text-slate-500"
+                        >
+                          -
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500">
+                      {(family.students || []).map((student) => student.name).join(", ")}
+                    </span>
                   </span>
                 </button>
               ))}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={selectAllVisibleFamilies}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Select Visible
+              </button>
+              <button
+                type="button"
+                onClick={clearBulkFamilies}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Clear
+              </button>
             </div>
           </div>
 
         </div>
 
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="space-y-4">
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="text-sm font-bold text-white">FOS Reminder Center</div>
+                <div className="mt-1 text-sm text-slate-400">
+                  {bulkSelectedKeys.length} selected family{bulkSelectedKeys.length === 1 ? "" : "ies"} | {bulkEligibleFamilies.length} ready | {bulkRecipientCount} authorized recipient{bulkRecipientCount === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateEditor((value) => !value)}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  {showTemplateEditor ? "Hide Template" : "Edit Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={sendBulkReminders}
+                  disabled={bulkSending || bulkRecipientCount === 0}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Mail size={16} />
+                  {bulkSending ? "Sending..." : "Send Bulk Reminders"}
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
+              Bulk reminders only send to parent emails already authorized for the secure family portal. Families without authorized access are skipped until an invite is sent.
+            </div>
+            {showTemplateEditor && (
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Subject
+                    <Input
+                      value={reminderTemplate.subject}
+                      onChange={(event) => setReminderTemplate((current) => ({ ...current, subject: event.target.value }))}
+                      className="mt-1 normal-case tracking-normal"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Email Heading
+                    <Input
+                      value={reminderTemplate.heading}
+                      onChange={(event) => setReminderTemplate((current) => ({ ...current, heading: event.target.value }))}
+                      className="mt-1 normal-case tracking-normal"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  Message Body
+                  <Textarea
+                    rows={8}
+                    value={reminderTemplate.body}
+                    onChange={(event) => setReminderTemplate((current) => ({ ...current, body: event.target.value }))}
+                    className="mt-1 normal-case tracking-normal"
+                  />
+                </label>
+                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="text-xs text-slate-500">
+                    Variables: {"{familyName}"}, {"{amountOwed}"}, {"{approvedHours}"}, {"{remainingHours}"}, {"{portalLoginUrl}"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={saveReminderTemplate}
+                    className="inline-flex items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    Save Template
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm font-bold text-white">FOS Submissions</div>
             <select
@@ -491,6 +686,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
             })}
             {!visibleEntries.length && <div className="rounded-lg border border-slate-800 bg-slate-950 p-6 text-sm text-slate-500">No FOS submissions match this filter.</div>}
           </div>
+        </div>
         </div>
       </div>
     </section>

@@ -4,6 +4,22 @@ export const FOS_SCHOOL_YEAR = "2026-2027";
 export const FOS_REQUIRED_HOURS = 50;
 export const FOS_BUYOUT_AMOUNT = 500;
 export const FOS_HOUR_VALUE = 10;
+export const DEFAULT_FOS_REMINDER_TEMPLATE = {
+  id: "reminder",
+  subject: "WVCS FOS Balance Reminder: {familyName}",
+  heading: "FOS Balance Reminder",
+  body: `Hello {familyName},
+
+This is a reminder that your current FOS amount owed is {amountOwed}.
+
+You currently have {approvedHours} approved volunteer hours and {remainingHours} hours remaining.
+
+If you have completed volunteer hours that have not yet been reported, please log into your WVCS Family Portal and submit them for office review.
+
+Family Portal: {portalLoginUrl}`,
+  updatedAt: "",
+  updatedByEmail: "",
+};
 
 export function normalizeFosSettings(settings = {}) {
   const liabilityAmount = Number(settings.liabilityAmount ?? settings.fosLiabilityAmount ?? FOS_BUYOUT_AMOUNT);
@@ -56,6 +72,19 @@ function mapFamilyAccess(row) {
     hourValue: Number(row.fos_hour_value ?? FOS_HOUR_VALUE),
     lastParentLoginAt: row.last_parent_login_at || "",
     lastParentLoginEmail: row.last_parent_login_email || "",
+  };
+}
+
+function mapFosReminderTemplate(row) {
+  if (!row) return DEFAULT_FOS_REMINDER_TEMPLATE;
+  return {
+    ...DEFAULT_FOS_REMINDER_TEMPLATE,
+    id: row.id || "reminder",
+    subject: row.subject || DEFAULT_FOS_REMINDER_TEMPLATE.subject,
+    heading: row.heading || DEFAULT_FOS_REMINDER_TEMPLATE.heading,
+    body: row.body || DEFAULT_FOS_REMINDER_TEMPLATE.body,
+    updatedAt: row.updated_at || "",
+    updatedByEmail: row.updated_by_email || "",
   };
 }
 
@@ -127,6 +156,44 @@ export async function updateFamilyFosSettings(familyKey, settings) {
   return { saved: true, access: mapFamilyAccess(data) };
 }
 
+export async function fetchFosReminderTemplate() {
+  if (!isSupabaseConfigured) return { loaded: false, template: DEFAULT_FOS_REMINDER_TEMPLATE, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("fos_email_templates")
+    .select("*")
+    .eq("id", "reminder")
+    .maybeSingle();
+  if (error) return { loaded: false, template: DEFAULT_FOS_REMINDER_TEMPLATE, reason: "FOS reminder template table is not installed yet." };
+  return { loaded: true, template: mapFosReminderTemplate(data) };
+}
+
+export async function saveFosReminderTemplate(template, updatedByEmail = "") {
+  const normalized = {
+    ...DEFAULT_FOS_REMINDER_TEMPLATE,
+    ...template,
+    id: "reminder",
+  };
+  if (!isSupabaseConfigured) return { saved: false, template: normalized, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("fos_email_templates")
+    .upsert(
+      {
+        id: "reminder",
+        subject: normalized.subject,
+        heading: normalized.heading,
+        body: normalized.body,
+        updated_by_email: updatedByEmail || null,
+      },
+      { onConflict: "id" }
+    )
+    .select("*")
+    .single();
+  if (error) throw error;
+  return { saved: true, template: mapFosReminderTemplate(data) };
+}
+
 export async function reviewFosEntry(entryId, review) {
   if (!isSupabaseConfigured) return { reviewed: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("review-fos-hours", {
@@ -169,7 +236,7 @@ export async function sendFamilyPortalInvite(family, currentUserEmail = "", reci
 export async function sendFamilyFosReminder(familyKey, recipients = []) {
   if (!isSupabaseConfigured) return { sent: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("send-family-fos-reminder", {
-    body: { familyKey, recipients },
+    body: Array.isArray(familyKey) ? { familyKeys: familyKey, recipientsByFamily: recipients } : { familyKey, recipients },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
