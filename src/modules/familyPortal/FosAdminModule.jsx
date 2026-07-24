@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Copy, RefreshCw, Search, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Mail, RefreshCw, Search, XCircle } from "lucide-react";
 import { fetchOfficeFamilyDirectory } from "../../lib/tuitionBillingData.js";
 import {
   FOS_BUYOUT_AMOUNT,
@@ -9,6 +9,7 @@ import {
   fetchFamilyPortalAccessRecords,
   fetchFosEntries,
   reviewFosEntry,
+  sendFamilyPortalInvite,
   updateFamilyFosSettings,
 } from "../../lib/familyPortalData.js";
 
@@ -40,34 +41,6 @@ function familyMatches(family, query) {
   ].join(" ").toLowerCase().includes(needle);
 }
 
-async function copyTextToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall back for browsers that block async clipboard writes.
-    }
-  }
-
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  textArea.setAttribute("readonly", "");
-  textArea.style.position = "fixed";
-  textArea.style.left = "-9999px";
-  textArea.style.top = "0";
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  let copied = false;
-  try {
-    copied = document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textArea);
-  }
-  return copied;
-}
-
 export default function FosAdminModule({ currentUserEmail = "" }) {
   const [entries, setEntries] = useState([]);
   const [families, setFamilies] = useState([]);
@@ -76,7 +49,6 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [familySearch, setFamilySearch] = useState("");
   const [selectedFamily, setSelectedFamily] = useState(null);
   const [reviewDrafts, setReviewDrafts] = useState({});
-  const [portalLinks, setPortalLinks] = useState({});
   const [portalLoadingKey, setPortalLoadingKey] = useState("");
   const [portalAccess, setPortalAccess] = useState({});
   const [liabilityDrafts, setLiabilityDrafts] = useState({});
@@ -87,15 +59,12 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setEntries(entryResult.entries || []);
       setFamilies(familyResult.families || []);
       const accessMap = {};
-      const linkMap = {};
       const draftMap = {};
       (accessResult.access || []).forEach((access) => {
         accessMap[access.familyKey] = access;
-        if (access.publicToken) linkMap[access.familyKey] = `${window.location.origin}/#/family-portal/${encodeURIComponent(access.publicToken)}`;
         draftMap[access.familyKey] = String(access.liabilityAmount || FOS_BUYOUT_AMOUNT);
       });
       setPortalAccess(accessMap);
-      setPortalLinks((current) => ({ ...linkMap, ...current }));
       setLiabilityDrafts((current) => ({ ...draftMap, ...current }));
       setStatus("FOS records loaded.");
     } catch (error) {
@@ -123,46 +92,48 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     hourValue: selectedAccess?.hourValue || FOS_HOUR_VALUE,
   });
 
-  async function generatePortalLink(family, { copy = false } = {}) {
+  async function ensureAccessForFamily(family) {
     try {
-      if (portalLinks[family.familyKey] && !copy) return portalLinks[family.familyKey];
       setPortalLoadingKey(family.familyKey);
-      setStatus(`${copy ? "Copying" : "Generating"} family portal link for ${family.familyName}...`);
+      setStatus(`Preparing secure family portal access for ${family.familyName}...`);
       const result = await ensureFamilyPortalAccess(family, currentUserEmail);
-      const url = `${window.location.origin}/#/family-portal/${encodeURIComponent(result.access.publicToken)}`;
-      setPortalLinks((current) => ({ ...current, [family.familyKey]: url }));
       setPortalAccess((current) => ({ ...current, [family.familyKey]: result.access }));
       setLiabilityDrafts((current) => ({
         ...current,
         [family.familyKey]: current[family.familyKey] || String(result.access.liabilityAmount || FOS_BUYOUT_AMOUNT),
       }));
-      if (!copy) setStatus(`Family portal link ready for ${family.familyName}.`);
-      return url;
+      setStatus(`Secure family portal access is ready for ${family.familyName}.`);
+      return result.access;
     } catch (error) {
-      setStatus(`Unable to generate family portal link: ${error.message}`);
-      return "";
+      setStatus(`Unable to prepare family portal access: ${error.message}`);
+      return null;
     } finally {
       setPortalLoadingKey("");
     }
   }
 
-  async function copyPortalLink(family) {
-    const existingUrl = portalLinks[family.familyKey];
-    const url = existingUrl || (await generatePortalLink(family, { copy: true }));
-    if (!url) return;
-    const copied = await copyTextToClipboard(url);
-    setStatus(
-      copied
-        ? `Family portal link copied for ${family.familyName}.`
-        : `The link is ready below. Select it to copy it manually.`
-    );
+  async function sendInvite(family) {
+    try {
+      setPortalLoadingKey(family.familyKey);
+      setStatus(`Sending family portal invite for ${family.familyName}...`);
+      const result = await sendFamilyPortalInvite(family, currentUserEmail);
+      setStatus(`Family portal invite sent to ${result.recipients.join(", ")}.`);
+      await loadData();
+    } catch (error) {
+      setStatus(`Unable to send family portal invite: ${error.message}`);
+    } finally {
+      setPortalLoadingKey("");
+    }
+  }
+
+  async function viewAsFamily(family) {
+    await ensureAccessForFamily(family);
+    window.open(`${window.location.origin}/#/family-portal-preview/${encodeURIComponent(family.familyKey)}`, "_blank", "noopener,noreferrer");
   }
 
   function selectFamily(family) {
     setSelectedFamily(family);
-    if (!portalLinks[family.familyKey]) {
-      generatePortalLink(family);
-    }
+    if (!portalAccess[family.familyKey]) ensureAccessForFamily(family);
   }
 
   async function review(entry, action) {
@@ -235,7 +206,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <div className="text-sm font-bold text-white">Family Portal Links</div>
+            <div className="text-sm font-bold text-white">Family Portal Access</div>
             <label className="relative mt-3 block">
               <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
               <Input value={familySearch} onChange={(event) => setFamilySearch(event.target.value)} placeholder="Search family" className="pl-9" />
@@ -262,6 +233,9 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
           {selectedFamily && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="text-sm font-bold text-white">{selectedFamily.familyName}</div>
+              <div className="mt-2 text-xs text-slate-500">
+                Parents sign in at <span className="font-semibold text-slate-300">wvcshub.org/#/family-login</span> using roster-linked email addresses.
+              </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-semibold">
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-emerald-100">
                   <span className="block text-[10px] uppercase tracking-[0.12em] text-emerald-300/70">Approved</span>
@@ -296,36 +270,24 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   This family currently needs {selectedBalance.requiredHours.toFixed(selectedBalance.requiredHours % 1 ? 1 : 0)} approved hours to reduce the FOS amount to $0.
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => copyPortalLink(selectedFamily)}
-                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
-              >
-                <Copy size={16} />
-                {portalLoadingKey === selectedFamily.familyKey ? "Preparing Link..." : "Copy Family Portal Link"}
-              </button>
-              {portalLoadingKey === selectedFamily.familyKey && (
-                <div className="mt-2 text-xs text-slate-400">Generating the family portal link...</div>
-              )}
-              {portalLinks[selectedFamily.familyKey] && (
-                <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2">
-                  <input
-                    readOnly
-                    onClick={(event) => event.target.select()}
-                    onFocus={(event) => event.target.select()}
-                    value={portalLinks[selectedFamily.familyKey]}
-                    className="w-full bg-transparent text-xs text-slate-200 outline-none"
-                  />
-                  <a
-                    href={portalLinks[selectedFamily.familyKey]}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-flex text-xs font-semibold text-sky-300 hover:text-sky-200"
-                  >
-                    Open portal link
-                  </a>
-                </div>
-              )}
+              <div className="mt-3 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => sendInvite(selectedFamily)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                >
+                  <Mail size={16} />
+                  {portalLoadingKey === selectedFamily.familyKey ? "Working..." : "Send Parent Portal Invite"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => viewAsFamily(selectedFamily)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                >
+                  <ExternalLink size={16} />
+                  View as Family
+                </button>
+              </div>
             </div>
           )}
         </div>

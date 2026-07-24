@@ -134,10 +134,12 @@ export async function reviewFosEntry(entryId, review) {
 
 export async function fetchFamilyPortalData(token) {
   if (!isSupabaseConfigured) return { loaded: false, reason: "Supabase is not configured." };
+  const body = typeof token === "object" && token !== null ? token : { token };
   const { data, error } = await supabase.functions.invoke("family-portal-data", {
-    body: { token },
+    body,
   });
   if (error) throw error;
+  if (data?.error) throw new Error(data.error);
   return data || { loaded: false };
 }
 
@@ -148,4 +150,14 @@ export async function submitFosHours(token, entry) {
   });
   if (error) throw error;
   return data || { submitted: false };
+}
+
+export async function sendFamilyPortalInvite(family, currentUserEmail = "", recipients = []) {
+  if (!isSupabaseConfigured) return { sent: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("send-family-portal-invite", {
+    body: { family, currentUserEmail, recipients },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { sent: false };
 }

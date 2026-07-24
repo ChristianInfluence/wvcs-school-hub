@@ -176,6 +176,8 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: false,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -190,6 +192,8 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: false,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -204,6 +208,8 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: false,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -218,6 +224,8 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: decodeURIComponent(formShareMatch[1]),
       publicFormsDirectory: false,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -231,6 +239,8 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: false,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
       moduleId: "structured-recess",
       structuredRecessView: "aide",
     };
@@ -244,6 +254,23 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: true,
       familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  if (hash === "#/family-login") {
+    return {
+      incidentalPaymentToken: "",
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      familyPortalToken: "",
+      familyPortalLogin: true,
+      familyPortalPreviewKey: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -258,6 +285,24 @@ function getRouteFromHash(hash = window.location.hash) {
       formShareToken: "",
       publicFormsDirectory: false,
       familyPortalToken: decodeURIComponent(familyPortalMatch[1]),
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  const familyPortalPreviewMatch = hash.match(/^#\/family-portal-preview\/(.+)$/);
+  if (familyPortalPreviewMatch) {
+    return {
+      incidentalPaymentToken: "",
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: decodeURIComponent(familyPortalPreviewMatch[1]),
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -272,6 +317,8 @@ function getRouteFromHash(hash = window.location.hash) {
     formShareToken: "",
     publicFormsDirectory: false,
     familyPortalToken: "",
+    familyPortalLogin: false,
+    familyPortalPreviewKey: "",
     moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
     structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
   };
@@ -1246,6 +1293,8 @@ export default function App() {
   const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
   const [publicFormsDirectory, setPublicFormsDirectory] = useState(initialRoute.publicFormsDirectory);
   const [familyPortalToken, setFamilyPortalToken] = useState(initialRoute.familyPortalToken);
+  const [familyPortalLogin, setFamilyPortalLogin] = useState(initialRoute.familyPortalLogin);
+  const [familyPortalPreviewKey, setFamilyPortalPreviewKey] = useState(initialRoute.familyPortalPreviewKey);
   const [officeFinanceTarget, setOfficeFinanceTarget] = useState(null);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
@@ -1262,6 +1311,8 @@ export default function App() {
       setFormShareToken(route.formShareToken);
       setPublicFormsDirectory(route.publicFormsDirectory);
       setFamilyPortalToken(route.familyPortalToken);
+      setFamilyPortalLogin(route.familyPortalLogin);
+      setFamilyPortalPreviewKey(route.familyPortalPreviewKey);
       setActiveModule(route.moduleId);
       setStructuredRecessView(route.structuredRecessView);
     }
@@ -1278,6 +1329,8 @@ export default function App() {
     setFormShareToken("");
     setPublicFormsDirectory(false);
     setFamilyPortalToken("");
+    setFamilyPortalLogin(false);
+    setFamilyPortalPreviewKey("");
     if (!options.keepOfficeFinanceTarget) setOfficeFinanceTarget(null);
     setModuleHash(moduleId, "full");
   }
@@ -1294,6 +1347,8 @@ export default function App() {
     setFormShareToken("");
     setPublicFormsDirectory(false);
     setFamilyPortalToken("");
+    setFamilyPortalLogin(false);
+    setFamilyPortalPreviewKey("");
     setModuleHash("structured-recess", "aide");
   }
 
@@ -1319,6 +1374,14 @@ export default function App() {
 
   if (familyPortalToken) {
     return <FamilyPortalPage token={familyPortalToken} />;
+  }
+
+  if (familyPortalLogin) {
+    return <FamilyPortalPage secureLogin />;
+  }
+
+  if (familyPortalPreviewKey) {
+    return <FamilyPortalPage previewFamilyKey={familyPortalPreviewKey} />;
   }
 
   return (

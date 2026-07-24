@@ -40,16 +40,35 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { token } = await request.json();
-    if (!token) throw new Error("Missing family portal token.");
+    const authHeader = request.headers.get("Authorization") || "";
+    const { token, previewFamilyKey } = await request.json();
 
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-    const { data: access, error: accessError } = await supabase
-      .from("family_portal_access")
-      .select("*")
-      .eq("public_token", token)
-      .eq("active", true)
-      .maybeSingle();
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: userData } = jwt ? await supabase.auth.getUser(jwt) : { data: { user: null } };
+    const requesterEmail = String(userData?.user?.email || "").trim().toLowerCase();
+
+    let accessQuery = supabase.from("family_portal_access").select("*").eq("active", true);
+
+    if (token) {
+      accessQuery = accessQuery.eq("public_token", token);
+    } else if (previewFamilyKey) {
+      if (!requesterEmail) throw new Error("Missing office identity.");
+      const { data: staffRows, error: staffError } = await supabase
+        .from("staff_access")
+        .select("email, can_use_hub, can_use_admin, can_use_office_payroll")
+        .eq("email", requesterEmail)
+        .limit(1);
+      if (staffError) throw staffError;
+      const staff = staffRows?.[0];
+      if (!staff?.can_use_hub || (!staff.can_use_admin && !staff.can_use_office_payroll)) throw new Error("Not authorized.");
+      accessQuery = accessQuery.eq("family_key", previewFamilyKey);
+    } else {
+      if (!requesterEmail) throw new Error("Please sign in to view your family portal.");
+      accessQuery = accessQuery.contains("contact_emails", [requesterEmail]);
+    }
+
+    const { data: access, error: accessError } = await accessQuery.maybeSingle();
 
     if (accessError) throw accessError;
     if (!access) return new Response(JSON.stringify({ loaded: true, found: false }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

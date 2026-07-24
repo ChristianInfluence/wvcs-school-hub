@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users } from "lucide-react";
 import { fetchFamilyPortalData, submitFosHours } from "../../lib/familyPortalData.js";
+import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -68,8 +69,12 @@ function isOpenInvoice(invoice) {
   return !status.includes("paid") && !status.includes("void") && !status.includes("cancel");
 }
 
-export default function FamilyPortalPage({ token = "" }) {
+export default function FamilyPortalPage({ token = "", secureLogin = false, previewFamilyKey = "" }) {
   const [portal, setPortal] = useState({ loading: true, error: "", data: null });
+  const [familySession, setFamilySession] = useState({ loading: Boolean(secureLogin || previewFamilyKey), user: null });
+  const [loginDraft, setLoginDraft] = useState({ email: "", code: "" });
+  const [loginStatus, setLoginStatus] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [draft, setDraft] = useState({ parentName: "", parentEmail: "", activityDate: today, activity: "", hours: "", notes: "" });
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -77,12 +82,20 @@ export default function FamilyPortalPage({ token = "" }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [showFosForm, setShowFosForm] = useState(false);
 
+  const authRequired = Boolean(secureLogin || previewFamilyKey);
+
   async function loadPortal() {
     setPortal((current) => ({ ...current, loading: true, error: "" }));
     try {
-      const result = await fetchFamilyPortalData(token);
+      const result = await fetchFamilyPortalData(previewFamilyKey ? { previewFamilyKey } : secureLogin ? {} : token);
       if (!result.found) {
-        setPortal({ loading: false, error: "This family portal link was not found or is no longer active.", data: null });
+        setPortal({
+          loading: false,
+          error: secureLogin
+            ? "No family portal is connected to this email address yet. Please contact the WVCS office."
+            : "This family portal link was not found or is no longer active.",
+          data: null,
+        });
         return;
       }
       setPortal({ loading: false, error: "", data: result });
@@ -96,8 +109,36 @@ export default function FamilyPortalPage({ token = "" }) {
   }
 
   useEffect(() => {
-    loadPortal();
-  }, [token]);
+    if (!authRequired) {
+      loadPortal();
+      return undefined;
+    }
+
+    let active = true;
+    async function loadSession() {
+      if (!isSupabaseConfigured) {
+        setFamilySession({ loading: false, user: null });
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
+      if (active) setFamilySession({ loading: false, user: data.session?.user || null });
+    }
+    loadSession();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setFamilySession({ loading: false, user: session?.user || null });
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [authRequired]);
+
+  useEffect(() => {
+    if (!authRequired) return;
+    if (familySession.loading) return;
+    if (familySession.user) loadPortal();
+    else setPortal({ loading: false, error: "", data: null });
+  }, [authRequired, familySession.loading, familySession.user?.id, previewFamilyKey]);
 
   const balance = portal.data?.fos?.balance || {};
   const entries = portal.data?.fos?.entries || [];
@@ -161,6 +202,92 @@ export default function FamilyPortalPage({ token = "" }) {
     }
   }
 
+  async function sendLoginCode() {
+    const email = loginDraft.email.trim().toLowerCase();
+    if (!email) {
+      setLoginStatus("Enter the email address connected to your WVCS family record.");
+      return;
+    }
+    setLoginStatus("Sending secure login code...");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false,
+      },
+    });
+    if (error) {
+      setLoginStatus(error.message);
+      return;
+    }
+    setCodeSent(true);
+    setLoginStatus("Check your email for a one-time login code.");
+  }
+
+  async function verifyLoginCode() {
+    const email = loginDraft.email.trim().toLowerCase();
+    const code = loginDraft.code.trim();
+    if (!email || !code) {
+      setLoginStatus("Enter your email and the one-time code.");
+      return;
+    }
+    setLoginStatus("Signing in...");
+    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+    if (error) {
+      setLoginStatus(error.message);
+      return;
+    }
+    setLoginStatus("");
+  }
+
+  async function signOutFamilyPortal() {
+    await supabase.auth.signOut();
+    setPortal({ loading: false, error: "", data: null });
+  }
+
+  if (secureLogin && !familySession.loading && !familySession.user) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100">
+        <section className="mx-auto flex min-h-screen max-w-xl items-center px-5 py-8">
+          <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">WVCS Family Portal</div>
+            <h1 className="mt-2 text-3xl font-bold text-white">Family Sign In</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              Enter the parent or guardian email address that WVCS has connected to your family record. The system will send a one-time login code to that email.
+            </p>
+            <div className="mt-5 grid gap-3">
+              <Field label="Email">
+                <Input type="email" value={loginDraft.email} onChange={(event) => setLoginDraft({ ...loginDraft, email: event.target.value })} placeholder="parent@example.com" />
+              </Field>
+              {codeSent && (
+                <Field label="One-Time Code">
+                  <Input inputMode="numeric" value={loginDraft.code} onChange={(event) => setLoginDraft({ ...loginDraft, code: event.target.value })} placeholder="123456" />
+                </Field>
+              )}
+              <button
+                type="button"
+                onClick={codeSent ? verifyLoginCode : sendLoginCode}
+                disabled={!isSupabaseConfigured}
+                className="inline-flex w-full items-center justify-center rounded-lg border border-sky-400 bg-sky-500 px-3 py-3 text-sm font-bold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {codeSent ? "Sign In" : "Send Login Code"}
+              </button>
+              {codeSent && (
+                <button
+                  type="button"
+                  onClick={sendLoginCode}
+                  className="text-sm font-semibold text-sky-300 hover:text-sky-200"
+                >
+                  Send a new code
+                </button>
+              )}
+            </div>
+            {loginStatus && <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{loginStatus}</div>}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <section className="mx-auto max-w-6xl px-5 py-6">
@@ -168,16 +295,29 @@ export default function FamilyPortalPage({ token = "" }) {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">WVCS Family Portal</div>
             <h1 className="mt-2 text-3xl font-bold text-white">{portal.data?.family?.familyName || "Family Portal"}</h1>
-            <p className="mt-2 text-sm text-slate-400">View FOS progress, invoice history, and family account tools.</p>
+            <p className="mt-2 text-sm text-slate-400">
+              {previewFamilyKey ? "Office preview of the family portal." : "View FOS progress, invoice history, and family account tools."}
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={loadPortal}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={loadPortal}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+            {secureLogin && familySession.user && (
+              <button
+                type="button"
+                onClick={signOutFamilyPortal}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
+              >
+                Sign Out
+              </button>
+            )}
+          </div>
         </div>
 
         {portal.loading && <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">Loading family portal...</div>}
