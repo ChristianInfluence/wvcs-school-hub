@@ -1643,15 +1643,31 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
 
   async function copyIncidentalPortalLink() {
     try {
-      const saved = incidentalInvoice.publicToken
-        ? { invoice: { ...incidentalInvoice } }
-        : await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
+      const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
       const portalInvoice = saved.invoice?.invoice || saved.invoice || incidentalInvoice;
       const url = getIncidentalPortalUrl(portalInvoice);
       await navigator.clipboard.writeText(url);
-      setStatus("Payment portal link copied.");
+      setStatus("Invoice saved and payment link copied.");
     } catch (error) {
       setStatus(`Unable to copy payment portal link: ${error.message}`);
+    }
+  }
+
+  async function openIncidentalPortal() {
+    const openedWindow = window.open("", "_blank");
+    try {
+      const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
+      const portalInvoice = saved.invoice?.invoice || saved.invoice || incidentalInvoice;
+      const url = getIncidentalPortalUrl(portalInvoice);
+      if (openedWindow) {
+        openedWindow.location.href = url;
+      } else {
+        window.open(url, "_blank", "noreferrer");
+      }
+      setStatus("Payment portal opened.");
+    } catch (error) {
+      if (openedWindow) openedWindow.close();
+      setStatus(`Unable to open payment portal: ${error.message}`);
     }
   }
 
@@ -2668,23 +2684,6 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                       </Field>
                     </div>
                   )}
-                  <div className="sm:col-span-2">
-                    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                      <div className="text-sm font-semibold text-slate-200">Parent Payment Portal</div>
-                      {incidentalInvoice.publicToken ? (
-                        <div className="mt-2 break-all rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
-                          {getIncidentalPortalUrl(incidentalInvoice)}
-                        </div>
-                      ) : (
-                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-500">
-                          Save the invoice to generate the parent payment portal link automatically.
-                        </div>
-                      )}
-                      <p className="mt-2 text-xs leading-5 text-slate-500">
-                        Families use this Hub portal link. Stripe checkout is created automatically when they click Pay Securely.
-                      </p>
-                    </div>
-                  </div>
                 </div>
                 <label className="mt-3 grid gap-1 text-sm font-medium text-slate-200">
                   Parent Note
@@ -2860,27 +2859,18 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-bold text-white">Payment Portal</div>
-                    <div className="mt-1 text-xs text-slate-500">Save once to generate the parent-facing link.</div>
+                    <div className="text-sm font-bold text-white">Invoice Actions</div>
                   </div>
                   <div className="text-right text-lg font-bold text-white">{formatCurrency(incidentalDraftTotal)}</div>
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <button
                     type="button"
                     onClick={saveIncidentalDraft}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
                   >
                     <Save size={16} />
-                    Save Invoice
-                  </button>
-                  <button
-                    type="button"
-                    onClick={copyIncidentalPortalLink}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-                  >
-                    <Copy size={16} />
-                    Copy Portal Link
+                    Save Draft
                   </button>
                   <button
                     type="button"
@@ -2889,23 +2879,25 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Mail size={16} />
-                    {sendingIncidentalEmail ? "Sending..." : "Send Email"}
+                    {sendingIncidentalEmail ? "Sending..." : "Send Invoice"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyIncidentalPortalLink}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  >
+                    <Copy size={16} />
+                    Save & Copy Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openIncidentalPortal}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  >
+                    <ExternalLink size={16} />
+                    Open Portal
                   </button>
                 </div>
-                {incidentalInvoice.publicToken && (
-                  <a
-                    href={getIncidentalPortalUrl(incidentalInvoice)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-sky-300 hover:text-sky-200"
-                  >
-                    <ExternalLink size={14} />
-                    Open parent payment portal
-                  </a>
-                )}
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  Send or copy the Hub portal link. Families click Pay Securely there, and Stripe Checkout opens automatically.
-                </p>
               </div>
             </div>
 
@@ -2916,14 +2908,6 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     <div className="text-sm font-bold text-white">Live Preview</div>
                     <div className="mt-1 text-xs text-slate-500">This is the parent-facing invoice layout.</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={saveIncidentalDraft}
-                    className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
-                  >
-                    <Save size={16} />
-                    Save
-                  </button>
                 </div>
               </div>
               <div className="overflow-hidden rounded-lg bg-slate-800 p-3">
