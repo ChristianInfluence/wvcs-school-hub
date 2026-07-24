@@ -1077,7 +1077,7 @@ export function IncidentalPaymentPortalPage({ token = "" }) {
   );
 }
 
-export default function TuitionBillingModule({ currentUserEmail = "", officeFinanceTarget = null }) {
+export default function TuitionBillingModule({ currentUserEmail = "", officeFinanceTarget = null, hideOfficeFinanceNavigation = false }) {
   const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
   const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
@@ -2030,6 +2030,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           )}
         </div>
 
+        {!hideOfficeFinanceNavigation && (
         <div className="mt-5 flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
           {[
             ["tuition", "Tuition Breakdown", ReceiptText],
@@ -2050,6 +2051,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
             </button>
           ))}
         </div>
+        )}
 
         {status && (
           <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
@@ -2436,6 +2438,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
 
         {activeView === "incidentals" && (
           <>
+          {!hideOfficeFinanceNavigation && (
           <div className="mt-5 flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
             {[
               ["invoice", "Create / Send Invoice", ReceiptText],
@@ -2457,6 +2460,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               </button>
             ))}
           </div>
+          )}
 
           {incidentalWorkspaceView === "invoice" && (
           <div className="mt-6 grid gap-4 xl:grid-cols-[240px_480px_minmax(640px,1fr)]">
