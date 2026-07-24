@@ -2506,19 +2506,33 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     </select>
                   </Field>
                   <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="grid gap-3">
                       <div className="flex items-center gap-2 text-sm font-bold text-white">
                         <CheckCircle2 size={16} className="text-emerald-300" />
                         Record Office Payment
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs font-bold">
-                        <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Total {formatCurrency(incidentalTotal(incidentalInvoice))}</span>
-                        <span className="rounded-full border border-emerald-500/40 px-2 py-1 text-emerald-200">Paid {formatCurrency(incidentalPaidTotal(incidentalInvoice))}</span>
-                        <span className="rounded-full border border-amber-500/40 px-2 py-1 text-amber-200">Balance {formatCurrency(incidentalBalance(incidentalInvoice))}</span>
-                        {incidentalInvoice.receiptNumber && <span className="rounded-full border border-sky-500/40 px-2 py-1 text-sky-200">{incidentalInvoice.receiptNumber}</span>}
+                      <div className="grid gap-2 text-xs font-bold sm:grid-cols-2">
+                        <span className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-300">
+                          <span className="block text-[10px] uppercase tracking-[0.12em] text-slate-500">Total</span>
+                          {formatCurrency(incidentalTotal(incidentalInvoice))}
+                        </span>
+                        <span className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-200">
+                          <span className="block text-[10px] uppercase tracking-[0.12em] text-emerald-300/70">Paid</span>
+                          {formatCurrency(incidentalPaidTotal(incidentalInvoice))}
+                        </span>
+                        <span className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-200">
+                          <span className="block text-[10px] uppercase tracking-[0.12em] text-amber-300/70">Balance</span>
+                          {formatCurrency(incidentalBalance(incidentalInvoice))}
+                        </span>
+                        {incidentalInvoice.receiptNumber && (
+                          <span className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sky-200">
+                            <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Receipt</span>
+                            {incidentalInvoice.receiptNumber}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto] sm:items-end">
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <Field label="Amount">
                         <MoneyInput
                           value={incidentalInvoice.paymentAmount || ""}
@@ -2563,22 +2577,24 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           className={incidentalInvoice.paymentMethod !== "check" ? "opacity-50" : ""}
                         />
                       </Field>
-                      <button
-                        type="button"
-                        onClick={() => markIncidentalPaidInOffice()}
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
-                      >
-                        <CheckCircle2 size={16} />
-                        Record
-                      </button>
                     </div>
-                    <Field label="Payment Note">
-                      <Input
-                        value={incidentalInvoice.paymentNote || ""}
-                        onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
-                        placeholder="Optional memo for this payment"
-                      />
-                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => markIncidentalPaidInOffice()}
+                      className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                    >
+                      <CheckCircle2 size={16} />
+                      Record Payment
+                    </button>
+                    <div className="mt-3">
+                      <Field label="Payment Note">
+                        <Input
+                          value={incidentalInvoice.paymentNote || ""}
+                          onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
+                          placeholder="Optional memo for this payment"
+                        />
+                      </Field>
+                    </div>
                     {getPaymentHistory(incidentalInvoice).length > 0 && (
                       <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
                         {getPaymentHistory(incidentalInvoice).map((payment) => (
