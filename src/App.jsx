@@ -956,11 +956,11 @@ function UserProfileMenu({ user, access, signOut }) {
 }
 
 function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null }) {
-  const [officeView, setOfficeView] = useState("tuition");
+  const [officeView, setOfficeView] = useState("incidentals");
 
   useEffect(() => {
     if (officeFinanceTarget?.officeView) setOfficeView(officeFinanceTarget.officeView);
-    else setOfficeView("tuition");
+    else setOfficeView("incidentals");
   }, [officeFinanceTarget]);
 
   return (
@@ -968,13 +968,13 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
       <div className="mx-auto max-w-[1500px] px-5 pt-4">
         <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
           {[
-            ["tuition", "Tuition Breakdowns", ReceiptText],
             ["incidentals", "Incidentals", Calculator],
             ["receivables", "Accounts Receivable", Calculator],
             ["ledger", "Family Ledger", ReceiptText],
             ["lunch", "Lunch", Utensils],
             ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
+            ["tuition", "Tuition Breakdowns", ReceiptText],
           ].map(([id, label, Icon]) => (
             <button
               key={id}
