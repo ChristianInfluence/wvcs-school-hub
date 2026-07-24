@@ -176,6 +176,80 @@ async function updateIncidentalInvoicePayment({
   return { updated: true, invoiceId: existing.id };
 }
 
+async function upsertLunchAccountBalance({
+  supabase,
+  familyKey,
+  familyName,
+  delta,
+}: {
+  supabase: any;
+  familyKey: string;
+  familyName: string;
+  delta: number;
+}) {
+  const { data: existing, error: selectError } = await supabase
+    .from("lunch_accounts")
+    .select("*")
+    .eq("family_key", familyKey)
+    .maybeSingle();
+  if (selectError) throw selectError;
+  const balance = Number(existing?.balance || 0) + Number(delta || 0);
+  const { error } = await supabase
+    .from("lunch_accounts")
+    .upsert(
+      {
+        family_key: familyKey,
+        family_name: familyName,
+        balance,
+        updated_by_email: "Stripe",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "family_key" },
+    );
+  if (error) throw error;
+}
+
+async function recordLunchDeposit({
+  supabase,
+  session,
+}: {
+  supabase: any;
+  session: Record<string, any>;
+}) {
+  const metadata = session.metadata || {};
+  const familyKey = metadata.family_key || "";
+  const familyName = metadata.family_name || "WVCS Family";
+  if (!familyKey) return { updated: false, reason: "Stripe session did not include lunch family metadata." };
+
+  const existing = await supabase
+    .from("lunch_transactions")
+    .select("id")
+    .eq("stripe_checkout_session_id", session.id)
+    .limit(1);
+  if (existing.error) throw existing.error;
+  if (existing.data?.length) return { updated: true, reason: "Lunch deposit was already recorded." };
+
+  const feeData = await retrieveProcessingFee(session.payment_intent || "");
+  const amount = (session.amount_total || 0) / 100;
+  const { error } = await supabase.from("lunch_transactions").insert({
+    family_key: familyKey,
+    family_name: familyName,
+    type: "deposit",
+    amount,
+    description: "Online lunch account deposit",
+    payment_method: "card",
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: session.payment_intent || "",
+    stripe_processing_fee: feeData.fee || 0,
+    stripe_net_amount: feeData.net || 0,
+    created_by_email: metadata.parent_email || "Stripe",
+  });
+  if (error) throw error;
+
+  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amount });
+  return { updated: true, familyKey };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") {
@@ -196,19 +270,29 @@ Deno.serve(async (request) => {
 
     let result = { updated: false, reason: "Event ignored." };
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-      result = await updateIncidentalInvoicePayment({
-        supabase,
-        session,
-        paymentStatus: session.payment_status === "paid" || event.type === "checkout.session.async_payment_succeeded" ? "Paid" : "Pending",
-      });
+      if (session.metadata?.payment_type === "lunch_deposit") {
+        result = session.payment_status === "paid" || event.type === "checkout.session.async_payment_succeeded"
+          ? await recordLunchDeposit({ supabase, session })
+          : { updated: false, reason: "Lunch deposit payment is pending." };
+      } else {
+        result = await updateIncidentalInvoicePayment({
+          supabase,
+          session,
+          paymentStatus: session.payment_status === "paid" || event.type === "checkout.session.async_payment_succeeded" ? "Paid" : "Pending",
+        });
+      }
     }
 
     if (event.type === "checkout.session.async_payment_failed" || event.type === "payment_intent.payment_failed") {
-      result = await updateIncidentalInvoicePayment({
-        supabase,
-        session,
-        paymentStatus: "Payment Failed",
-      });
+      if (session.metadata?.payment_type === "lunch_deposit") {
+        result = { updated: false, reason: "Lunch deposit payment failed." };
+      } else {
+        result = await updateIncidentalInvoicePayment({
+          supabase,
+          session,
+          paymentStatus: "Payment Failed",
+        });
+      }
     }
 
     return new Response(JSON.stringify({ received: true, eventType: event.type, ...result }), {

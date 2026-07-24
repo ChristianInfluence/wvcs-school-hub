@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users } from "lucide-react";
-import { fetchFamilyPortalData, submitFosHours } from "../../lib/familyPortalData.js";
+import { CheckCircle2, Clock, CreditCard, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
+import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunchOrders } from "../../lib/familyPortalData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -81,6 +81,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [showFosForm, setShowFosForm] = useState(false);
+  const [lunchDraft, setLunchDraft] = useState({ studentId: "", itemKey: "", amount: "25.00" });
+  const [lunchStatus, setLunchStatus] = useState("");
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
 
@@ -151,6 +153,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const openInvoiceBalance = openInvoices.reduce((total, invoice) => total + invoiceTotal(invoice), 0);
   const latestInvoice = invoices[0];
   const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
+  const lunch = portal.data?.lunch || {};
+  const lunchItems = (lunch.menus || []).flatMap((menu) => (menu.items || []).map((item) => ({ ...item, menuId: menu.id, menuTitle: menu.title, itemKey: `${menu.id}:${item.id}` })));
+  const selectedLunchItem = lunchItems.find((item) => item.itemKey === lunchDraft.itemKey);
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";
@@ -227,6 +232,33 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   async function signOutFamilyPortal() {
     await supabase.auth.signOut();
     setPortal({ loading: false, error: "", data: null });
+  }
+
+  async function submitLunchOrder() {
+    if (!lunchDraft.studentId || !selectedLunchItem) {
+      setLunchStatus("Choose a student and lunch item before submitting.");
+      return;
+    }
+    setLunchStatus("Submitting lunch order...");
+    try {
+      await submitLunchOrders([{ studentId: lunchDraft.studentId, menuId: selectedLunchItem.menuId, itemId: selectedLunchItem.id }]);
+      setLunchDraft((current) => ({ ...current, itemKey: "" }));
+      setLunchStatus("Lunch order submitted. The office will charge the account only if the lunch is served.");
+      await loadPortal();
+    } catch (error) {
+      setLunchStatus(`Unable to submit lunch order: ${error.message}`);
+    }
+  }
+
+  async function addLunchFunds() {
+    setLunchStatus("Opening secure checkout...");
+    try {
+      const result = await createLunchCheckout(lunchDraft.amount);
+      if (result.url) window.location.href = result.url;
+      else setLunchStatus(result.reason || "Unable to create checkout.");
+    } catch (error) {
+      setLunchStatus(`Unable to open checkout: ${error.message}`);
+    }
   }
 
   if (secureLogin && !familySession.loading && !familySession.user) {
@@ -315,6 +347,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
               {[
                 ["overview", "Overview", Users],
                 ["invoices", "Invoices", ReceiptText],
+                ["lunch", "Lunch", Utensils],
                 ["fos", "FOS Hours", Clock],
               ].map(([id, label, Icon]) => (
                 <button
@@ -357,8 +390,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       </div>
                       <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                         <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Lunch Balance</div>
-                        <div className="mt-2 text-sm font-bold text-white">{money(portal.data.lunch?.balance || 0)}</div>
-                        <div className="mt-1 text-xs text-slate-500">Coming soon</div>
+                        <div className="mt-2 text-sm font-bold text-white">{money(lunch.balance || 0)}</div>
+                        <div className="mt-1 text-xs text-slate-500">Family lunch account</div>
                       </div>
                     </div>
                   </div>
@@ -402,8 +435,121 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <DollarSign size={16} className="text-emerald-300" />
                       Lunch Balance
                     </div>
-                    <div className="mt-3 rounded-lg border border-dashed border-slate-700 bg-slate-950 p-3 text-sm text-slate-400">
-                      Lunch balance and add-funds tools will be added after the family portal and FOS workflow are stable.
+                    <div className="mt-3 text-2xl font-bold text-white">{money(lunch.balance || 0)}</div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("lunch")}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                    >
+                      <Utensils size={16} />
+                      Open Lunch Account
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "lunch" && (
+              <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+                <div className="space-y-5">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <DollarSign size={16} className="text-emerald-300" />
+                      Lunch Balance
+                    </div>
+                    <div className="mt-3 text-3xl font-bold text-white">{money(lunch.balance || 0)}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">
+                      Online deposits add to your family lunch account. WVCS charges the account only after the office marks a lunch as served.
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <Input inputMode="decimal" value={lunchDraft.amount} onChange={(event) => setLunchDraft({ ...lunchDraft, amount: event.target.value })} placeholder="25.00" />
+                      <button
+                        type="button"
+                        onClick={addLunchFunds}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                      >
+                        <CreditCard size={16} />
+                        Add Funds
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <Utensils size={16} className="text-sky-300" />
+                      Order Lunch
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      <Field label="Student">
+                        <select
+                          value={lunchDraft.studentId}
+                          onChange={(event) => setLunchDraft({ ...lunchDraft, studentId: event.target.value })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        >
+                          <option value="">Select student</option>
+                          {(portal.data.family?.students || []).map((student) => <option key={student.id} value={student.id}>{student.name} {student.grade ? `(Grade ${student.grade})` : ""}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Lunch choice">
+                        <select
+                          value={lunchDraft.itemKey}
+                          onChange={(event) => setLunchDraft({ ...lunchDraft, itemKey: event.target.value })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        >
+                          <option value="">Select lunch</option>
+                          {lunchItems.map((item) => (
+                            <option key={item.itemKey} value={item.itemKey}>
+                              {shortDate(item.date)} - {item.name} - {money(item.price)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      {selectedLunchItem?.description && <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">{selectedLunchItem.description}</div>}
+                      <button
+                        type="button"
+                        onClick={submitLunchOrder}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                      >
+                        <Send size={16} />
+                        Submit Lunch Order
+                      </button>
+                    </div>
+                    {!lunchItems.length && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are open yet.</div>}
+                    {lunchStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{lunchStatus}</div>}
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-sm font-bold text-white">Lunch Orders</div>
+                    <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                      {(lunch.orders || []).map((order) => (
+                        <div key={order.id} className="grid gap-2 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[100px_1fr_90px]">
+                          <div className="text-slate-400">{shortDate(order.orderDate)}</div>
+                          <div>
+                            <div className="font-semibold text-white">{order.studentName}: {order.itemName}</div>
+                            <div className="text-xs text-slate-500">{money(order.price)} | {order.source || "Lunch order"}</div>
+                          </div>
+                          <div className="font-semibold text-sky-200">{order.status}</div>
+                        </div>
+                      ))}
+                      {!lunch.orders?.length && <div className="p-4 text-sm text-slate-500">No lunch orders yet.</div>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-sm font-bold text-white">Lunch Account History</div>
+                    <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                      {(lunch.transactions || []).map((transaction) => (
+                        <div key={transaction.id} className="flex items-start justify-between gap-3 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0">
+                          <div>
+                            <div className="font-semibold text-white">{transaction.description || transaction.type}</div>
+                            <div className="text-xs text-slate-500">{shortDate(transaction.createdAt?.slice(0, 10))}</div>
+                          </div>
+                          <div className={transaction.amount < 0 ? "font-bold text-rose-200" : "font-bold text-emerald-200"}>{money(transaction.amount)}</div>
+                        </div>
+                      ))}
+                      {!lunch.transactions?.length && <div className="p-4 text-sm text-slate-500">No lunch account activity yet.</div>}
                     </div>
                   </div>
                 </div>

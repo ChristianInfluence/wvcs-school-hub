@@ -270,6 +270,26 @@ export async function submitFosHours(token, entry) {
   return data || { submitted: false };
 }
 
+export async function submitLunchOrders(orders) {
+  if (!isSupabaseConfigured) return { submitted: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("submit-lunch-order", {
+    body: { orders },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { submitted: false };
+}
+
+export async function createLunchCheckout(amount) {
+  if (!isSupabaseConfigured) return { created: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("create-lunch-checkout", {
+    body: { amount },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { created: false };
+}
+
 export async function sendFamilyPortalInvite(family, currentUserEmail = "", recipients = []) {
   if (!isSupabaseConfigured) return { sent: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("send-family-portal-invite", {

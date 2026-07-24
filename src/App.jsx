@@ -20,6 +20,7 @@ import {
   ShieldAlert,
   Settings,
   Sparkles,
+  Utensils,
   X,
   UserCircle,
   Users,
@@ -34,6 +35,7 @@ import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/Meetings
 import HubMessages from "./modules/messages/HubMessages.jsx";
 import FamilyPortalPage from "./modules/familyPortal/FamilyPortalPage.jsx";
 import FosAdminModule from "./modules/familyPortal/FosAdminModule.jsx";
+import LunchAdminModule from "./modules/lunch/LunchAdminModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
@@ -761,6 +763,14 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             terms: "fos friends of school volunteer hours family portal balance approve deny adjust",
             target: { officeView: "fos" },
           },
+          {
+            id: "office-finance-lunch",
+            type: "Office & Finance",
+            title: "Lunch Accounts",
+            detail: "Create lunch menus, track daily lunches, and manage family lunch balances.",
+            terms: "lunch menu meals food account balance deposits daily served anticipated family portal",
+            target: { officeView: "lunch" },
+          },
         ]
           .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
           .map((item) => ({
@@ -932,6 +942,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
             ["incidentals", "Incidentals", Calculator],
             ["receivables", "Accounts Receivable", Calculator],
             ["ledger", "Family Ledger", ReceiptText],
+            ["lunch", "Lunch", Utensils],
             ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
           ].map(([id, label, Icon]) => (
@@ -951,7 +962,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           ))}
         </div>
       </div>
-      {officeView !== "substitutes" && officeView !== "fos" && (
+      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && (
         <TuitionBillingModule
           currentUserEmail={currentUserEmail}
           officeFinanceTarget={{
@@ -967,6 +978,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           hideOfficeFinanceNavigation
         />
       )}
+      {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
     </section>
