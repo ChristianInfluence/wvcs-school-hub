@@ -2809,36 +2809,50 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                 </div>
                 <div className="mt-4 space-y-3">
                   {incidentalInvoice.charges.map((charge) => (
-                    <div key={charge.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 lg:grid-cols-[220px_1fr_140px_auto]">
-                      <select
-                        value={charge.category || "Other"}
-                        onChange={(event) => updateCharge(charge.id, { category: event.target.value, description: event.target.value === "Other" ? "" : event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                      >
-                        {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
-                          <option key={category} value={category}>{category}</option>
-                        ))}
-                      </select>
-                      {(charge.category || "Other") === "Other" ? (
-                        <Input
-                          value={charge.description}
-                          onChange={(event) => updateCharge(charge.id, { description: event.target.value })}
-                          placeholder="Manual charge description"
-                        />
-                      ) : (
-                        <div className="flex min-h-10 items-center rounded-lg border border-slate-800 bg-slate-900 px-3 text-sm font-semibold text-slate-300">
-                          {charge.category}
-                        </div>
-                      )}
-                      <MoneyInput value={charge.amount} onChange={(event) => updateCharge(charge.id, { amount: event.target.value })} />
-                      <button
-                        type="button"
-                        onClick={() => removeCharge(charge.id)}
-                        className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
-                        aria-label="Remove charge"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                    <div key={charge.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_128px_40px] sm:items-end">
+                        <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+                          Category
+                          <select
+                            value={charge.category || "Other"}
+                            onChange={(event) => updateCharge(charge.id, { category: event.target.value, description: event.target.value === "Other" ? "" : event.target.value })}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                          >
+                            {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
+                              <option key={category} value={category}>{category}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+                          Amount
+                          <MoneyInput value={charge.amount} onChange={(event) => updateCharge(charge.id, { amount: event.target.value })} className="text-right" />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeCharge(charge.id)}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                          aria-label="Remove charge"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      <div className="mt-2">
+                        {(charge.category || "Other") === "Other" ? (
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+                            Description
+                            <Input
+                              value={charge.description}
+                              onChange={(event) => updateCharge(charge.id, { description: event.target.value })}
+                              placeholder="Manual charge description"
+                              className="normal-case tracking-normal"
+                            />
+                          </label>
+                        ) : (
+                          <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs leading-5 text-slate-400">
+                            Description will appear as <span className="font-bold text-slate-200">{charge.category}</span> on the invoice.
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
