@@ -247,7 +247,11 @@ export default function FamilyPortalPage({ token = "" }) {
                     <button
                       key={`${invoice.id}-${invoice.type}-${invoice.schoolYear || invoice.status}`}
                       type="button"
-                      onClick={() => setSelectedInvoice({ id: invoice.id, type: invoice.type })}
+                      onClick={() =>
+                        setSelectedInvoice((current) =>
+                          current?.id === invoice.id && current?.type === invoice.type ? null : { id: invoice.id, type: invoice.type }
+                        )
+                      }
                       className={`block w-full rounded-lg border px-3 py-2 text-left text-sm transition hover:bg-slate-800 ${
                         visibleInvoice?.id === invoice.id && visibleInvoice?.type === invoice.type
                           ? "border-sky-500/50 bg-sky-500/10"
