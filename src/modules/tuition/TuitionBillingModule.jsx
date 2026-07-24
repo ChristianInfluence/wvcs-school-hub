@@ -1124,7 +1124,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   );
   const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
   const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
-  const compactReceivablesView = activeView === "incidentals" && incidentalWorkspaceView === "receivables";
+  const compactIncidentalsWorkspace = activeView === "incidentals";
   const ledgerFamilyResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)),
     [familyDirectory, ledgerFamilySearch]
@@ -1992,7 +1992,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         }
       `}</style>
       <div className="mx-auto max-w-[1500px]">
-        {!compactReceivablesView && (
+        {!compactIncidentalsWorkspace && (
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
