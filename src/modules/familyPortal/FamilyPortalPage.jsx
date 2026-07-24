@@ -569,7 +569,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-bold text-white">{activeLunchMenu?.title || "Lunch Menu"}</div>
-                            <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : "No published menu loaded"}</div>
+                            <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : `No published menu loaded (${lunchMenus.length} received)`}</div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Expected Cost</div>
@@ -640,7 +640,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         Submit Monthly Lunch Order
                       </button>
                     </div>
-                    {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet. Use Refresh after the office publishes a menu.</div>}
+                    {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet. Use Refresh after the office publishes a menu. Menus received: {lunchMenus.length}.</div>}
                     {lunchStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{lunchStatus}</div>}
                   </div>
                 </div>

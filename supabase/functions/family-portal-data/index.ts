@@ -146,7 +146,7 @@ Deno.serve(async (request) => {
           ? supabase.from("tuition_invoices").select("*").or(familyNameFilter).order("updated_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
         supabase.from("lunch_accounts").select("*").eq("family_key", access.family_key).maybeSingle(),
-        supabase.from("lunch_menus").select("*").eq("status", "Open").order("week_start", { ascending: true }),
+        supabase.from("lunch_menus").select("*").in("status", ["Open", "Published"]).order("week_start", { ascending: true }),
         supabase.from("lunch_orders").select("*").eq("family_key", access.family_key).order("order_date", { ascending: false }).order("created_at", { ascending: false }).limit(120),
         supabase.from("lunch_transactions").select("*").eq("family_key", access.family_key).order("created_at", { ascending: false }).limit(120),
       ]);
