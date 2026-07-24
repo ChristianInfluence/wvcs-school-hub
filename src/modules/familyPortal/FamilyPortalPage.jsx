@@ -186,6 +186,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const permissionSlips = portal.data?.permissionSlips || [];
   const permissionNeedsSignature = permissionSlips.filter((slip) => slip.status === "Needs Signature");
   const completedPermissionSlips = permissionSlips.filter((slip) => slip.status === "Completed");
+  const portalSettings = portal.data?.familyPortalSettings || {};
+  const announcement = portalSettings.announcement || {};
+  const help = portalSettings.help || {};
   const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
   const lunch = portal.data?.lunch || {};
   const lunchMenus = lunch.menus || [];
@@ -423,6 +426,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
             <p className="mt-3 text-sm leading-6 text-slate-400">
               Enter the parent or guardian email address that WVCS has connected to your family record. The system will send a secure sign-in link to that email.
             </p>
+            <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-100">
+              Use the email address WVCS has on file. If you cannot access your portal, contact the school office so we can confirm the correct parent or guardian email.
+            </div>
             <div className="mt-5 grid gap-3">
               <Field label="Email">
                 <Input type="email" value={loginDraft.email} onChange={(event) => setLoginDraft({ ...loginDraft, email: event.target.value })} placeholder="parent@example.com" />
@@ -488,6 +494,13 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
 
         {portal.data && (
           <div className="mt-6 space-y-5">
+            {announcement.enabled && announcement.message && (
+              <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-sky-200">{announcement.title || "Family Portal Announcement"}</div>
+                <div className="mt-2 text-sm leading-6 text-slate-100">{announcement.message}</div>
+              </div>
+            )}
+
             <div className="grid gap-3 md:grid-cols-4">
               <Stat label="Open Invoices" value={openInvoices.length} tone="amber" />
               <Stat label="Open Balance" value={money(openInvoiceBalance)} tone="sky" />
@@ -615,6 +628,20 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <Utensils size={16} />
                       Open Lunch Account
                     </button>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <Info size={16} className="text-sky-300" />
+                      Need Help?
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      {help.message || "For help accessing your family portal, please contact the WVCS office."}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm">
+                      {help.phone && <a href={`tel:${help.phone}`} className="font-semibold text-sky-200 hover:text-sky-100">{help.phone}</a>}
+                      {help.email && <a href={`mailto:${help.email}`} className="font-semibold text-sky-200 hover:text-sky-100">{help.email}</a>}
+                    </div>
                   </div>
                 </div>
               </div>

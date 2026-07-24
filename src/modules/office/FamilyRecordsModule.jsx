@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock, DollarSign, FileText, History, Mail, RefreshCw, Search, ShieldCheck, Utensils, Users } from "lucide-react";
+import { Bell, ClipboardCheck, Clock, DollarSign, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
 import { fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, calculateFosBalance, FOS_SCHOOL_YEAR } from "../../lib/familyPortalData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 
@@ -333,17 +334,229 @@ export function OfficeRolloverModule({ embedded = false }) {
   );
 }
 
-export function OfficeFinanceSettingsModule() {
+function FamilyPortalSettingsPanel({ currentUserEmail = "" }) {
+  const [settings, setSettings] = useState(DEFAULT_FAMILY_PORTAL_SETTINGS);
+  const [status, setStatus] = useState("Loading family portal settings...");
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      try {
+        const result = await fetchFamilyPortalSettings();
+        if (!active) return;
+        setSettings(result.settings || DEFAULT_FAMILY_PORTAL_SETTINGS);
+        setStatus(result.loaded ? "Family portal settings loaded." : result.reason);
+      } catch (error) {
+        if (active) setStatus(`Unable to load settings: ${error.message}`);
+      }
+    }
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveSettings() {
+    setStatus("Saving family portal settings...");
+    try {
+      const result = await saveFamilyPortalSettings(settings, currentUserEmail);
+      setSettings(result.settings || settings);
+      setStatus(result.saved ? "Family portal settings saved." : result.reason);
+    } catch (error) {
+      setStatus(`Unable to save settings: ${error.message}`);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+          <Bell size={16} className="text-sky-600" />
+          Family Portal Announcement
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">Use this for short parent-facing notices that should appear near the top of the secure family portal.</p>
+        <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={settings.announcement.enabled}
+            onChange={(event) => setSettings({ ...settings, announcement: { ...settings.announcement, enabled: event.target.checked } })}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          Show announcement in family portal
+        </label>
+        <div className="mt-4 grid gap-3">
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Banner title
+            <input
+              value={settings.announcement.title}
+              onChange={(event) => setSettings({ ...settings, announcement: { ...settings.announcement, title: event.target.value } })}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+              placeholder="Family Portal Announcement"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Banner message
+            <textarea
+              value={settings.announcement.message}
+              onChange={(event) => setSettings({ ...settings, announcement: { ...settings.announcement, message: event.target.value } })}
+              rows={4}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 outline-none focus:border-sky-500"
+              placeholder="Type the short parent-facing announcement here."
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+            <Info size={16} className="text-sky-600" />
+            Need Help Box
+          </div>
+          <div className="mt-3 grid gap-3">
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Office phone
+              <input value={settings.help.phone} onChange={(event) => setSettings({ ...settings, help: { ...settings.help, phone: event.target.value } })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500" />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Office email
+              <input value={settings.help.email} onChange={(event) => setSettings({ ...settings, help: { ...settings.help, email: event.target.value } })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500" />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Help message
+              <textarea value={settings.help.message} onChange={(event) => setSettings({ ...settings, help: { ...settings.help, message: event.target.value } })} rows={3} className="rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 outline-none focus:border-sky-500" />
+            </label>
+          </div>
+        </div>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+          <div className="font-bold">Office note</div>
+          Before inviting a family, confirm the contacts in Family Records, especially if only one parent or guardian should have portal access.
+        </div>
+        <button type="button" onClick={saveSettings} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700">
+          <Save size={16} />
+          Save Portal Settings
+        </button>
+        {status && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">{status}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ParentAccessAuditPanel() {
+  const [state, setState] = useState({ loading: true, access: [], families: [], error: "" });
+  const [search, setSearch] = useState("");
+
+  async function loadAudit() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const [accessResult, directoryResult] = await Promise.all([fetchFamilyPortalAccessRecords(), fetchOfficeFamilyDirectory()]);
+      setState({
+        loading: false,
+        access: accessResult.access || [],
+        families: directoryResult.families || [],
+        error: accessResult.reason || directoryResult.reason || "",
+      });
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.message }));
+    }
+  }
+
+  useEffect(() => {
+    loadAudit();
+  }, []);
+
+  const familyMap = useMemo(() => new Map(state.families.map((family) => [family.familyKey, family])), [state.families]);
+  const rows = state.access
+    .map((record) => {
+      const family = familyMap.get(record.familyKey);
+      return {
+        ...record,
+        students: family?.students || [],
+        parents: family?.parents || [],
+        searchText: `${record.familyName} ${(record.contactEmails || []).join(" ")} ${(family?.students || []).map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
+      };
+    })
+    .filter((row) => !search.trim() || row.searchText.includes(search.trim().toLowerCase()))
+    .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+
+  const loggedInCount = state.access.filter((record) => record.lastParentLoginAt).length;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+            <ClipboardCheck size={16} className="text-sky-600" />
+            Parent Access Audit
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Review which families have portal access, who last signed in, and which contacts are connected.</p>
+        </div>
+        <button type="button" onClick={loadAudit} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Portal Records</div><div className="mt-1 text-xl font-black text-slate-950">{state.access.length}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Logged In</div><div className="mt-1 text-xl font-black text-slate-950">{loggedInCount}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">No Login Yet</div><div className="mt-1 text-xl font-black text-slate-950">{Math.max(state.access.length - loggedInCount, 0)}</div></div>
+      </div>
+
+      <div className="mt-4 relative">
+        <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-500" placeholder="Search family, email, student, or grade" />
+      </div>
+      {state.error && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{state.error}</div>}
+      {state.loading && <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">Loading parent access records...</div>}
+
+      <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-slate-200">
+        {rows.map((row) => (
+          <div key={row.familyKey} className="grid gap-3 border-b border-slate-200 p-3 text-sm last:border-b-0 lg:grid-cols-[220px_1fr_250px]">
+            <div>
+              <div className="font-bold text-slate-950">{row.familyName}</div>
+              <div className="mt-1 text-xs text-slate-500">{row.students.map((student) => `${student.name}${student.grade ? `, grade ${student.grade}` : ""}`).join(" | ") || "No roster students matched"}</div>
+            </div>
+            <div className="text-xs leading-5 text-slate-600">{(row.contactEmails || []).join(", ") || "No portal emails recorded"}</div>
+            <div className="text-xs leading-5 text-slate-600">
+              <div className="font-bold text-slate-900">{row.lastParentLoginAt ? "Logged in" : "No login recorded"}</div>
+              <div>{formatDate(row.lastParentLoginAt)}</div>
+              {row.lastParentLoginEmail && <div>{row.lastParentLoginEmail}</div>}
+            </div>
+          </div>
+        ))}
+        {!rows.length && !state.loading && <div className="p-4 text-sm text-slate-500">No parent access records match this search.</div>}
+      </div>
+    </div>
+  );
+}
+
+export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
+  const [settingsView, setSettingsView] = useState("portal");
+  const settingsViews = [
+    ["portal", "Family Portal Settings"],
+    ["audit", "Parent Access Audit"],
+    ["rollover", "Yearly Rollover"],
+  ];
+
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5">
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Office & Finance</div>
-        <h2 className="mt-1 text-2xl font-bold text-slate-950">Settings</h2>
-        <p className="mt-1 max-w-3xl text-sm text-slate-600">Smaller office tools and setup areas live here so the main Office & Finance toolbar stays focused on daily work.</p>
+      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Office & Finance</div>
+          <h2 className="mt-1 text-xl font-bold text-slate-950">Settings</h2>
+          <p className="mt-1 text-sm text-slate-600">Setup, parent access review, and year-end tools.</p>
+        </div>
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+          Settings Area
+          <select value={settingsView} onChange={(event) => setSettingsView(event.target.value)} className="min-w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800 outline-none focus:border-sky-500">
+            {settingsViews.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
       </div>
-      <div className="mt-4">
-        <OfficeRolloverModule embedded />
-      </div>
+      <div className="mt-4">{settingsView === "portal" && <FamilyPortalSettingsPanel currentUserEmail={currentUserEmail} />}</div>
+      <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel />}</div>
+      <div className="mt-4">{settingsView === "rollover" && <OfficeRolloverModule embedded />}</div>
     </section>
   );
 }

@@ -83,6 +83,37 @@ function mapPermissionEvent(row: Record<string, any>) {
   };
 }
 
+const DEFAULT_FAMILY_PORTAL_SETTINGS = {
+  announcement: {
+    enabled: false,
+    title: "Family Portal Announcement",
+    message: "",
+  },
+  help: {
+    email: "office@wvcs.org",
+    phone: "503-393-5236",
+    message: "For help accessing your family portal, please contact the WVCS office.",
+  },
+};
+
+function normalizeFamilyPortalSettings(settings: Record<string, any> | null | undefined) {
+  const source = settings || {};
+  const announcement = source.announcement || {};
+  const help = source.help || {};
+  return {
+    announcement: {
+      enabled: Boolean(announcement.enabled),
+      title: announcement.title || DEFAULT_FAMILY_PORTAL_SETTINGS.announcement.title,
+      message: announcement.message || "",
+    },
+    help: {
+      email: help.email || DEFAULT_FAMILY_PORTAL_SETTINGS.help.email,
+      phone: help.phone || DEFAULT_FAMILY_PORTAL_SETTINGS.help.phone,
+      message: help.message || DEFAULT_FAMILY_PORTAL_SETTINGS.help.message,
+    },
+  };
+}
+
 function familyNameTerms(familyName: string) {
   const cleanName = String(familyName || "").trim();
   const withoutFamily = cleanName.replace(/\s+Family$/i, "").trim();
@@ -144,7 +175,7 @@ Deno.serve(async (request) => {
     const nameTerms = familyNameTerms(access.family_name);
     const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
 
-    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }] =
+    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: portalSettingsRow }] =
       await Promise.all([
         supabase.from("student_directory").select("*").eq("active", true),
         supabase.from("fos_hour_entries").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }),
@@ -159,6 +190,7 @@ Deno.serve(async (request) => {
         supabase.from("lunch_menus").select("*").in("status", ["Open", "Published"]).order("week_start", { ascending: true }),
         supabase.from("lunch_orders").select("*").eq("family_key", access.family_key).order("order_date", { ascending: false }).order("created_at", { ascending: false }).limit(120),
         supabase.from("lunch_transactions").select("*").eq("family_key", access.family_key).order("created_at", { ascending: false }).limit(120),
+        supabase.from("office_finance_settings").select("settings").eq("id", "family_portal").maybeSingle(),
       ]);
 
     if (directoryError) throw directoryError;
@@ -295,6 +327,7 @@ Deno.serve(async (request) => {
           orders: (lunchOrders || []).map(mapLunchOrder),
           transactions: (lunchTransactions || []).map(mapLunchTransaction),
         },
+        familyPortalSettings: normalizeFamilyPortalSettings(portalSettingsRow?.settings),
         permissionSlips,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

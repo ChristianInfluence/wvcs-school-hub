@@ -1132,7 +1132,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
         />
       )}
       {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} />}
-      {officeView === "office-settings" && <OfficeFinanceSettingsModule />}
+      {officeView === "office-settings" && <OfficeFinanceSettingsModule currentUserEmail={currentUserEmail} />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
