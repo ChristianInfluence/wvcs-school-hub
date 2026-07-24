@@ -45,6 +45,12 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
+  const savedViewLabels = {
+    unpaid: "families with unpaid incidental invoices",
+    fos: "families with FOS balances or pending FOS hours",
+    lunch: "families with negative lunch balances",
+    portal: "families without a recorded portal login",
+  };
 
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
@@ -185,19 +191,14 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
             <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-500" placeholder="Search families, parents, students" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {[
-              ["all", "All"],
-              ["unpaid", "Unpaid"],
-              ["fos", "FOS"],
-              ["lunch", "Lunch Low"],
-              ["portal", "No Login"],
-            ].map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setSavedView(id)} className={`rounded-lg border px-2 py-2 text-xs font-bold ${savedView === id ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>
-                {label}
+          {savedView !== "all" && (
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs font-semibold text-sky-900">
+              Showing {savedViewLabels[savedView] || "filtered families"}.
+              <button type="button" onClick={() => setSavedView("all")} className="ml-2 font-black underline-offset-4 hover:underline">
+                Show all
               </button>
-            ))}
-          </div>
+            </div>
+          )}
           <div className="mt-3 max-h-[640px] overflow-auto pr-1">
             {filteredFamilies.map((family) => (
               <button key={family.familyKey} type="button" onClick={() => setSelectedFamilyKey(family.familyKey)} className={`mb-2 w-full rounded-lg border p-3 text-left transition ${selectedFamily?.familyKey === family.familyKey ? "border-sky-500 bg-sky-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
@@ -240,7 +241,19 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><Utensils size={14} />Lunch</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.lunchAccount.balance)}</div><div className="text-xs text-slate-500">Current lunch account balance</div></div>
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><ShieldCheck size={14} />FOS</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.fos.remainingBalance)}</div><div className="text-xs text-slate-500">{selectedFamily.fos.approvedHours} approved hour(s), {selectedFamily.pendingFos.length} pending</div></div>
-              <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><Users size={14} />Students</div><div className="mt-2 text-2xl font-black text-slate-950">{selectedFamily.students.length}</div><div className="text-xs text-slate-500">{selectedFamily.students.map((student) => student.grade).filter(Boolean).join(", ") || "Grades not listed"}</div></div>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><Users size={14} />Students</div>
+                <div className="mt-2 text-lg font-black text-slate-950">{selectedFamily.students.length} {selectedFamily.students.length === 1 ? "student" : "students"}</div>
+                <div className="mt-2 grid gap-1">
+                  {selectedFamily.students.slice(0, 4).map((student) => (
+                    <div key={student.studentId || student.name} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+                      <span className="truncate font-semibold text-slate-800">{student.name || "Student"}</span>
+                      <span className="shrink-0 font-bold text-slate-500">{student.grade ? `Grade ${student.grade}` : "No grade"}</span>
+                    </div>
+                  ))}
+                  {selectedFamily.students.length > 4 && <div className="text-xs font-semibold text-slate-500">+ {selectedFamily.students.length - 4} more student(s)</div>}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
@@ -288,7 +301,7 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
   );
 }
 
-export function OfficeRolloverModule() {
+export function OfficeRolloverModule({ embedded = false }) {
   const checklist = [
     "Import or replace the new student roster after final enrollment is ready.",
     "Confirm family portal access for returning families and invite new families individually.",
@@ -298,8 +311,9 @@ export function OfficeRolloverModule() {
     "Review unpaid incidental balances before carrying balances forward.",
   ];
 
+  const Wrapper = embedded ? "div" : "section";
   return (
-    <section className="mx-auto max-w-[1500px] px-5 py-5">
+    <Wrapper className={embedded ? "" : "mx-auto max-w-[1500px] px-5 py-5"}>
       <div className="rounded-lg border border-slate-200 bg-white p-5">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-sky-700"><Clock size={15} />Yearly Rollover</div>
         <h2 className="mt-2 text-2xl font-bold text-slate-950">School Year Rollover Checklist</h2>
@@ -314,6 +328,21 @@ export function OfficeRolloverModule() {
             </div>
           ))}
         </div>
+      </div>
+    </Wrapper>
+  );
+}
+
+export function OfficeFinanceSettingsModule() {
+  return (
+    <section className="mx-auto max-w-[1500px] px-5 py-5">
+      <div className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Office & Finance</div>
+        <h2 className="mt-1 text-2xl font-bold text-slate-950">Settings</h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-600">Smaller office tools and setup areas live here so the main Office & Finance toolbar stays focused on daily work.</p>
+      </div>
+      <div className="mt-4">
+        <OfficeRolloverModule embedded />
       </div>
     </section>
   );

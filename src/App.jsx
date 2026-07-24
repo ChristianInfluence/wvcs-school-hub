@@ -36,7 +36,7 @@ import HubMessages from "./modules/messages/HubMessages.jsx";
 import FamilyPortalPage from "./modules/familyPortal/FamilyPortalPage.jsx";
 import FosAdminModule from "./modules/familyPortal/FosAdminModule.jsx";
 import LunchAdminModule from "./modules/lunch/LunchAdminModule.jsx";
-import FamilyRecordsModule, { OfficeRolloverModule } from "./modules/office/FamilyRecordsModule.jsx";
+import FamilyRecordsModule, { OfficeFinanceSettingsModule } from "./modules/office/FamilyRecordsModule.jsx";
 import StaffLunchOrderModule from "./modules/lunch/StaffLunchOrderModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
@@ -911,8 +911,16 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             type: "Office & Finance",
             title: "Yearly Rollover",
             detail: "Safe school-year rollover checklist for roster, portal, FOS, lunch, and billing records.",
-            terms: "yearly rollover school year archive promote roster next year checklist family records",
-            target: { officeView: "rollover" },
+            terms: "yearly rollover school year archive promote roster next year checklist family records settings office finance",
+            target: { officeView: "office-settings" },
+          },
+          {
+            id: "office-finance-settings",
+            type: "Office & Finance",
+            title: "Office & Finance Settings",
+            detail: "Smaller Office & Finance setup tools, including yearly rollover.",
+            terms: "settings gear setup yearly rollover office finance tools",
+            target: { officeView: "office-settings" },
           },
         ]
           .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
@@ -1088,8 +1096,8 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
             ["lunch", "Lunch", Utensils],
             ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
-            ["rollover", "Yearly Rollover", CalendarClock],
             ["tuition", "Tuition Breakdowns", ReceiptText],
+            ["office-settings", "Settings", Settings],
           ].map(([id, label, Icon]) => (
             <button
               key={id}
@@ -1107,7 +1115,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           ))}
         </div>
       </div>
-      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && officeView !== "families" && officeView !== "rollover" && (
+      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && officeView !== "families" && officeView !== "office-settings" && (
         <TuitionBillingModule
           currentUserEmail={currentUserEmail}
           officeFinanceTarget={{
@@ -1124,7 +1132,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
         />
       )}
       {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} />}
-      {officeView === "rollover" && <OfficeRolloverModule />}
+      {officeView === "office-settings" && <OfficeFinanceSettingsModule />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
