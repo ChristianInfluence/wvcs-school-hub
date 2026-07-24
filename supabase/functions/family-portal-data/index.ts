@@ -13,13 +13,17 @@ function mapStudent(row: Record<string, any>) {
   };
 }
 
-function mapInvoice(row: Record<string, any>) {
+function mapInvoice(row: Record<string, any>, type = "incidental") {
   return {
     id: row.id,
+    type,
+    publicToken: row.public_token || row.invoice_json?.publicToken || "",
     familyName: row.family_name || "",
+    schoolYear: row.school_year || row.invoice_json?.schoolYear || "",
     status: row.status || "",
     paymentStatus: row.payment_status || "",
     total: row.invoice_json?.total || row.invoice_json?.charges?.reduce((sum: number, charge: Record<string, any>) => sum + Number(charge.amount || 0), 0) || 0,
+    invoice: row.invoice_json || {},
     sentAt: row.sent_at || "",
     paidAt: row.paid_at || "",
     receiptNumber: row.receipt_number || "",
@@ -108,14 +112,8 @@ Deno.serve(async (request) => {
           })),
         },
         invoices: {
-          incidentals: [...incidentalById.values()].map(mapInvoice),
-          tuition: (tuitionRows || []).map((row) => ({
-            id: row.id,
-            familyName: row.family_name || "",
-            schoolYear: row.school_year || "",
-            status: row.status || "",
-            sentAt: row.sent_at || "",
-          })),
+          incidentals: [...incidentalById.values()].map((row) => mapInvoice(row, "incidental")),
+          tuition: (tuitionRows || []).map((row) => mapInvoice(row, "tuition")),
         },
         lunch: {
           enabled: false,

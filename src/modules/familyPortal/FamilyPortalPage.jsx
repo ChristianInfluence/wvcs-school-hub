@@ -51,6 +51,7 @@ export default function FamilyPortalPage({ token = "" }) {
   const [draft, setDraft] = useState({ parentName: "", parentEmail: "", activityDate: today, activity: "", hours: "", notes: "" });
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
 
   async function loadPortal() {
     setPortal((current) => ({ ...current, loading: true, error: "" }));
@@ -80,6 +81,36 @@ export default function FamilyPortalPage({ token = "" }) {
     () => [...(portal.data?.invoices?.incidentals || []), ...(portal.data?.invoices?.tuition || [])],
     [portal.data]
   );
+  const visibleInvoice = selectedInvoice && invoices.find((invoice) => invoice.id === selectedInvoice.id && invoice.type === selectedInvoice.type);
+
+  function invoiceTitle(invoice) {
+    if (!invoice) return "Invoice";
+    if (invoice.type === "tuition") return `${invoice.schoolYear || invoice.invoice?.schoolYear || "Tuition"} Tuition Breakdown`;
+    return invoice.invoice?.title || invoice.invoice?.invoiceTitle || "Incidental Invoice";
+  }
+
+  function invoiceTotal(invoice) {
+    if (!invoice) return 0;
+    return Number(invoice.total || invoice.invoice?.total || invoice.invoice?.balanceDue || 0);
+  }
+
+  function chargeRows(invoice) {
+    const charges = invoice?.invoice?.charges;
+    if (Array.isArray(charges) && charges.length) return charges.map((charge) => ({ label: charge.description || charge.label || "Charge", amount: charge.amount }));
+    const students = invoice?.invoice?.students;
+    if (Array.isArray(students) && students.length) {
+      return students.flatMap((student) => [
+        { label: `${student.name || "Student"} tuition`, amount: student.tuition },
+        { label: `${student.name || "Student"} comprehensive fee`, amount: student.comprehensiveFee },
+      ]).filter((row) => Number(row.amount || 0));
+    }
+    return [];
+  }
+
+  function incidentalUrl(invoice) {
+    if (invoice?.type !== "incidental" || !invoice.publicToken) return "";
+    return `${window.location.origin}${window.location.pathname}#/incidental-pay/${encodeURIComponent(invoice.publicToken)}`;
+  }
 
   async function submitHours() {
     if (!draft.activityDate || !draft.activity || !Number(draft.hours)) {
@@ -213,13 +244,61 @@ export default function FamilyPortalPage({ token = "" }) {
                 </div>
                 <div className="mt-3 space-y-2">
                   {invoices.slice(0, 8).map((invoice) => (
-                    <div key={`${invoice.id}-${invoice.schoolYear || invoice.status}`} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
-                      <div className="font-semibold text-white">{invoice.schoolYear || "Incidental Invoice"}</div>
+                    <button
+                      key={`${invoice.id}-${invoice.type}-${invoice.schoolYear || invoice.status}`}
+                      type="button"
+                      onClick={() => setSelectedInvoice({ id: invoice.id, type: invoice.type })}
+                      className={`block w-full rounded-lg border px-3 py-2 text-left text-sm transition hover:bg-slate-800 ${
+                        visibleInvoice?.id === invoice.id && visibleInvoice?.type === invoice.type
+                          ? "border-sky-500/50 bg-sky-500/10"
+                          : "border-slate-800 bg-slate-950"
+                      }`}
+                    >
+                      <div className="font-semibold text-white">{invoiceTitle(invoice)}</div>
                       <div className="mt-1 text-xs text-slate-500">{invoice.paymentStatus || invoice.status} {invoice.total ? `| ${money(invoice.total)}` : ""}</div>
-                    </div>
+                    </button>
                   ))}
                   {!invoices.length && <div className="text-sm text-slate-500">No invoice history is available yet.</div>}
                 </div>
+                {visibleInvoice && (
+                  <div className="mt-4 rounded-lg border border-sky-500/30 bg-slate-950 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-300">Invoice Viewer</div>
+                        <div className="mt-1 text-base font-bold text-white">{invoiceTitle(visibleInvoice)}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {visibleInvoice.paymentStatus || visibleInvoice.status || "Invoice"} {visibleInvoice.sentAt ? `| Sent ${shortDate(visibleInvoice.sentAt)}` : ""}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Total</div>
+                        <div className="text-lg font-bold text-white">{money(invoiceTotal(visibleInvoice))}</div>
+                      </div>
+                    </div>
+                    <div className="mt-4 overflow-hidden rounded-lg border border-slate-800">
+                      {chargeRows(visibleInvoice).map((row, index) => (
+                        <div key={`${row.label}-${index}`} className="flex items-center justify-between gap-3 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0">
+                          <div className="text-slate-200">{row.label}</div>
+                          <div className="font-semibold text-white">{money(row.amount)}</div>
+                        </div>
+                      ))}
+                      {!chargeRows(visibleInvoice).length && (
+                        <div className="px-3 py-3 text-sm text-slate-500">This invoice record does not include line-item details.</div>
+                      )}
+                    </div>
+                    {visibleInvoice.receiptNumber && <div className="mt-3 text-xs text-slate-400">Receipt: {visibleInvoice.receiptNumber}</div>}
+                    {incidentalUrl(visibleInvoice) && (
+                      <a
+                        href={incidentalUrl(visibleInvoice)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-4 inline-flex w-full items-center justify-center rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                      >
+                        Open Full Invoice
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
