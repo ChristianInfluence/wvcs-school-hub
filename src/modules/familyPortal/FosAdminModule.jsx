@@ -68,6 +68,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [selectedFamily, setSelectedFamily] = useState(null);
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [portalLinks, setPortalLinks] = useState({});
+  const [portalLoadingKey, setPortalLoadingKey] = useState("");
 
   async function loadData() {
     try {
@@ -95,20 +96,40 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   );
   const selectedBalance = calculateFosBalance(selectedFamilyEntries);
 
-  async function copyPortalLink(family) {
+  async function generatePortalLink(family, { copy = false } = {}) {
     try {
-      setStatus(`Generating family portal link for ${family.familyName}...`);
+      if (portalLinks[family.familyKey] && !copy) return portalLinks[family.familyKey];
+      setPortalLoadingKey(family.familyKey);
+      setStatus(`${copy ? "Copying" : "Generating"} family portal link for ${family.familyName}...`);
       const result = await ensureFamilyPortalAccess(family, currentUserEmail);
       const url = `${window.location.origin}/#/family-portal/${encodeURIComponent(result.access.publicToken)}`;
       setPortalLinks((current) => ({ ...current, [family.familyKey]: url }));
-      const copied = await copyTextToClipboard(url);
-      setStatus(
-        copied
-          ? `Family portal link copied for ${family.familyName}.`
-          : `Family portal link generated for ${family.familyName}. Select the link below to copy it.`
-      );
+      if (!copy) setStatus(`Family portal link ready for ${family.familyName}.`);
+      return url;
     } catch (error) {
-      setStatus(`Unable to copy family portal link: ${error.message}`);
+      setStatus(`Unable to generate family portal link: ${error.message}`);
+      return "";
+    } finally {
+      setPortalLoadingKey("");
+    }
+  }
+
+  async function copyPortalLink(family) {
+    const existingUrl = portalLinks[family.familyKey];
+    const url = existingUrl || (await generatePortalLink(family, { copy: true }));
+    if (!url) return;
+    const copied = await copyTextToClipboard(url);
+    setStatus(
+      copied
+        ? `Family portal link copied for ${family.familyName}.`
+        : `The link is ready below. Select it to copy it manually.`
+    );
+  }
+
+  function selectFamily(family) {
+    setSelectedFamily(family);
+    if (!portalLinks[family.familyKey]) {
+      generatePortalLink(family);
     }
   }
 
@@ -166,7 +187,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                 <button
                   key={family.familyKey}
                   type="button"
-                  onClick={() => setSelectedFamily(family)}
+                  onClick={() => selectFamily(family)}
                   className={`block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 ${
                     selectedFamily?.familyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
                   }`}
@@ -203,15 +224,29 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
               >
                 <Copy size={16} />
-                Copy Family Portal Link
+                {portalLoadingKey === selectedFamily.familyKey ? "Preparing Link..." : "Copy Family Portal Link"}
               </button>
+              {portalLoadingKey === selectedFamily.familyKey && (
+                <div className="mt-2 text-xs text-slate-400">Generating the family portal link...</div>
+              )}
               {portalLinks[selectedFamily.familyKey] && (
-                <input
-                  readOnly
-                  onFocus={(event) => event.target.select()}
-                  value={portalLinks[selectedFamily.familyKey]}
-                  className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-400"
-                />
+                <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-2">
+                  <input
+                    readOnly
+                    onClick={(event) => event.target.select()}
+                    onFocus={(event) => event.target.select()}
+                    value={portalLinks[selectedFamily.familyKey]}
+                    className="w-full bg-transparent text-xs text-slate-200 outline-none"
+                  />
+                  <a
+                    href={portalLinks[selectedFamily.familyKey]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex text-xs font-semibold text-sky-300 hover:text-sky-200"
+                  >
+                    Open portal link
+                  </a>
+                </div>
               )}
             </div>
           )}
