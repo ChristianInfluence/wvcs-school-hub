@@ -29,6 +29,7 @@ import {
   sendIncidentalInvoiceEmail,
   sendTuitionInvoiceEmail,
 } from "../../lib/tuitionBillingData.js";
+import { recordLunchDepositFromIncidental } from "../../lib/lunchData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -44,6 +45,7 @@ const DISCOUNT_OPTIONS = [
 const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
+const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Special Events", "Other"];
 
 function createBlankParent() {
   return {
@@ -118,7 +120,7 @@ const defaultIncidentalInvoice = {
   voidNote: "",
   refundNote: "",
   note: "Please contact the school office with any questions about these incidental charges.",
-  charges: [{ id: "charge-1", description: "", amount: "" }],
+  charges: [{ id: "charge-1", category: "Other", description: "", amount: "" }],
 };
 
 function uid(prefix) {
@@ -247,6 +249,29 @@ function incidentalTotal(invoice) {
   return (invoice.charges || []).reduce((total, charge) => total + money(charge.amount), 0);
 }
 
+function normalizeIncidentalCharge(charge = {}) {
+  const category = INCIDENTAL_CHARGE_CATEGORIES.includes(charge.category) ? charge.category : "Other";
+  return {
+    ...charge,
+    id: charge.id || uid("charge"),
+    category,
+    description: category === "Other" ? charge.description || "" : category,
+    amount: charge.amount || "",
+  };
+}
+
+function normalizeIncidentalCharges(charges = []) {
+  const normalized = charges.length ? charges.map(normalizeIncidentalCharge) : [normalizeIncidentalCharge()];
+  return normalized;
+}
+
+function lunchPaymentTotal(invoice) {
+  return (invoice.charges || []).reduce((total, charge) => {
+    const normalized = normalizeIncidentalCharge(charge);
+    return normalized.category === "Lunch Payment" ? total + money(normalized.amount) : total;
+  }, 0);
+}
+
 function getPaymentHistory(invoice) {
   return Array.isArray(invoice.paymentHistory) ? invoice.paymentHistory : [];
 }
@@ -324,7 +349,7 @@ function getIncidentalStudentSummary(invoice) {
 }
 
 function getRecordInvoice(record) {
-  return {
+  const invoice = {
     ...defaultIncidentalInvoice,
     ...(record.invoice || {}),
     id: record.id || record.invoice?.id || "",
@@ -345,6 +370,10 @@ function getRecordInvoice(record) {
     checkNumber: record.checkNumber || record.invoice?.checkNumber || "",
     voidNote: record.voidNote || record.invoice?.voidNote || "",
     refundNote: record.refundNote || record.invoice?.refundNote || "",
+  };
+  return {
+    ...invoice,
+    charges: normalizeIncidentalCharges(invoice.charges || []),
   };
 }
 
@@ -423,7 +452,7 @@ function recordMatchesSearch(record, query) {
     invoice.paymentMethod,
     invoice.checkNumber,
     getIncidentalStudentSummary(invoice),
-    ...(invoice.charges || []).map((charge) => charge.description),
+    ...(invoice.charges || []).flatMap((charge) => [charge.category, charge.description]),
   ]
     .join(" ")
     .toLowerCase()
@@ -1612,7 +1641,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       status: "Manual Entry",
       paymentStatus: "Unpaid",
       note: "Manual accounts receivable entry.",
-      charges: [{ id: uid("charge"), description: "", amount: "" }],
+      charges: [{ id: uid("charge"), category: "Other", description: "", amount: "" }],
     });
     setSelectedIncidentalInvoiceId("");
     setIncidentalWorkspaceView("invoice");
@@ -1641,7 +1670,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       id: "",
       publicToken: "",
       invoiceDate: today,
-      charges: defaultIncidentalInvoice.charges.map((charge) => ({ ...charge })),
+      charges: defaultIncidentalInvoice.charges.map((charge) => ({ ...charge, id: uid("charge") })),
     });
     setSelectedIncidentalInvoiceId("");
     setOfficePaymentOpen(false);
@@ -1754,6 +1783,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         ...invoiceToPay,
         paymentHistory: nextHistory,
       };
+      const recordedPayment = nextHistory[nextHistory.length - 1];
       const nextPaymentStatus = getIncidentalPaymentStatus(nextInvoice);
       const record = await saveCurrentIncidentalInvoiceFor(invoiceToPay, {
         status: invoiceToPay.status === "Draft" ? "Saved" : invoiceToPay.status,
@@ -1768,8 +1798,18 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         paymentMethod: invoiceToPay.paymentMethod,
         checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
       });
+      const savedInvoice = getRecordInvoice(record);
+      const lunchAmount = Math.min(paymentAmount, lunchPaymentTotal(savedInvoice));
+      if (lunchAmount > 0) {
+        await recordLunchDepositFromIncidental({
+          invoice: savedInvoice,
+          payment: recordedPayment,
+          amount: lunchAmount,
+          currentUserEmail,
+        });
+      }
       setOfficePaymentOpen(false);
-      setStatus(`${record.familyName || "Incidental invoice"} payment recorded.`);
+      setStatus(`${record.familyName || "Incidental invoice"} payment recorded.${lunchAmount > 0 ? " Lunch account credited." : ""}`);
     } catch (error) {
       setStatus(`Unable to mark paid in office: ${error.message}`);
     }
@@ -1798,6 +1838,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       checkNumber: patch.checkNumber ?? baseInvoice.checkNumber ?? "",
       voidNote: patch.voidNote ?? baseInvoice.voidNote ?? "",
       refundNote: patch.refundNote ?? baseInvoice.refundNote ?? "",
+      charges: normalizeIncidentalCharges(patch.charges ?? baseInvoice.charges ?? []),
     };
     nextInvoice.paymentStatus = nextInvoice.paymentStatus === "Voided" || nextInvoice.status === "Voided"
       ? "Voided"
@@ -1878,14 +1919,18 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   function updateCharge(chargeId, patch) {
     setIncidentalInvoice((current) => ({
       ...current,
-      charges: current.charges.map((charge) => (charge.id === chargeId ? { ...charge, ...patch } : charge)),
+      charges: current.charges.map((charge) => {
+        if (charge.id !== chargeId) return charge;
+        const next = { ...charge, ...patch };
+        return normalizeIncidentalCharge(next);
+      }),
     }));
   }
 
   function addCharge() {
     setIncidentalInvoice((current) => ({
       ...current,
-      charges: [...current.charges, { id: uid("charge"), description: "", amount: "" }],
+      charges: [...current.charges, { id: uid("charge"), category: "Other", description: "", amount: "" }],
     }));
   }
 
@@ -2722,12 +2767,27 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                 </div>
                 <div className="mt-4 space-y-3">
                   {incidentalInvoice.charges.map((charge) => (
-                    <div key={charge.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[1fr_140px_auto]">
-                      <Input
-                        value={charge.description}
-                        onChange={(event) => updateCharge(charge.id, { description: event.target.value })}
-                        placeholder="Description, such as lunch balance or activity fee"
-                      />
+                    <div key={charge.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 lg:grid-cols-[220px_1fr_140px_auto]">
+                      <select
+                        value={charge.category || "Other"}
+                        onChange={(event) => updateCharge(charge.id, { category: event.target.value, description: event.target.value === "Other" ? "" : event.target.value })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                      >
+                        {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                      {(charge.category || "Other") === "Other" ? (
+                        <Input
+                          value={charge.description}
+                          onChange={(event) => updateCharge(charge.id, { description: event.target.value })}
+                          placeholder="Manual charge description"
+                        />
+                      ) : (
+                        <div className="flex min-h-10 items-center rounded-lg border border-slate-800 bg-slate-900 px-3 text-sm font-semibold text-slate-300">
+                          {charge.category}
+                        </div>
+                      )}
                       <MoneyInput value={charge.amount} onChange={(event) => updateCharge(charge.id, { amount: event.target.value })} />
                       <button
                         type="button"

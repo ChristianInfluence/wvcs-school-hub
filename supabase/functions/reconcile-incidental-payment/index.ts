@@ -77,6 +77,97 @@ function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<s
   ];
 }
 
+function incidentalLunchPaymentTotal(invoiceJson: Record<string, any>) {
+  return (Array.isArray(invoiceJson.charges) ? invoiceJson.charges : []).reduce((total: number, charge: Record<string, any>) => {
+    const category = String(charge.category || (charge.description === "Lunch Payment" ? "Lunch Payment" : "")).trim();
+    return category === "Lunch Payment" ? total + money(charge.amount) : total;
+  }, 0);
+}
+
+async function upsertLunchAccountBalance({
+  supabase,
+  familyKey,
+  familyName,
+  delta,
+}: {
+  supabase: any;
+  familyKey: string;
+  familyName: string;
+  delta: number;
+}) {
+  const { data: existing, error: selectError } = await supabase
+    .from("lunch_accounts")
+    .select("*")
+    .eq("family_key", familyKey)
+    .maybeSingle();
+  if (selectError) throw selectError;
+  const balance = Number(existing?.balance || 0) + Number(delta || 0);
+  const { error } = await supabase
+    .from("lunch_accounts")
+    .upsert(
+      {
+        family_key: familyKey,
+        family_name: familyName,
+        balance,
+        updated_by_email: "Stripe",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "family_key" },
+    );
+  if (error) throw error;
+}
+
+async function recordIncidentalLunchDeposit({
+  supabase,
+  invoice,
+  invoiceJson,
+  session,
+  feeData,
+}: {
+  supabase: any;
+  invoice: Record<string, any>;
+  invoiceJson: Record<string, any>;
+  session: Record<string, any>;
+  feeData: Record<string, any>;
+}) {
+  const paymentAmount = (session.amount_total || 0) / 100;
+  const lunchChargeTotal = incidentalLunchPaymentTotal(invoiceJson);
+  const familyKey = invoice.family_key || invoiceJson.familyKey || "";
+  const familyName = invoice.family_name || invoiceJson.familyName || "WVCS Family";
+  const paymentId = `stripe-${session.id}`;
+  if (!familyKey || amount <= 0) return { recorded: false };
+
+  const { data: existing, error: existingError } = await supabase
+    .from("lunch_transactions")
+    .select("id,amount,incidental_payment_id")
+    .eq("incidental_invoice_id", invoice.id)
+    .eq("type", "deposit");
+  if (existingError) throw existingError;
+  if (existing?.some((transaction: Record<string, any>) => transaction.incidental_payment_id === paymentId)) return { recorded: true, skipped: true };
+  const alreadyCredited = (existing || []).reduce((total: number, transaction: Record<string, any>) => total + Number(transaction.amount || 0), 0);
+  const amount = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
+  if (amount <= 0) return { recorded: false };
+
+  const { error } = await supabase.from("lunch_transactions").insert({
+    family_key: familyKey,
+    family_name: familyName,
+    type: "deposit",
+    amount,
+    description: "Incidental lunch payment",
+    payment_method: "card",
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: session.payment_intent || "",
+    stripe_processing_fee: feeData.fee || 0,
+    stripe_net_amount: feeData.net || 0,
+    incidental_invoice_id: invoice.id,
+    incidental_payment_id: paymentId,
+    created_by_email: "Stripe",
+  });
+  if (error) throw error;
+  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amount });
+  return { recorded: true };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") {
@@ -155,6 +246,7 @@ Deno.serve(async (request) => {
       .single();
 
     if (updateError) throw updateError;
+    await recordIncidentalLunchDeposit({ supabase, invoice, invoiceJson: patch.invoice_json, session, feeData });
 
     return new Response(JSON.stringify({
       reconciled: true,

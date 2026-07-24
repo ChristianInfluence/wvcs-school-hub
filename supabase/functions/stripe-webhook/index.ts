@@ -111,6 +111,63 @@ function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<s
   ];
 }
 
+function incidentalLunchPaymentTotal(invoiceJson: Record<string, any>) {
+  return (Array.isArray(invoiceJson.charges) ? invoiceJson.charges : []).reduce((total: number, charge: Record<string, any>) => {
+    const category = String(charge.category || (charge.description === "Lunch Payment" ? "Lunch Payment" : "")).trim();
+    return category === "Lunch Payment" ? total + Number(charge.amount || 0) : total;
+  }, 0);
+}
+
+async function recordIncidentalLunchDeposit({
+  supabase,
+  invoice,
+  invoiceJson,
+  session,
+}: {
+  supabase: any;
+  invoice: Record<string, any>;
+  invoiceJson: Record<string, any>;
+  session: Record<string, any>;
+}) {
+  const paymentAmount = (session.amount_total || 0) / 100;
+  const lunchChargeTotal = incidentalLunchPaymentTotal(invoiceJson);
+  const familyKey = invoice.family_key || invoiceJson.familyKey || "";
+  const familyName = invoice.family_name || invoiceJson.familyName || "WVCS Family";
+  const paymentId = `stripe-${session.id}`;
+  if (!familyKey || amount <= 0) return { updated: false, reason: "No incidental lunch payment amount was found." };
+
+  const existing = await supabase
+    .from("lunch_transactions")
+    .select("id,amount,incidental_payment_id")
+    .eq("incidental_invoice_id", invoice.id)
+    .eq("type", "deposit");
+  if (existing.error) throw existing.error;
+  if (existing.data?.some((transaction: Record<string, any>) => transaction.incidental_payment_id === paymentId)) return { updated: true, reason: "Incidental lunch deposit was already recorded." };
+  const alreadyCredited = (existing.data || []).reduce((total: number, transaction: Record<string, any>) => total + Number(transaction.amount || 0), 0);
+  const amount = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
+  if (amount <= 0) return { updated: false, reason: "The lunch portion of this incidental invoice has already been credited." };
+
+  const feeData = await retrieveProcessingFee(session.payment_intent || "");
+  const { error } = await supabase.from("lunch_transactions").insert({
+    family_key: familyKey,
+    family_name: familyName,
+    type: "deposit",
+    amount,
+    description: "Incidental lunch payment",
+    payment_method: "card",
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: session.payment_intent || "",
+    stripe_processing_fee: feeData.fee || 0,
+    stripe_net_amount: feeData.net || 0,
+    incidental_invoice_id: invoice.id,
+    incidental_payment_id: paymentId,
+    created_by_email: "Stripe",
+  });
+  if (error) throw error;
+  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amount });
+  return { updated: true, familyKey };
+}
+
 async function updateIncidentalInvoicePayment({
   supabase,
   session,
@@ -173,6 +230,9 @@ async function updateIncidentalInvoicePayment({
     .eq("id", existing.id);
 
   if (updateError) throw updateError;
+  if (paymentStatus === "Paid") {
+    await recordIncidentalLunchDeposit({ supabase, invoice: existing, invoiceJson: patch.invoice_json, session });
+  }
   return { updated: true, invoiceId: existing.id };
 }
 

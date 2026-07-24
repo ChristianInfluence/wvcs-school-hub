@@ -67,6 +67,8 @@ function mapTransaction(row) {
     checkNumber: row.check_number || "",
     processingFee: Number(row.stripe_processing_fee || 0),
     netAmount: Number(row.stripe_net_amount || 0),
+    incidentalInvoiceId: row.incidental_invoice_id || "",
+    incidentalPaymentId: row.incidental_payment_id || "",
     createdAt: row.created_at || "",
   };
 }
@@ -233,6 +235,51 @@ export async function deleteLunchOrder(order, currentUserEmail = "") {
   const { error } = await supabase.from("lunch_orders").delete().eq("id", order.id);
   if (error) throw error;
   return { deleted: true };
+}
+
+export async function recordLunchDepositFromIncidental({ invoice, payment, amount, currentUserEmail = "" }) {
+  if (!isSupabaseConfigured) return { recorded: false, reason: "Supabase is not configured." };
+  if (!invoice?.familyKey) return { recorded: false, reason: "This incidental invoice is not attached to a family record." };
+  const depositAmount = Number(amount || 0);
+  if (!Number.isFinite(depositAmount) || depositAmount <= 0) return { recorded: false, reason: "No lunch payment amount was found." };
+  const paymentId = payment?.id || `incidental-${invoice.id || crypto.randomUUID()}`;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("lunch_transactions")
+    .select("id,amount,incidental_payment_id")
+    .eq("incidental_invoice_id", invoice.id)
+    .eq("type", "deposit");
+  if (existingError) throw existingError;
+  if ((existing || []).some((transaction) => transaction.incidental_payment_id === paymentId)) return { recorded: true, skipped: true };
+  const lunchChargeTotal = (invoice.charges || []).reduce((total, charge) => {
+    const category = charge.category || (charge.description === "Lunch Payment" ? "Lunch Payment" : "");
+    return category === "Lunch Payment" ? total + Number(charge.amount || 0) : total;
+  }, 0);
+  const alreadyCredited = (existing || []).reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+  const creditAmount = Math.min(depositAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
+  if (creditAmount <= 0) return { recorded: false, reason: "The lunch portion of this incidental invoice has already been credited." };
+
+  const { error: transactionError } = await supabase.from("lunch_transactions").insert({
+    family_key: invoice.familyKey,
+    family_name: invoice.familyName || "",
+    type: "deposit",
+    amount: creditAmount,
+    description: `Incidental lunch payment: ${invoice.familyName || "WVCS Family"}`,
+    payment_method: payment?.method || invoice.paymentMethod || "",
+    check_number: payment?.checkNumber || invoice.checkNumber || "",
+    incidental_invoice_id: invoice.id,
+    incidental_payment_id: paymentId,
+    created_by_email: currentUserEmail || null,
+  });
+  if (transactionError) throw transactionError;
+
+  await upsertAccountBalance({
+    familyKey: invoice.familyKey,
+    familyName: invoice.familyName || "",
+    delta: creditAmount,
+    currentUserEmail,
+  });
+  return { recorded: true };
 }
 
 export async function fetchPublishedLunchMenus() {
