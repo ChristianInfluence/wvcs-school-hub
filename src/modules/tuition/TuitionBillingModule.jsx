@@ -272,6 +272,11 @@ function lunchPaymentTotal(invoice) {
   }, 0);
 }
 
+function chargeDisplayName(charge = {}) {
+  const normalized = normalizeIncidentalCharge(charge);
+  return normalized.category === "Other" ? normalized.description || "Incidental charge" : normalized.category;
+}
+
 function getPaymentHistory(invoice) {
   return Array.isArray(invoice.paymentHistory) ? invoice.paymentHistory : [];
 }
@@ -395,6 +400,24 @@ function getReceivableTotals(records) {
     },
     { total: 0, open: 0, paid: 0, fees: 0, net: 0 }
   );
+}
+
+function getChargeCategoryTotals(records) {
+  const totals = Object.fromEntries(INCIDENTAL_CHARGE_CATEGORIES.map((category) => [category, 0]));
+  records.forEach((record) => {
+    const invoice = getRecordInvoice(record);
+    (invoice.charges || []).forEach((charge) => {
+      const normalized = normalizeIncidentalCharge(charge);
+      totals[normalized.category] = (totals[normalized.category] || 0) + money(normalized.amount);
+    });
+  });
+  return INCIDENTAL_CHARGE_CATEGORIES.map((category) => ({ category, amount: totals[category] || 0 }));
+}
+
+function invoiceHasCategory(record, category) {
+  if (category === "all") return true;
+  const invoice = getRecordInvoice(record);
+  return (invoice.charges || []).some((charge) => normalizeIncidentalCharge(charge).category === category);
 }
 
 function getDaysPastDue(invoice) {
@@ -539,6 +562,7 @@ function escapeHtml(value) {
 
 function buildIncidentalReceiptDocument(invoice) {
   const total = incidentalPaidTotal(invoice);
+  const lunchCredit = lunchPaymentTotal(invoice);
   const paidDate = invoice.paidAt ? formatDate(String(invoice.paidAt).slice(0, 10)) : formatDate(today);
   const method = invoice.paymentMethod ? invoice.paymentMethod.charAt(0).toUpperCase() + invoice.paymentMethod.slice(1) : "Payment";
   const checkLine = invoice.paymentMethod === "check" && invoice.checkNumber ? `<div><strong>Check #:</strong> ${escapeHtml(invoice.checkNumber)}</div>` : "";
@@ -546,7 +570,7 @@ function buildIncidentalReceiptDocument(invoice) {
     .map(
       (charge) => `
         <tr>
-          <td>${escapeHtml(charge.description || "Incidental charge")}</td>
+          <td>${escapeHtml(chargeDisplayName(charge))}</td>
           <td class="amount">${escapeHtml(formatCurrency(charge.amount))}</td>
         </tr>
       `
@@ -593,6 +617,7 @@ function buildIncidentalReceiptDocument(invoice) {
             </div>
           </section>
           <div class="paid">Paid in full: ${escapeHtml(formatCurrency(total))}</div>
+          ${lunchCredit ? `<div class="paid">Lunch account credited: ${escapeHtml(formatCurrency(lunchCredit))}</div>` : ""}
           <table>
             <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
             <tbody>${chargeRows}</tbody>
@@ -881,6 +906,7 @@ function InvoicePreview({ invoice, invoiceRef }) {
 
 function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment, paymentBusy = false }) {
   const total = incidentalTotal(invoice);
+  const lunchCredit = lunchPaymentTotal(invoice);
   const portalUrl = !publicView ? getIncidentalPortalUrl(invoice) : "";
   const payUrl = invoice.paymentUrl || "";
   const paymentReady = Boolean(payUrl || publicView || portalUrl);
@@ -923,7 +949,7 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
         </div>
         {(invoice.charges || []).map((charge) => (
           <div key={charge.id} className="grid grid-cols-[1fr_140px] border-t border-slate-200 px-5 py-3 text-sm">
-            <div>{charge.description || "Charge description"}</div>
+            <div>{chargeDisplayName(charge)}</div>
             <div className="text-right font-semibold">{formatCurrency(charge.amount)}</div>
           </div>
         ))}
@@ -932,6 +958,12 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
           <div className="text-right">{formatCurrency(total)}</div>
         </div>
       </section>
+
+      {lunchCredit > 0 && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">
+          When this invoice is paid, {formatCurrency(lunchCredit)} will be credited to the family lunch account.
+        </div>
+      )}
 
       {invoice.note && (
         <div className="mt-6 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-600">
@@ -1116,6 +1148,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
   const [receivablesSearch, setReceivablesSearch] = useState("");
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
+  const [receivablesCategoryFilter, setReceivablesCategoryFilter] = useState("all");
   const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
   const [ledgerFamilyKey, setLedgerFamilyKey] = useState("");
   const [savedInvoices, setSavedInvoices] = useState([]);
@@ -1148,10 +1181,12 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           if (receivablesStatusFilter === "voided") return status === "Voided";
           return true;
         })
+        .filter((record) => invoiceHasCategory(record, receivablesCategoryFilter))
         .filter((record) => recordMatchesSearch(record, receivablesSearch)),
-    [savedIncidentalInvoices, receivablesSearch, receivablesStatusFilter]
+    [savedIncidentalInvoices, receivablesSearch, receivablesStatusFilter, receivablesCategoryFilter]
   );
   const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const receivableCategoryTotals = useMemo(() => getChargeCategoryTotals(filteredReceivables), [filteredReceivables]);
   const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
   const compactIncidentalsWorkspace = activeView === "incidentals";
   const ledgerFamilyResults = useMemo(
@@ -1555,6 +1590,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const headers = [
       "Family",
       "Students",
+      "Categories",
+      "Charges",
       "Invoice Date",
       "Due Date",
       "Status",
@@ -1574,6 +1611,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       return [
         invoice.familyName,
         getIncidentalStudentSummary(invoice),
+        (invoice.charges || []).map((charge) => normalizeIncidentalCharge(charge).category).join("; "),
+        (invoice.charges || []).map((charge) => `${chargeDisplayName(charge)} ${formatCurrency(charge.amount)}`).join("; "),
         invoice.invoiceDate,
         invoice.dueDate,
         getIncidentalPaymentStatus(invoice),
@@ -2765,6 +2804,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     Add Charge
                   </button>
                 </div>
+                <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs leading-5 text-emerald-100">
+                  Use Lunch Payment only for deposits into a family lunch account. Once paid, that amount will credit the lunch balance automatically.
+                </div>
                 <div className="mt-4 space-y-3">
                   {incidentalInvoice.charges.map((charge) => (
                     <div key={charge.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 lg:grid-cols-[220px_1fr_140px_auto]">
@@ -3032,9 +3074,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   </div>
                 ))}
               </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                {receivableCategoryTotals.map(({ category, amount }) => (
+                  <div key={category} className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{category}</div>
+                    <div className="text-sm font-bold text-white">{formatCurrency(amount)}</div>
+                  </div>
+                ))}
+              </div>
 
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                <div className="grid gap-2 lg:grid-cols-[1fr_150px_auto_auto_auto] lg:items-center">
+                <div className="grid gap-2 lg:grid-cols-[1fr_150px_170px_auto_auto_auto] lg:items-center">
                   <label className="relative">
                     <Search size={15} className="pointer-events-none absolute left-3 top-2 text-slate-500" />
                     <Input
@@ -3054,6 +3104,16 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     <option value="paid">Paid only</option>
                     <option value="voided">Voided only</option>
                     <option value="all">All records</option>
+                  </select>
+                  <select
+                    value={receivablesCategoryFilter}
+                    onChange={(event) => setReceivablesCategoryFilter(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-sky-400"
+                  >
+                    <option value="all">All categories</option>
+                    {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
                   </select>
                   <button
                     type="button"
@@ -3104,7 +3164,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         </div>
                         <div className="text-slate-300">
                           {(recordInvoice.charges || []).slice(0, 2).map((charge) => (
-                            <div key={charge.id || charge.description} className="truncate">{charge.description || "Charge"}</div>
+                            <div key={charge.id || charge.description} className="truncate">{chargeDisplayName(charge)}</div>
                           ))}
                           {(recordInvoice.charges || []).length > 2 && <div className="text-xs text-slate-500">+{recordInvoice.charges.length - 2} more</div>}
                         </div>
@@ -3244,7 +3304,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           >
                             <div>
                               <div className="font-semibold text-white">{formatShortDate(invoice.invoiceDate) || "No date"} - {invoice.status || "Draft"}</div>
-                              <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map((charge) => charge.description).filter(Boolean).join(", ") || "Incidental invoice"}</div>
+                              <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map(chargeDisplayName).filter(Boolean).join(", ") || "Incidental invoice"}</div>
                             </div>
                             <div className="text-slate-300">{getIncidentalPaymentStatus(invoice)}</div>
                             <div className="font-semibold text-emerald-200">{formatCurrency(incidentalPaidTotal(invoice))}</div>
