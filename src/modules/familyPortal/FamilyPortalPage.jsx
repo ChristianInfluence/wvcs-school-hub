@@ -183,6 +183,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const latestInvoice = invoices[0];
   const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
   const lunch = portal.data?.lunch || {};
+  const lunchMenus = lunch.menus || [];
   const activeLunchMenu = (lunch.menus || []).find((menu) => menu.id === lunchDraft.menuId) || lunch.menus?.[0] || null;
   const lunchItems = (activeLunchMenu?.items || []).map((item) => ({ ...item, menuId: activeLunchMenu.id, menuTitle: activeLunchMenu.title, itemKey: `${activeLunchMenu.id}:${item.id}` }));
   const lunchItemsByDate = useMemo(() => {
@@ -196,6 +197,12 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const selectedLunchItems = lunchItems.filter((item) => lunchDraft.selectedItems[item.itemKey]);
   const expectedLunchCost = selectedLunchItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
   const monthCells = buildSchoolMonthDays(activeLunchMenu?.weekStart || today);
+
+  useEffect(() => {
+    if (!lunchMenus.length) return;
+    if (lunchDraft.menuId && lunchMenus.some((menu) => menu.id === lunchDraft.menuId)) return;
+    setLunchDraft((current) => ({ ...current, menuId: lunchMenus[0].id, selectedItems: {} }));
+  }, [lunchMenus.length, lunchDraft.menuId]);
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";
@@ -348,7 +355,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <section className="mx-auto max-w-6xl px-5 py-6">
+      <section className="mx-auto max-w-[1720px] px-4 py-6 sm:px-6">
         <div className="flex flex-col gap-4 border-b border-slate-800 pb-5 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">WVCS Family Portal</div>
@@ -501,7 +508,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
 
             {activeTab === "lunch" && (
               <div className="space-y-5">
-                <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+                <div className="grid gap-5 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                     <div className="flex items-center gap-2 text-sm font-bold text-white">
                       <DollarSign size={16} className="text-emerald-300" />
@@ -537,14 +544,14 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       )}
                     </div>
                     <div className="mt-4 grid gap-3">
-                      {(lunch.menus || []).length > 1 && (
+                      {lunchMenus.length > 1 && (
                         <Field label="Menu">
                           <select
                             value={activeLunchMenu?.id || ""}
                             onChange={(event) => setLunchDraft({ ...lunchDraft, menuId: event.target.value, selectedItems: {} })}
                             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
                           >
-                            {(lunch.menus || []).map((menu) => <option key={menu.id} value={menu.id}>{menu.title}</option>)}
+                            {lunchMenus.map((menu) => <option key={menu.id} value={menu.id}>{menu.title}</option>)}
                           </select>
                         </Field>
                       )}
@@ -562,7 +569,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-bold text-white">{activeLunchMenu?.title || "Lunch Menu"}</div>
-                            <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : "No open menu"}</div>
+                            <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : "No published menu loaded"}</div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Expected Cost</div>
@@ -633,7 +640,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         Submit Monthly Lunch Order
                       </button>
                     </div>
-                    {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet.</div>}
+                    {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet. Use Refresh after the office publishes a menu.</div>}
                     {lunchStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{lunchStatus}</div>}
                   </div>
                 </div>
