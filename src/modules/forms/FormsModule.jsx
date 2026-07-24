@@ -294,6 +294,68 @@ function hasRequiredAnswer(field, answers) {
   return Boolean(answers[field.id]);
 }
 
+function isPhoneField(field) {
+  const label = String(field?.label || "").toLowerCase();
+  return field?.type === "tel" || label.includes("phone") || label.includes("mobile") || label.includes("cell");
+}
+
+function onlyDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function formatPhoneNumber(value) {
+  const digits = onlyDigits(value);
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  return String(value || "");
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function validateFieldAnswer(field, answers, template) {
+  const value = answers[field.id];
+  if (!hasRequiredAnswer(field, answers)) return `${field.label || "This field"} is required.`;
+  if (isRepeatableDateField(field, template)) return "";
+  if ((field.type === "email" || String(field.label || "").toLowerCase().includes("email")) && value && !isValidEmail(value)) {
+    return "Enter a valid email address, such as parent@example.com.";
+  }
+  if (isPhoneField(field) && value) {
+    const digits = onlyDigits(value);
+    if (digits.length !== 10 && !(digits.length === 11 && digits.startsWith("1"))) {
+      return "Enter a 10-digit phone number. Hyphens, spaces, and parentheses are okay.";
+    }
+  }
+  if (field.type === "number" && value !== undefined && value !== "" && !Number.isFinite(Number(value))) {
+    return "Enter a valid number.";
+  }
+  return "";
+}
+
+function validateFormSubmission({ template, answers, submitterName, submitterEmail, nameLabel = "Name", emailLabel = "Email" }) {
+  const errors = {};
+  if (!String(submitterName || "").trim()) errors.submitterName = `${nameLabel} is required.`;
+  if (!String(submitterEmail || "").trim()) errors.submitterEmail = `${emailLabel} is required.`;
+  else if (!isValidEmail(submitterEmail)) errors.submitterEmail = "Enter a valid email address.";
+
+  (template?.fields || []).forEach((field) => {
+    const error = validateFieldAnswer(field, answers, template);
+    if (error) errors[field.id] = error;
+  });
+  return errors;
+}
+
+function normalizeAnswersForSubmission(template, answers) {
+  return Object.fromEntries(
+    Object.entries(answers || {}).map(([fieldId, value]) => {
+      const field = (template?.fields || []).find((item) => item.id === fieldId);
+      if (field && isPhoneField(field) && value) return [fieldId, formatPhoneNumber(value)];
+      return [fieldId, value];
+    })
+  );
+}
+
 function formatDate(value) {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString([], {
@@ -511,6 +573,7 @@ function getSampleSubmission(template) {
           time: "08:30",
           number: "24",
           email: "staff@wvcs.org",
+          tel: "503-393-5236",
           checkbox: true,
           choice: getChoiceOptions(field)[0],
           file: { name: "receipt.pdf", type: "application/pdf", size: 128000, dataUrl: "" },
@@ -574,9 +637,9 @@ function Badge({ children, status }) {
   );
 }
 
-function FieldInput({ field, value, onChange, template = null }) {
+function FieldInput({ field, value, onChange, template = null, error = "" }) {
   const base =
-    "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-sky-400";
+    `w-full rounded-lg border ${error ? "border-rose-400 focus:border-rose-300" : "border-slate-700 focus:border-sky-400"} bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500`;
 
   if (isRepeatableDateField(field, template)) {
     const repeatable = normalizeRepeatableDateAnswer(value);
@@ -740,6 +803,28 @@ function FieldInput({ field, value, onChange, template = null }) {
     );
   }
 
+  if (isPhoneField(field)) {
+    return (
+      <div>
+        <input
+          type="tel"
+          inputMode="tel"
+          value={value || ""}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={(event) => {
+            const formatted = formatPhoneNumber(event.target.value);
+            if (formatted !== event.target.value) onChange(formatted);
+          }}
+          className={base}
+          placeholder="503-393-5236"
+        />
+        <div className="mt-1 text-xs font-normal text-slate-500">
+          Hyphens, spaces, and parentheses are okay.
+        </div>
+      </div>
+    );
+  }
+
   if (field.type === "file") {
     return (
       <div className="rounded-lg border border-slate-700 bg-slate-950 p-3">
@@ -779,7 +864,7 @@ function FieldInput({ field, value, onChange, template = null }) {
 
   return (
     <input
-      type={field.type}
+      type={field.type === "tel" ? "tel" : field.type}
       value={value || ""}
       onChange={(event) => onChange(event.target.value)}
       className={base}
@@ -1090,6 +1175,7 @@ export function PublicSharedFormPage({ token }) {
   const [shareState, setShareState] = useState({ loading: true, template: null, error: "" });
   const [submitter, setSubmitter] = useState({ name: "", email: "" });
   const [answers, setAnswers] = useState({});
+  const [validationErrors, setValidationErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [receipt, setReceipt] = useState(null);
@@ -1129,15 +1215,34 @@ export function PublicSharedFormPage({ token }) {
   async function submitSharedForm() {
     const template = shareState.template;
     const submitterEmail = submitter.email.trim().toLowerCase();
-    if (!template || !submitter.name.trim() || !submitterEmail) return;
-    if (template.fields.some((field) => !hasRequiredAnswer(field, answers))) return;
+    if (!template) return;
+    const errors = validateFormSubmission({
+      template,
+      answers,
+      submitterName: submitter.name,
+      submitterEmail,
+      nameLabel: "Your name",
+      emailLabel: "Your email",
+    });
+    setValidationErrors(errors);
+    if (Object.keys(errors).length) {
+      setFeedback({
+        tone: "warning",
+        title: "Please check the highlighted fields",
+        message: "Some information is missing or formatted in a way the form cannot accept yet.",
+      });
+      window.requestAnimationFrame(() => {
+        document.querySelector("[data-form-validation-summary]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     setFeedback({ tone: "info", title: "Submitting form...", message: "Saving your form and notifying WVCS." });
 
     const submissionId = uid("sub");
     try {
-      const submissionAnswers = await uploadPublicFiles(submissionId, template);
+      const submissionAnswers = normalizeAnswersForSubmission(template, await uploadPublicFiles(submissionId, template));
       const result = await handleFormShareLink({
         operation: "submit",
         token,
@@ -1165,6 +1270,7 @@ export function PublicSharedFormPage({ token }) {
         emailWarning: result.emailWarning || "",
       });
       setAnswers({});
+      setValidationErrors({});
     } catch (error) {
       setFeedback({ tone: "warning", title: "Form could not be submitted", message: error.message });
     } finally {
@@ -1175,9 +1281,7 @@ export function PublicSharedFormPage({ token }) {
   const template = shareState.template;
   const canSubmit =
     template &&
-    submitter.name.trim() &&
-    submitter.email.trim() &&
-    template.fields.every((field) => hasRequiredAnswer(field, answers));
+    !isSubmitting;
   const feedbackTone = {
     info: "border-sky-400/40 bg-sky-500/10 text-sky-100",
     success: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
@@ -1290,24 +1394,42 @@ export function PublicSharedFormPage({ token }) {
                   <div className="mt-1">{feedback.message}</div>
                 </div>
               )}
+              {!!Object.values(validationErrors).filter(Boolean).length && (
+                <div data-form-validation-summary className="rounded-lg border border-rose-400/50 bg-rose-500/10 p-4 text-sm text-rose-100">
+                  <div className="font-bold">Please fix these items before submitting:</div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {Object.values(validationErrors).filter(Boolean).map((error, index) => (
+                      <li key={`${error}-${index}`}>{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="space-y-1 text-sm font-medium text-slate-200">
                   Your Name
                   <input
                     value={submitter.name}
-                    onChange={(event) => setSubmitter({ ...submitter, name: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                    onChange={(event) => {
+                      setSubmitter({ ...submitter, name: event.target.value });
+                      setValidationErrors((current) => ({ ...current, submitterName: "" }));
+                    }}
+                    className={`w-full rounded-lg border ${validationErrors.submitterName ? "border-rose-400 focus:border-rose-300" : "border-slate-700 focus:border-sky-400"} bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none`}
                   />
+                  {validationErrors.submitterName && <span className="block text-xs font-semibold text-rose-300">{validationErrors.submitterName}</span>}
                 </label>
                 <label className="space-y-1 text-sm font-medium text-slate-200">
                   Your Email
                   <input
                     type="email"
                     value={submitter.email}
-                    onChange={(event) => setSubmitter({ ...submitter, email: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                    onChange={(event) => {
+                      setSubmitter({ ...submitter, email: event.target.value });
+                      setValidationErrors((current) => ({ ...current, submitterEmail: "" }));
+                    }}
+                    className={`w-full rounded-lg border ${validationErrors.submitterEmail ? "border-rose-400 focus:border-rose-300" : "border-slate-700 focus:border-sky-400"} bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none`}
                   />
+                  {validationErrors.submitterEmail && <span className="block text-xs font-semibold text-rose-300">{validationErrors.submitterEmail}</span>}
                   <span className="block text-xs font-normal text-slate-500">
                     Approval or denial notifications will be sent here.
                   </span>
@@ -1322,9 +1444,14 @@ export function PublicSharedFormPage({ token }) {
                     <FieldInput
                       field={field}
                       value={answers[field.id]}
-                      onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                      onChange={(value) => {
+                        setAnswers((current) => ({ ...current, [field.id]: value }));
+                        setValidationErrors((current) => ({ ...current, [field.id]: "" }));
+                      }}
                       template={template}
+                      error={validationErrors[field.id]}
                     />
+                    {validationErrors[field.id] && <span className="block text-xs font-semibold text-rose-300">{validationErrors[field.id]}</span>}
                   </label>
                 ))}
               </div>
@@ -1781,6 +1908,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
     : loggedInEmail || submitter.email.trim().toLowerCase();
   const displayedSubmitterEmail = preparedForOther || !loggedInEmail ? submitter.email : loggedInEmail;
   const [answers, setAnswers] = useState({});
+  const [validationErrors, setValidationErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState(null);
   const mySubmissions = state.submissions.filter(
@@ -1790,6 +1918,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
   function startAnotherSubmission(nextTemplateId = selectedTemplate?.id) {
     if (nextTemplateId) setSelectedId(nextTemplateId);
     setAnswers({});
+    setValidationErrors({});
     setSubmissionFeedback(null);
   }
 
@@ -1810,9 +1939,27 @@ function StaffFormsModule({ currentUserEmail = "" }) {
   }
 
   async function submitForm() {
-    if (!selectedTemplate || !submitter.name.trim() || !submitterEmail) return;
-    const missing = selectedTemplate.fields.some((field) => !hasRequiredAnswer(field, answers));
-    if (missing) return;
+    if (!selectedTemplate) return;
+    const errors = validateFormSubmission({
+      template: selectedTemplate,
+      answers,
+      submitterName: submitter.name,
+      submitterEmail,
+      nameLabel: preparedForOther ? "Staff member name" : "Your name",
+      emailLabel: preparedForOther ? "Staff member email" : "Your email",
+    });
+    setValidationErrors(errors);
+    if (Object.keys(errors).length) {
+      setSubmissionFeedback({
+        tone: "warning",
+        title: "Please check the highlighted fields",
+        message: "Some information is missing or formatted in a way the form cannot accept yet.",
+      });
+      window.requestAnimationFrame(() => {
+        document.querySelector("[data-form-validation-summary]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmissionFeedback({
@@ -1824,7 +1971,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
     const submissionId = uid("sub");
     let submissionAnswers = answers;
     try {
-      submissionAnswers = await uploadSubmissionFiles(submissionId);
+      submissionAnswers = normalizeAnswersForSubmission(selectedTemplate, await uploadSubmissionFiles(submissionId));
     } catch (error) {
       setSyncStatus(`File upload failed, keeping local attachment data: ${error.message}`);
     }
@@ -1908,15 +2055,14 @@ function StaffFormsModule({ currentUserEmail = "" }) {
       });
     } finally {
       setAnswers({});
+      setValidationErrors({});
       setIsSubmitting(false);
     }
   }
 
   const canSubmit =
     selectedTemplate &&
-    submitter.name.trim() &&
-    submitterEmail &&
-    selectedTemplate.fields.every((field) => hasRequiredAnswer(field, answers));
+    !isSubmitting;
 
   return (
     <Shell>
@@ -1984,19 +2130,27 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                       {preparedForOther ? "Staff Member Name" : "Your Name"}
                       <input
                         value={submitter.name}
-                        onChange={(event) => setSubmitter({ ...submitter, name: event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                        onChange={(event) => {
+                          setSubmitter({ ...submitter, name: event.target.value });
+                          setValidationErrors((current) => ({ ...current, submitterName: "" }));
+                        }}
+                        className={`w-full rounded-lg border ${validationErrors.submitterName ? "border-rose-400 focus:border-rose-300" : "border-slate-700 focus:border-sky-400"} bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none`}
                       />
+                      {validationErrors.submitterName && <span className="block text-xs font-semibold text-rose-300">{validationErrors.submitterName}</span>}
                     </label>
                     <label className="space-y-1 text-sm font-medium text-slate-200">
                       {preparedForOther ? "Staff Member Email" : "Your Email"}
                       <input
                         type="email"
                         value={displayedSubmitterEmail}
-                        onChange={(event) => setSubmitter({ ...submitter, email: event.target.value })}
+                        onChange={(event) => {
+                          setSubmitter({ ...submitter, email: event.target.value });
+                          setValidationErrors((current) => ({ ...current, submitterEmail: "" }));
+                        }}
                         readOnly={Boolean(loggedInEmail) && !preparedForOther}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 read-only:cursor-not-allowed read-only:border-slate-800 read-only:bg-slate-900 read-only:text-slate-300"
+                        className={`w-full rounded-lg border ${validationErrors.submitterEmail ? "border-rose-400 focus:border-rose-300" : "border-slate-700 focus:border-sky-400"} bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none read-only:cursor-not-allowed read-only:border-slate-800 read-only:bg-slate-900 read-only:text-slate-300`}
                       />
+                      {validationErrors.submitterEmail && <span className="block text-xs font-semibold text-rose-300">{validationErrors.submitterEmail}</span>}
                       {loggedInEmail && !preparedForOther && (
                         <span className="block text-xs font-normal text-slate-500">
                           Pulled from your signed-in WVCS account.
@@ -2029,6 +2183,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
 
                   {submissionFeedback && (
                     <div
+                      data-form-validation-summary={submissionFeedback.tone === "warning" ? "true" : undefined}
                       className={`rounded-lg border px-4 py-3 ${
                         submissionFeedback.tone === "success"
                           ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-100"
@@ -2063,6 +2218,17 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                     </div>
                   )}
 
+                  {!!Object.values(validationErrors).filter(Boolean).length && (
+                    <div className="rounded-lg border border-rose-400/50 bg-rose-500/10 p-4 text-sm text-rose-100">
+                      <div className="font-bold">Please fix these items before submitting:</div>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {Object.values(validationErrors).filter(Boolean).map((error, index) => (
+                          <li key={`${error}-${index}`}>{error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div className="grid gap-4">
                     {selectedTemplate.fields.map((field) => (
                       <label key={field.id} className="space-y-1 text-sm font-medium text-slate-200">
@@ -2071,9 +2237,14 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                         <FieldInput
                           field={field}
                           value={answers[field.id]}
-                          onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                          onChange={(value) => {
+                            setAnswers((current) => ({ ...current, [field.id]: value }));
+                            setValidationErrors((current) => ({ ...current, [field.id]: "" }));
+                          }}
                           template={selectedTemplate}
+                          error={validationErrors[field.id]}
                         />
+                        {validationErrors[field.id] && <span className="block text-xs font-semibold text-rose-300">{validationErrors[field.id]}</span>}
                       </label>
                     ))}
                   </div>
@@ -2081,7 +2252,7 @@ function StaffFormsModule({ currentUserEmail = "" }) {
                   <div className="flex justify-end border-t border-slate-800 pt-5">
                     <button
                       type="button"
-                      disabled={!canSubmit || isSubmitting}
+                      disabled={!canSubmit}
                       onClick={submitForm}
                       className="inline-flex items-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-950/30 transition hover:-translate-y-0.5 hover:bg-sky-400 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -2180,6 +2351,7 @@ function fieldTypeFromPdfField(field) {
   if (field instanceof PDFTextField) {
     const name = field.getName().toLowerCase();
     if (name.includes("email")) return "email";
+    if (name.includes("phone") || name.includes("mobile") || name.includes("cell")) return "tel";
     if (name.includes("date")) return "date";
     if (name.includes("time")) return "time";
     return "text";
@@ -2505,6 +2677,7 @@ function TemplateEditorPanel({ settings, template, onCancel, onSave }) {
                 <option value="file">File Upload</option>
                 <option value="number">Number</option>
                 <option value="email">Email</option>
+                <option value="tel">Phone</option>
               </select>
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input

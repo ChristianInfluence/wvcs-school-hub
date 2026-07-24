@@ -25,13 +25,29 @@ function response(body: Record<string, any>, init: ResponseInit = {}) {
   });
 }
 
+function onlyDigits(value: any) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function isPhoneField(field: Record<string, any>) {
+  const label = String(field?.label || "").toLowerCase();
+  return field?.type === "tel" || label.includes("phone") || label.includes("mobile") || label.includes("cell");
+}
+
+function formatPhoneNumber(value: any) {
+  const digits = onlyDigits(value);
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  return String(value || "");
+}
+
 function sanitizeSubmission(payload: Record<string, any>, template: Record<string, any>) {
   const submitterName = String(payload.submitterName || "").trim();
   const submitterEmail = String(payload.submitterEmail || "").trim().toLowerCase();
   if (!submitterName) throw new Error("Missing submitter name.");
   if (!submitterEmail || !submitterEmail.includes("@")) throw new Error("Missing valid submitter email.");
 
-  const answers = payload.answers || {};
+  const answers = { ...(payload.answers || {}) };
   const missingField = (template.fields || []).find((field: Record<string, any>) => {
     if (!field.required) return false;
     const value = answers[field.id];
@@ -41,6 +57,9 @@ function sanitizeSubmission(payload: Record<string, any>, template: Record<strin
     return value === undefined || value === null || value === "";
   });
   if (missingField) throw new Error(`Missing required field: ${missingField.label || "Required field"}`);
+  (template.fields || []).forEach((field: Record<string, any>) => {
+    if (isPhoneField(field) && answers[field.id]) answers[field.id] = formatPhoneNumber(answers[field.id]);
+  });
 
   const submittedAt = new Date().toISOString();
   return {
