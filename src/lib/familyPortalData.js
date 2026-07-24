@@ -58,6 +58,7 @@ export async function ensureFamilyPortalAccess(family, currentUserEmail = "") {
 
   if (error) throw error;
   const access = Array.isArray(data) ? data[0] : data;
+  if (!access?.public_token) throw new Error("The portal link could not be generated. Please confirm this user has Office & Finance access.");
   return {
     ready: true,
     access: {

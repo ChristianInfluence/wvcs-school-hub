@@ -31,6 +31,34 @@ function familyMatches(family, query) {
   ].join(" ").toLowerCase().includes(needle);
 }
 
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back for browsers that block async clipboard writes.
+    }
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "0";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textArea);
+  }
+  return copied;
+}
+
 export default function FosAdminModule({ currentUserEmail = "" }) {
   const [entries, setEntries] = useState([]);
   const [families, setFamilies] = useState([]);
@@ -39,6 +67,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [familySearch, setFamilySearch] = useState("");
   const [selectedFamily, setSelectedFamily] = useState(null);
   const [reviewDrafts, setReviewDrafts] = useState({});
+  const [portalLinks, setPortalLinks] = useState({});
 
   async function loadData() {
     try {
@@ -68,10 +97,16 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
 
   async function copyPortalLink(family) {
     try {
+      setStatus(`Generating family portal link for ${family.familyName}...`);
       const result = await ensureFamilyPortalAccess(family, currentUserEmail);
       const url = `${window.location.origin}/#/family-portal/${encodeURIComponent(result.access.publicToken)}`;
-      await navigator.clipboard.writeText(url);
-      setStatus(`Family portal link copied for ${family.familyName}.`);
+      setPortalLinks((current) => ({ ...current, [family.familyKey]: url }));
+      const copied = await copyTextToClipboard(url);
+      setStatus(
+        copied
+          ? `Family portal link copied for ${family.familyName}.`
+          : `Family portal link generated for ${family.familyName}. Select the link below to copy it.`
+      );
     } catch (error) {
       setStatus(`Unable to copy family portal link: ${error.message}`);
     }
@@ -170,6 +205,14 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                 <Copy size={16} />
                 Copy Family Portal Link
               </button>
+              {portalLinks[selectedFamily.familyKey] && (
+                <input
+                  readOnly
+                  onFocus={(event) => event.target.select()}
+                  value={portalLinks[selectedFamily.familyKey]}
+                  className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-400"
+                />
+              )}
             </div>
           )}
         </div>
