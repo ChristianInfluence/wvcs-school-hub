@@ -23,6 +23,7 @@ import {
   fetchIncidentalInvoices,
   fetchOfficeFamilyDirectory,
   fetchTuitionInvoices,
+  reconcileIncidentalCheckoutPayment,
   saveIncidentalInvoice,
   saveTuitionInvoice,
   sendIncidentalInvoiceEmail,
@@ -400,6 +401,11 @@ function recordMatchesSearch(record, query) {
 function getIncidentalPortalUrl(invoice) {
   if (!invoice.publicToken) return "";
   return `${window.location.origin}${window.location.pathname}#/incidental-pay/${encodeURIComponent(invoice.publicToken)}`;
+}
+
+function getReturnedIncidentalSessionId() {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("incidental_session_id") || "";
 }
 
 function groupInvoicesByYear(invoices) {
@@ -941,6 +947,12 @@ export function IncidentalPaymentPortalPage({ token = "" }) {
     let active = true;
     async function loadInvoice() {
       try {
+        const returnedSessionId = getReturnedIncidentalSessionId();
+        if (returnedSessionId) {
+          setPaymentMessage("Confirming Stripe payment...");
+          await reconcileIncidentalCheckoutPayment(token, returnedSessionId);
+          if (active) setPaymentMessage("Payment confirmed. Loading receipt...");
+        }
         const result = await fetchIncidentalInvoiceByToken(token);
         if (!active) return;
         if (!result.found) {

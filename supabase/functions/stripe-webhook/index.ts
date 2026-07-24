@@ -65,6 +65,29 @@ function getInvoiceLookup(session: Record<string, any>) {
   };
 }
 
+function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<string, any>) {
+  const existingHistory = Array.isArray(invoiceJson.paymentHistory) ? invoiceJson.paymentHistory : [];
+  if (existingHistory.some((payment: Record<string, any>) => payment.stripeCheckoutSessionId === session.id)) {
+    return existingHistory;
+  }
+
+  return [
+    ...existingHistory,
+    {
+      id: `stripe-${session.id}`,
+      type: "payment",
+      date: new Date().toISOString(),
+      amount: ((session.amount_total || 0) / 100).toFixed(2),
+      method: "card",
+      checkNumber: "",
+      note: "Stripe checkout payment",
+      recordedBy: "Stripe",
+      stripeCheckoutSessionId: session.id,
+      stripePaymentIntentId: session.payment_intent || "",
+    },
+  ];
+}
+
 async function updateIncidentalInvoicePayment({
   supabase,
   session,
@@ -83,6 +106,8 @@ async function updateIncidentalInvoicePayment({
     payment_status: paymentStatus,
     paid_at: paymentStatus === "Paid" ? new Date().toISOString() : null,
     payment_url: session.url || null,
+    payment_method: paymentStatus === "Paid" ? "card" : null,
+    payment_history: [] as any,
     updated_at: new Date().toISOString(),
     invoice_json: undefined as any,
   };
@@ -96,10 +121,14 @@ async function updateIncidentalInvoicePayment({
   const existing = existingRows?.[0];
   if (!existing) return { updated: false, reason: "Matching incidental invoice was not found." };
 
+  const paymentHistory = paymentStatus === "Paid" ? buildPaymentHistory(existing.invoice_json || {}, session) : existing.invoice_json?.paymentHistory || [];
+  patch.payment_history = paymentHistory;
   patch.invoice_json = {
     ...(existing.invoice_json || {}),
     paymentStatus,
     paidAt: paymentStatus === "Paid" ? patch.paid_at : existing.invoice_json?.paidAt || "",
+    paymentMethod: paymentStatus === "Paid" ? "card" : existing.invoice_json?.paymentMethod || "",
+    paymentHistory,
     stripe: {
       checkoutSessionId: session.id || "",
       paymentIntentId: session.payment_intent || "",

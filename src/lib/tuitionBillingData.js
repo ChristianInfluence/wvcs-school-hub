@@ -381,6 +381,19 @@ export async function createIncidentalCheckoutSession(token) {
   return data || { created: false, reason: "Stripe checkout session was not created." };
 }
 
+export async function reconcileIncidentalCheckoutPayment(token, sessionId) {
+  if (!isSupabaseConfigured) {
+    return { reconciled: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("reconcile-incidental-payment", {
+    body: { token, sessionId },
+  });
+
+  if (error) throw error;
+  return data || { reconciled: false };
+}
+
 export async function sendIncidentalInvoiceEmail(payload) {
   if (!isSupabaseConfigured) {
     return { sent: false, reason: "Supabase is not configured." };

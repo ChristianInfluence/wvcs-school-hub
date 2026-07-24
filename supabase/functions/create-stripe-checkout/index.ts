@@ -38,9 +38,10 @@ async function createStripeCheckoutSession({
   if (totalCents < 50) throw new Error("Invoice total must be at least $0.50 to create a Stripe checkout session.");
 
   const portalUrl = `${origin}/#/incidental-pay/${encodeURIComponent(invoice.public_token)}`;
+  const successUrl = `${origin}/?incidental_session_id={CHECKOUT_SESSION_ID}#/incidental-pay/${encodeURIComponent(invoice.public_token)}`;
   const params = new URLSearchParams();
   params.set("mode", "payment");
-  params.set("success_url", portalUrl);
+  params.set("success_url", successUrl);
   params.set("cancel_url", portalUrl);
   params.set("client_reference_id", invoice.id);
   params.set("customer_email", invoiceJson.parentEmail || "");
