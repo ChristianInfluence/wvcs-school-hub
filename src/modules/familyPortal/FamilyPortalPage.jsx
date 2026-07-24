@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, DollarSign, ReceiptText, RefreshCw, Send } from "lucide-react";
+import { CheckCircle2, Clock, DollarSign, FileText, ReceiptText, RefreshCw, Send, Users } from "lucide-react";
 import { fetchFamilyPortalData, submitFosHours } from "../../lib/familyPortalData.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -46,12 +46,19 @@ function Stat({ label, value, tone = "white" }) {
   );
 }
 
+function isOpenInvoice(invoice) {
+  const status = `${invoice?.paymentStatus || invoice?.status || ""}`.toLowerCase();
+  return !status.includes("paid") && !status.includes("void") && !status.includes("cancel");
+}
+
 export default function FamilyPortalPage({ token = "" }) {
   const [portal, setPortal] = useState({ loading: true, error: "", data: null });
   const [draft, setDraft] = useState({ parentName: "", parentEmail: "", activityDate: today, activity: "", hours: "", notes: "" });
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [showFosForm, setShowFosForm] = useState(false);
 
   async function loadPortal() {
     setPortal((current) => ({ ...current, loading: true, error: "" }));
@@ -82,11 +89,15 @@ export default function FamilyPortalPage({ token = "" }) {
     [portal.data]
   );
   const visibleInvoice = selectedInvoice && invoices.find((invoice) => invoice.id === selectedInvoice.id && invoice.type === selectedInvoice.type);
+  const openInvoices = invoices.filter(isOpenInvoice);
+  const openInvoiceBalance = openInvoices.reduce((total, invoice) => total + invoiceTotal(invoice), 0);
+  const latestInvoice = invoices[0];
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";
     if (invoice.type === "tuition") return `${invoice.schoolYear || invoice.invoice?.schoolYear || "Tuition"} Tuition Breakdown`;
-    return invoice.invoice?.title || invoice.invoice?.invoiceTitle || "Incidental Invoice";
+    const firstCharge = Array.isArray(invoice.invoice?.charges) ? invoice.invoice.charges[0]?.description : "";
+    return invoice.invoice?.title || invoice.invoice?.invoiceTitle || firstCharge || "Incidental Invoice";
   }
 
   function invoiceTotal(invoice) {
@@ -123,6 +134,7 @@ export default function FamilyPortalPage({ token = "" }) {
       await submitFosHours(token, draft);
       setStatus("Hours submitted. They are pending office verification.");
       setDraft((current) => ({ ...current, activity: "", hours: "", notes: "" }));
+      setShowFosForm(false);
       await loadPortal();
     } catch (error) {
       setStatus(`Unable to submit hours: ${error.message}`);
@@ -154,96 +166,118 @@ export default function FamilyPortalPage({ token = "" }) {
         {portal.error && <div className="mt-6 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">{portal.error}</div>}
 
         {portal.data && (
-          <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_380px]">
-            <div className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-3">
-                <Stat label="Approved Hours" value={balance.approvedHours || 0} tone="green" />
-                <Stat label="Remaining Hours" value={balance.remainingHours || 0} tone="amber" />
-                <Stat label="Current FOS Balance" value={money(balance.remainingBalance)} tone="sky" />
-              </div>
-
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-white">
-                  <Clock size={16} className="text-sky-300" />
-                  Submit FOS Hours
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <Field label="Parent / Guardian Name">
-                    <Input value={draft.parentName} onChange={(event) => setDraft({ ...draft, parentName: event.target.value })} />
-                  </Field>
-                  <Field label="Email">
-                    <Input type="email" value={draft.parentEmail} onChange={(event) => setDraft({ ...draft, parentEmail: event.target.value })} />
-                  </Field>
-                  <Field label="Date">
-                    <Input type="date" value={draft.activityDate} onChange={(event) => setDraft({ ...draft, activityDate: event.target.value })} />
-                  </Field>
-                  <Field label="Hours">
-                    <Input inputMode="decimal" value={draft.hours} onChange={(event) => setDraft({ ...draft, hours: event.target.value })} placeholder="0.00" />
-                  </Field>
-                  <div className="md:col-span-2">
-                    <Field label="Activity">
-                      <Input value={draft.activity} onChange={(event) => setDraft({ ...draft, activity: event.target.value })} placeholder="Auction help, classroom support, event setup..." />
-                    </Field>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Field label="Notes">
-                      <Input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Optional details" />
-                    </Field>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={submitHours}
-                  disabled={submitting}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
-                >
-                  <Send size={16} />
-                  {submitting ? "Submitting..." : "Submit Hours"}
-                </button>
-                {status && <div className="mt-3 text-sm text-sky-200">{status}</div>}
-              </div>
-
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-white">
-                  <CheckCircle2 size={16} className="text-emerald-300" />
-                  FOS History
-                </div>
-                <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
-                  {entries.map((entry) => (
-                    <div key={entry.id} className="grid gap-2 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[100px_1fr_80px_90px]">
-                      <div className="text-slate-400">{shortDate(entry.activityDate)}</div>
-                      <div>
-                        <div className="font-semibold text-white">{entry.activity}</div>
-                        {entry.officeNote && <div className="mt-1 text-xs text-slate-500">{entry.officeNote}</div>}
-                      </div>
-                      <div className="text-slate-300">{entry.approvedHours || entry.submittedHours} hrs</div>
-                      <div className="font-semibold text-sky-200">{entry.status}</div>
-                    </div>
-                  ))}
-                  {!entries.length && <div className="p-4 text-sm text-slate-500">No FOS hours have been submitted yet.</div>}
-                </div>
-              </div>
+          <div className="mt-6 space-y-5">
+            <div className="grid gap-3 md:grid-cols-4">
+              <Stat label="Open Invoices" value={openInvoices.length} tone="amber" />
+              <Stat label="Open Balance" value={money(openInvoiceBalance)} tone="sky" />
+              <Stat label="FOS Remaining" value={`${balance.remainingHours || 0} hrs`} tone="amber" />
+              <Stat label="FOS Balance" value={money(balance.remainingBalance)} tone="green" />
             </div>
 
-            <div className="space-y-5">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="text-sm font-bold text-white">Students</div>
-                <div className="mt-3 space-y-2">
-                  {(portal.data.family?.students || []).map((student) => (
-                    <div key={student.id} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200">
-                      {student.name} {student.grade ? <span className="text-slate-500">Grade {student.grade}</span> : null}
+            <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+              {[
+                ["overview", "Overview", Users],
+                ["invoices", "Invoices", ReceiptText],
+                ["fos", "FOS Hours", Clock],
+              ].map(([id, label, Icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                    activeTab === id
+                      ? "border-sky-400 bg-sky-500 text-white"
+                      : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                  }`}
+                >
+                  <Icon size={16} />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {activeTab === "overview" && (
+              <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+                <div className="space-y-5">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <FileText size={16} className="text-sky-300" />
+                      Account Summary
                     </div>
-                  ))}
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Latest Invoice</div>
+                        <div className="mt-2 text-sm font-bold text-white">{latestInvoice ? invoiceTitle(latestInvoice) : "No invoices yet"}</div>
+                        {latestInvoice && <div className="mt-1 text-xs text-slate-500">{latestInvoice.paymentStatus || latestInvoice.status} | {money(invoiceTotal(latestInvoice))}</div>}
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="text-xs uppercase tracking-[0.14em] text-slate-500">FOS Progress</div>
+                        <div className="mt-2 text-sm font-bold text-white">{balance.approvedHours || 0} approved hours</div>
+                        <div className="mt-1 text-xs text-slate-500">{balance.remainingHours || 0} hours remaining</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Lunch Balance</div>
+                        <div className="mt-2 text-sm font-bold text-white">{money(portal.data.lunch?.balance || 0)}</div>
+                        <div className="mt-1 text-xs text-slate-500">Coming soon</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CheckCircle2 size={16} className="text-emerald-300" />
+                      Recent FOS History
+                    </div>
+                    <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                      {entries.slice(0, 4).map((entry) => (
+                        <div key={entry.id} className="grid gap-2 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[100px_1fr_80px_90px]">
+                          <div className="text-slate-400">{shortDate(entry.activityDate)}</div>
+                          <div>
+                            <div className="font-semibold text-white">{entry.activity}</div>
+                            {entry.officeNote && <div className="mt-1 text-xs text-slate-500">{entry.officeNote}</div>}
+                          </div>
+                          <div className="text-slate-300">{entry.approvedHours || entry.submittedHours} hrs</div>
+                          <div className="font-semibold text-sky-200">{entry.status}</div>
+                        </div>
+                      ))}
+                      {!entries.length && <div className="p-4 text-sm text-slate-500">No FOS hours have been submitted yet.</div>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-sm font-bold text-white">Students</div>
+                    <div className="mt-3 space-y-2">
+                      {(portal.data.family?.students || []).map((student) => (
+                        <div key={student.id} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200">
+                          {student.name} {student.grade ? <span className="text-slate-500">Grade {student.grade}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <DollarSign size={16} className="text-emerald-300" />
+                      Lunch Balance
+                    </div>
+                    <div className="mt-3 rounded-lg border border-dashed border-slate-700 bg-slate-950 p-3 text-sm text-slate-400">
+                      Lunch balance and add-funds tools will be added after the family portal and FOS workflow are stable.
+                    </div>
+                  </div>
                 </div>
               </div>
+            )}
 
+            {activeTab === "invoices" && (
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-white">
                   <ReceiptText size={16} className="text-sky-300" />
                   Invoice History
                 </div>
-                <div className="mt-3 space-y-2">
-                  {invoices.slice(0, 8).map((invoice) => (
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {invoices.map((invoice) => (
                     <button
                       key={`${invoice.id}-${invoice.type}-${invoice.schoolYear || invoice.status}`}
                       type="button"
@@ -304,17 +338,94 @@ export default function FamilyPortalPage({ token = "" }) {
                   </div>
                 )}
               </div>
+            )}
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-white">
-                  <DollarSign size={16} className="text-emerald-300" />
-                  Lunch Balance
+            {activeTab === "fos" && (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Stat label="Approved Hours" value={balance.approvedHours || 0} tone="green" />
+                  <Stat label="Remaining Hours" value={balance.remainingHours || 0} tone="amber" />
+                  <Stat label="Current FOS Balance" value={money(balance.remainingBalance)} tone="sky" />
                 </div>
-                <div className="mt-3 rounded-lg border border-dashed border-slate-700 bg-slate-950 p-3 text-sm text-slate-400">
-                  Lunch balance and add-funds tools will be added after the family portal and FOS workflow are stable.
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <Clock size={16} className="text-sky-300" />
+                      FOS Hours
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowFosForm((current) => !current)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                    >
+                      <Send size={16} />
+                      {showFosForm ? "Close Form" : "Report Volunteer Hours"}
+                    </button>
+                  </div>
+
+                  {showFosForm && (
+                    <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Field label="Parent / Guardian Name">
+                          <Input value={draft.parentName} onChange={(event) => setDraft({ ...draft, parentName: event.target.value })} />
+                        </Field>
+                        <Field label="Email">
+                          <Input type="email" value={draft.parentEmail} onChange={(event) => setDraft({ ...draft, parentEmail: event.target.value })} />
+                        </Field>
+                        <Field label="Date">
+                          <Input type="date" value={draft.activityDate} onChange={(event) => setDraft({ ...draft, activityDate: event.target.value })} />
+                        </Field>
+                        <Field label="Hours">
+                          <Input inputMode="decimal" value={draft.hours} onChange={(event) => setDraft({ ...draft, hours: event.target.value })} placeholder="0.00" />
+                        </Field>
+                        <div className="md:col-span-2">
+                          <Field label="Activity">
+                            <Input value={draft.activity} onChange={(event) => setDraft({ ...draft, activity: event.target.value })} placeholder="Auction help, classroom support, event setup..." />
+                          </Field>
+                        </div>
+                        <div className="md:col-span-2">
+                          <Field label="Notes">
+                            <Input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Optional details" />
+                          </Field>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={submitHours}
+                        disabled={submitting}
+                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+                      >
+                        <Send size={16} />
+                        {submitting ? "Submitting..." : "Submit Hours"}
+                      </button>
+                    </div>
+                  )}
+                  {status && <div className="mt-3 text-sm text-sky-200">{status}</div>}
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-white">
+                    <CheckCircle2 size={16} className="text-emerald-300" />
+                    FOS History
+                  </div>
+                  <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                    {entries.map((entry) => (
+                      <div key={entry.id} className="grid gap-2 border-b border-slate-800 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[100px_1fr_80px_90px]">
+                        <div className="text-slate-400">{shortDate(entry.activityDate)}</div>
+                        <div>
+                          <div className="font-semibold text-white">{entry.activity}</div>
+                          {entry.officeNote && <div className="mt-1 text-xs text-slate-500">{entry.officeNote}</div>}
+                        </div>
+                        <div className="text-slate-300">{entry.approvedHours || entry.submittedHours} hrs</div>
+                        <div className="font-semibold text-sky-200">{entry.status}</div>
+                      </div>
+                    ))}
+                    {!entries.length && <div className="p-4 text-sm text-slate-500">No FOS hours have been submitted yet.</div>}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </section>
