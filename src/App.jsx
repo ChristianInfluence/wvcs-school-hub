@@ -1298,7 +1298,6 @@ export default function App() {
             {modules
               .filter((module) =>
                 module.id === "dashboard" ||
-                (module.id === "scheduler" && access.canUseScheduler) ||
                 (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
                 (module.id === "office-finance" && access.canUseOfficePayroll) ||
                 (module.id === "admin" && access.canUseAdmin)
