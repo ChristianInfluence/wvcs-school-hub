@@ -297,14 +297,28 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
     }
   }
 
-  function toggleLunchItem(itemKey) {
+  function hasLunchMealForDate(item) {
+    return lunchItems.some((candidate) =>
+      candidate.date === item.date &&
+      !candidate.requiresMeal &&
+      candidate.itemKey !== item.itemKey &&
+      lunchDraft.selectedItems[candidate.itemKey]
+    );
+  }
+
+  function toggleLunchItem(item) {
+    if (item.requiresMeal && !hasLunchMealForDate(item)) {
+      setLunchStatus("Choose a regular meal for that date before adding this restricted item.");
+      return;
+    }
     setLunchDraft((current) => ({
       ...current,
       selectedItems: {
         ...current.selectedItems,
-        [itemKey]: !current.selectedItems[itemKey],
+        [item.itemKey]: !current.selectedItems[item.itemKey],
       },
     }));
+    setLunchStatus("");
   }
 
   async function addLunchFunds() {
@@ -604,7 +618,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                                             <button
                                               key={item.itemKey}
                                               type="button"
-                                              onClick={() => toggleLunchItem(item.itemKey)}
+                                              onClick={() => toggleLunchItem(item)}
                                               className={`flex w-full items-start gap-2 rounded-md border p-2 text-left text-xs transition ${
                                                 checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"
                                               }`}
@@ -615,6 +629,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                                               <span>
                                                 <span className="block font-semibold">{item.name}</span>
                                                 <span className="block text-slate-500">{money(item.price)}</span>
+                                                {item.requiresMeal && <span className="block text-amber-200">Requires meal</span>}
                                               </span>
                                             </button>
                                           );

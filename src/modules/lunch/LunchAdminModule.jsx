@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ClipboardList, DollarSign, Plus, RefreshCw, Save, Search, Utensils } from "lucide-react";
+import { CheckCircle2, ClipboardList, DollarSign, Plus, RefreshCw, Save, Search, Trash2, Utensils } from "lucide-react";
 import {
   createLunchOrder,
+  deleteLunchOrder,
   fetchLunchAdminData,
   money,
   recordLunchDeposit,
@@ -45,7 +46,7 @@ function shortDate(value) {
 }
 
 function emptyItem(date = today) {
-  return { id: crypto.randomUUID(), date, name: "", description: "", price: "4.50" };
+  return { id: crypto.randomUUID(), date, name: "", description: "", price: "4.50", requiresMeal: false };
 }
 
 function isoDate(date) {
@@ -105,15 +106,15 @@ function templateItemsForDate(date, weekIndex) {
       { name: "Loaded potato, fruit", price: "4.50" },
       { name: "Chili, chips, fruit", price: "4.50" },
       { name: "Hot dog, chips, fruit", price: "4.50" },
-      { name: "Extra hot dog", price: "1.00" },
-    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price }));
+      { name: "Extra hot dog", price: "1.00", requiresMeal: true },
+    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price, requiresMeal: Boolean(item.requiresMeal) }));
   }
   if (day === 5) {
     return [
       { name: "Pizza, fresh fruit, and veggies", price: "4.50" },
       { name: "Gluten-free pizza", price: "4.50" },
-      { name: "Extra slice of pizza", price: "1.50" },
-    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price }));
+      { name: "Extra slice of pizza", price: "1.50", requiresMeal: true },
+    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price, requiresMeal: Boolean(item.requiresMeal) }));
   }
   return [];
 }
@@ -224,6 +225,20 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
       await loadData();
     } catch (error) {
       setStatus(`Unable to update lunch order: ${error.message}`);
+    }
+  }
+
+  async function removeOrder(order) {
+    const reversalNote = order.status === "Served" && order.chargedAt && Number(order.price || 0) > 0
+      ? " This lunch was already charged, so deleting it will also reverse the lunch account charge."
+      : "";
+    if (!window.confirm(`Delete ${order.studentName}'s ${order.itemName} from the lunch list?${reversalNote}`)) return;
+    try {
+      await deleteLunchOrder(order, currentUserEmail);
+      setStatus(`${order.studentName}'s lunch order was deleted.`);
+      await loadData();
+    } catch (error) {
+      setStatus(`Unable to delete lunch order: ${error.message}`);
     }
   }
 
@@ -348,7 +363,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
             </div>
             <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
               {dailyOrders.map((order) => (
-                <div key={order.id} className="grid gap-2 border-b border-slate-200 px-3 py-3 text-sm last:border-b-0 lg:grid-cols-[1fr_1fr_95px_260px] lg:items-center">
+                <div key={order.id} className="grid gap-2 border-b border-slate-200 px-3 py-3 text-sm last:border-b-0 lg:grid-cols-[1fr_1fr_95px_320px] lg:items-center">
                   <div>
                     <div className="font-bold text-slate-950">{order.studentName}</div>
                     <div className="text-xs text-slate-500">{order.familyName} {order.studentGrade ? `| Grade ${order.studentGrade}` : ""}</div>
@@ -362,6 +377,9 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
                     <button type="button" onClick={() => changeOrder(order, "Served")} disabled={order.status === "Served"} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">Served</button>
                     <button type="button" onClick={() => changeOrder(order, "Absent")} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800">Absent</button>
                     <button type="button" onClick={() => changeOrder(order, "Cancelled")} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700">Cancel</button>
+                    <button type="button" onClick={() => removeOrder(order)} className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700" aria-label={`Delete ${order.studentName} lunch order`}>
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -418,6 +436,10 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
                                   <Input inputMode="decimal" value={item.price} onChange={(event) => updateMenuItem(item.id, { price: event.target.value })} placeholder="4.50" className="px-2 py-1 text-xs" />
                                   <button type="button" onClick={() => removeMenuItem(item.id)} className="rounded-md border border-slate-300 bg-white text-xs font-bold text-slate-600">x</button>
                                 </div>
+                                <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                  <input type="checkbox" checked={Boolean(item.requiresMeal)} onChange={(event) => updateMenuItem(item.id, { requiresMeal: event.target.checked })} />
+                                  Requires meal
+                                </label>
                               </div>
                             ))}
                             {!dayItems.length && <div className="rounded-md border border-dashed border-slate-200 p-2 text-center text-xs text-slate-400">No lunch</div>}

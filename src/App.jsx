@@ -36,6 +36,7 @@ import HubMessages from "./modules/messages/HubMessages.jsx";
 import FamilyPortalPage from "./modules/familyPortal/FamilyPortalPage.jsx";
 import FosAdminModule from "./modules/familyPortal/FosAdminModule.jsx";
 import LunchAdminModule from "./modules/lunch/LunchAdminModule.jsx";
+import StaffLunchOrderModule from "./modules/lunch/StaffLunchOrderModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
@@ -415,9 +416,10 @@ function formatActivityDate(value) {
 }
 
 function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpenAideView }) {
-  const launchModules = modules.filter((module) => module.id !== "dashboard" && !module.topLevelOnly);
+  const launchModules = modules.filter((module) => module.id !== "dashboard" && module.id !== "admin" && !module.topLevelOnly);
   const featured = launchModules.find((module) => module.id === "structured-recess");
   const [activity, setActivity] = useState({ loading: true, submissions: [], messages: [], error: "" });
+  const [showStaffLunch, setShowStaffLunch] = useState(false);
 
   function isLocked(module) {
     if (module.id === "admin") return !access.canUseAdmin;
@@ -475,7 +477,35 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
           )}
         </div>
 
+        {showStaffLunch && (
+          <div className="mb-4">
+            <StaffLunchOrderModule currentUserEmail={currentUserEmail} onClose={() => setShowStaffLunch(false)} />
+          </div>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-5">
+          <button
+            type="button"
+            onClick={() => setShowStaffLunch((current) => !current)}
+            className="group relative flex min-h-64 flex-col overflow-hidden rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-left transition hover:-translate-y-1 hover:bg-emerald-500/15 hover:shadow-2xl"
+          >
+            <div className="absolute left-0 top-0 h-1.5 w-full bg-emerald-400" />
+            <div className="relative h-14">
+              <div className="absolute left-0 top-0 flex h-12 w-12 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/15 text-emerald-100">
+                <Utensils size={24} />
+              </div>
+            </div>
+            <div className="flex flex-1 flex-col">
+              <div className="mt-4 min-h-4 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Staff meals</div>
+              <h2 className="mt-2 min-h-14 text-xl font-bold leading-7 text-white">Staff Lunch Order</h2>
+              <p className="text-sm leading-6 text-slate-300">Open the published lunch menu and submit staff lunch choices at no charge.</p>
+              <div className="mt-auto pt-5">
+                <div className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                  Open menu
+                </div>
+              </div>
+            </div>
+          </button>
           {launchModules.map((module, index) => {
             const Icon = module.icon;
             const styles = moduleStyles[module.color];

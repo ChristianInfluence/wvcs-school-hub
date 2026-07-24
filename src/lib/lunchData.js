@@ -85,6 +85,7 @@ function normalizeMenu(menu, currentUserEmail = "") {
       name: item.name,
       description: item.description || "",
       price: Number(item.price || 0),
+      requiresMeal: Boolean(item.requiresMeal),
     })),
     updated_by_email: currentUserEmail || null,
     updated_at: new Date().toISOString(),
@@ -210,6 +211,46 @@ export async function updateLunchOrderStatus(order, status, currentUserEmail = "
     .single();
   if (error) throw error;
   return mapOrder(data);
+}
+
+export async function deleteLunchOrder(order, currentUserEmail = "") {
+  if (order.status === "Served" && order.chargedAt && Number(order.price || 0) > 0) {
+    const { error: reversalError } = await supabase.from("lunch_transactions").insert({
+      family_key: order.familyKey,
+      family_name: order.familyName,
+      student_id: order.studentId || null,
+      student_name: order.studentName,
+      order_id: order.id,
+      type: "adjustment",
+      amount: Math.abs(Number(order.price || 0)),
+      description: `Reversal for deleted lunch order: ${order.studentName} ${order.itemName}`,
+      created_by_email: currentUserEmail || null,
+    });
+    if (reversalError) throw reversalError;
+    await upsertAccountBalance({ familyKey: order.familyKey, familyName: order.familyName, delta: Math.abs(Number(order.price || 0)), currentUserEmail });
+  }
+
+  const { error } = await supabase.from("lunch_orders").delete().eq("id", order.id);
+  if (error) throw error;
+  return { deleted: true };
+}
+
+export async function fetchPublishedLunchMenus() {
+  if (!isSupabaseConfigured) return { loaded: false, menus: [], reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("staff-lunch-data", { body: {} });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { loaded: false, menus: [] };
+}
+
+export async function submitStaffLunchOrders(orders, currentUserEmail = "") {
+  if (!isSupabaseConfigured) return { submitted: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("submit-staff-lunch-order", {
+    body: { orders, currentUserEmail },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { submitted: false };
 }
 
 export async function recordLunchDeposit({ family, amount, method = "cash", checkNumber = "", note = "" }, currentUserEmail = "") {
