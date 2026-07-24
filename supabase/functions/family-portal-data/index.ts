@@ -26,6 +26,12 @@ function mapInvoice(row: Record<string, any>) {
   };
 }
 
+function familyNameTerms(familyName: string) {
+  const cleanName = String(familyName || "").trim();
+  const withoutFamily = cleanName.replace(/\s+Family$/i, "").trim();
+  return [...new Set([cleanName, withoutFamily].filter(Boolean))];
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -44,22 +50,33 @@ Deno.serve(async (request) => {
     if (accessError) throw accessError;
     if (!access) return new Response(JSON.stringify({ loaded: true, found: false }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: tuitionRows, error: tuitionError }] =
+    const nameTerms = familyNameTerms(access.family_name);
+    const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
+
+    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }] =
       await Promise.all([
         supabase.from("student_directory").select("*").eq("active", true),
         supabase.from("fos_hour_entries").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }),
         supabase.from("incidental_invoices").select("*").eq("family_key", access.family_key).order("updated_at", { ascending: false }),
-        supabase.from("tuition_invoices").select("*").ilike("family_name", access.family_name.replace(/\s+Family$/i, "")),
+        familyNameFilter
+          ? supabase.from("incidental_invoices").select("*").or(familyNameFilter).order("updated_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        familyNameFilter
+          ? supabase.from("tuition_invoices").select("*").or(familyNameFilter).order("updated_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
     if (directoryError) throw directoryError;
     if (fosError) throw fosError;
     if (incidentalError) throw incidentalError;
+    if (incidentalNameError) throw incidentalNameError;
     if (tuitionError) throw tuitionError;
 
     const students = (directoryRows || []).filter((row) => familyKeyFor(row) === access.family_key).map(mapStudent);
     const entries = fosRows || [];
     const balance = calculateFosBalance(entries);
+    const incidentalById = new Map<string, Record<string, any>>();
+    [...(incidentalRows || []), ...(incidentalNameRows || [])].forEach((row) => incidentalById.set(row.id, row));
 
     return new Response(
       JSON.stringify({
@@ -91,7 +108,7 @@ Deno.serve(async (request) => {
           })),
         },
         invoices: {
-          incidentals: (incidentalRows || []).map(mapInvoice),
+          incidentals: [...incidentalById.values()].map(mapInvoice),
           tuition: (tuitionRows || []).map((row) => ({
             id: row.id,
             familyName: row.family_name || "",
