@@ -105,9 +105,15 @@ const defaultIncidentalInvoice = {
   paymentStatus: "Unpaid",
   paymentUrl: "",
   paidAt: "",
+  receiptNumber: "",
+  paymentHistory: [],
+  paymentAmount: "",
+  paymentNote: "",
   paidInOffice: false,
   paymentMethod: "",
   checkNumber: "",
+  voidNote: "",
+  refundNote: "",
   note: "Please contact the school office with any questions about these incidental charges.",
   charges: [{ id: "charge-1", description: "", amount: "" }],
 };
@@ -238,6 +244,31 @@ function incidentalTotal(invoice) {
   return (invoice.charges || []).reduce((total, charge) => total + money(charge.amount), 0);
 }
 
+function getPaymentHistory(invoice) {
+  return Array.isArray(invoice.paymentHistory) ? invoice.paymentHistory : [];
+}
+
+function incidentalPaidTotal(invoice) {
+  const historyTotal = getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .reduce((total, payment) => total + money(payment.amount), 0);
+  if (historyTotal) return historyTotal;
+  return invoice.paymentStatus === "Paid" ? incidentalTotal(invoice) : 0;
+}
+
+function incidentalBalance(invoice) {
+  return Math.max(incidentalTotal(invoice) - incidentalPaidTotal(invoice), 0);
+}
+
+function getIncidentalPaymentStatus(invoice) {
+  if (invoice.paymentStatus === "Voided" || invoice.status === "Voided") return "Voided";
+  const paid = incidentalPaidTotal(invoice);
+  const total = incidentalTotal(invoice);
+  if (total > 0 && paid >= total) return "Paid";
+  if (paid > 0) return "Partial";
+  return invoice.paymentStatus === "Pending" ? "Pending" : "Unpaid";
+}
+
 function incidentalTitle(invoice) {
   const family = invoice.familyName?.trim() || "Family";
   return `${family} Incidental Invoice`;
@@ -278,9 +309,13 @@ function getRecordInvoice(record) {
     sentAt: record.sentAt || record.invoice?.sentAt || "",
     sentTo: record.sentTo || record.invoice?.sentTo || [],
     paidAt: record.paidAt || record.invoice?.paidAt || "",
+    receiptNumber: record.receiptNumber || record.invoice?.receiptNumber || "",
+    paymentHistory: record.paymentHistory || record.invoice?.paymentHistory || [],
     paidInOffice: Boolean(record.paidInOffice || record.invoice?.paidInOffice),
     paymentMethod: record.paymentMethod || record.invoice?.paymentMethod || "",
     checkNumber: record.checkNumber || record.invoice?.checkNumber || "",
+    voidNote: record.voidNote || record.invoice?.voidNote || "",
+    refundNote: record.refundNote || record.invoice?.refundNote || "",
   };
 }
 
@@ -289,13 +324,44 @@ function getReceivableTotals(records) {
     (totals, record) => {
       const invoice = getRecordInvoice(record);
       const total = incidentalTotal(invoice);
+      const paid = incidentalPaidTotal(invoice);
+      const balance = incidentalBalance(invoice);
       totals.total += total;
-      if (invoice.paymentStatus === "Paid") totals.paid += total;
-      else if (invoice.paymentStatus !== "Voided") totals.open += total;
+      totals.paid += paid;
+      if (getIncidentalPaymentStatus(invoice) !== "Voided") totals.open += balance;
       return totals;
     },
     { total: 0, open: 0, paid: 0 }
   );
+}
+
+function getDaysPastDue(invoice) {
+  const basis = invoice.dueDate || invoice.invoiceDate;
+  if (!basis || getIncidentalPaymentStatus(invoice) === "Paid" || getIncidentalPaymentStatus(invoice) === "Voided") return 0;
+  const due = new Date(`${basis}T12:00:00`);
+  const now = new Date(`${today}T12:00:00`);
+  return Math.max(Math.floor((now - due) / 86400000), 0);
+}
+
+function getAgingBuckets(records) {
+  return records.reduce(
+    (buckets, record) => {
+      const invoice = getRecordInvoice(record);
+      const balance = incidentalBalance(invoice);
+      if (!balance || getIncidentalPaymentStatus(invoice) === "Voided") return buckets;
+      const days = getDaysPastDue(invoice);
+      if (days <= 0) buckets.current += balance;
+      else if (days <= 30) buckets.days30 += balance;
+      else if (days <= 60) buckets.days60 += balance;
+      else buckets.daysOver60 += balance;
+      return buckets;
+    },
+    { current: 0, days30: 0, days60: 0, daysOver60: 0 }
+  );
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
 
 function familyMatchesSearch(family, query) {
@@ -405,7 +471,7 @@ function escapeHtml(value) {
 }
 
 function buildIncidentalReceiptDocument(invoice) {
-  const total = incidentalTotal(invoice);
+  const total = incidentalPaidTotal(invoice);
   const paidDate = invoice.paidAt ? formatDate(String(invoice.paidAt).slice(0, 10)) : formatDate(today);
   const method = invoice.paymentMethod ? invoice.paymentMethod.charAt(0).toUpperCase() + invoice.paymentMethod.slice(1) : "Payment";
   const checkLine = invoice.paymentMethod === "check" && invoice.checkNumber ? `<div><strong>Check #:</strong> ${escapeHtml(invoice.checkNumber)}</div>` : "";
@@ -453,6 +519,7 @@ function buildIncidentalReceiptDocument(invoice) {
             </div>
             <div class="meta">
               <div><strong>Date Paid:</strong> ${escapeHtml(paidDate)}</div>
+              <div><strong>Receipt #:</strong> ${escapeHtml(invoice.receiptNumber || "Pending")}</div>
               <div><strong>Method:</strong> ${escapeHtml(method)}</div>
               ${checkLine}
               <div><strong>Receipt Total:</strong> ${escapeHtml(formatCurrency(total))}</div>
@@ -777,7 +844,7 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
           </div>
           <div className="mt-2 flex justify-between gap-4">
             <span className="font-semibold text-slate-500">Payment</span>
-            <span>{invoice.paymentStatus || "Unpaid"}</span>
+            <span>{getIncidentalPaymentStatus(invoice)}</span>
           </div>
         </div>
       </div>
@@ -808,13 +875,13 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
       <div className="mt-6 rounded-lg border border-sky-200 bg-sky-50 p-4">
         <div className="text-sm font-bold text-slate-950">Payment Portal</div>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          {invoice.paymentStatus === "Paid"
+          {getIncidentalPaymentStatus(invoice) === "Paid"
             ? "Thank you. This invoice is marked paid."
             : paymentReady
             ? "Use the secure payment button below to pay this incidental invoice."
             : "Online payment processing is being prepared. Please contact the school office for payment instructions."}
         </p>
-        {invoice.paymentStatus === "Paid" ? (
+        {getIncidentalPaymentStatus(invoice) === "Paid" ? (
           <div className="mt-4 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700">
             Paid
           </div>
@@ -976,6 +1043,8 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
   const [receivablesSearch, setReceivablesSearch] = useState("");
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("open");
+  const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
+  const [ledgerFamilyKey, setLedgerFamilyKey] = useState("");
   const [savedInvoices, setSavedInvoices] = useState([]);
   const [savedIncidentalInvoices, setSavedIncidentalInvoices] = useState([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
@@ -998,15 +1067,32 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       savedIncidentalInvoices
         .filter((record) => {
           const invoice = getRecordInvoice(record);
-          if (receivablesStatusFilter === "open") return invoice.paymentStatus !== "Paid" && invoice.paymentStatus !== "Voided";
-          if (receivablesStatusFilter === "paid") return invoice.paymentStatus === "Paid";
-          if (receivablesStatusFilter === "voided") return invoice.paymentStatus === "Voided";
+          const status = getIncidentalPaymentStatus(invoice);
+          if (receivablesStatusFilter === "open") return status !== "Paid" && status !== "Voided";
+          if (receivablesStatusFilter === "paid") return status === "Paid";
+          if (receivablesStatusFilter === "partial") return status === "Partial";
+          if (receivablesStatusFilter === "voided") return status === "Voided";
           return true;
         })
         .filter((record) => recordMatchesSearch(record, receivablesSearch)),
     [savedIncidentalInvoices, receivablesSearch, receivablesStatusFilter]
   );
   const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const ledgerFamilyResults = useMemo(
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)).slice(0, 8),
+    [familyDirectory, ledgerFamilySearch]
+  );
+  const ledgerRecords = useMemo(
+    () =>
+      ledgerFamilyKey
+        ? savedIncidentalInvoices.filter((record) => {
+            const invoice = getRecordInvoice(record);
+            return invoice.familyKey === ledgerFamilyKey;
+          })
+        : [],
+    [ledgerFamilyKey, savedIncidentalInvoices]
+  );
 
   async function loadSavedInvoices() {
     try {
@@ -1338,12 +1424,63 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   async function saveIncidentalDraft() {
+    if ((incidentalInvoice.status === "Voided" || incidentalInvoice.paymentStatus === "Voided") && !String(incidentalInvoice.voidNote || "").trim()) {
+      setStatus("Enter a void note before saving a voided incidental invoice.");
+      return;
+    }
     try {
       const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
       setStatus(`${saved.familyName || "Incidental invoice"} saved.`);
     } catch (error) {
       setStatus(`Unable to save incidental invoice: ${error.message}`);
     }
+  }
+
+  function exportReceivablesCsv() {
+    const headers = [
+      "Family",
+      "Students",
+      "Invoice Date",
+      "Due Date",
+      "Status",
+      "Total",
+      "Paid",
+      "Balance",
+      "Receipt Number",
+      "Payment Method",
+      "Check Number",
+      "Last Paid",
+      "Void Note",
+    ];
+    const rows = filteredReceivables.map((record) => {
+      const invoice = getRecordInvoice(record);
+      return [
+        invoice.familyName,
+        getIncidentalStudentSummary(invoice),
+        invoice.invoiceDate,
+        invoice.dueDate,
+        getIncidentalPaymentStatus(invoice),
+        incidentalTotal(invoice).toFixed(2),
+        incidentalPaidTotal(invoice).toFixed(2),
+        incidentalBalance(invoice).toFixed(2),
+        invoice.receiptNumber,
+        invoice.paymentMethod,
+        invoice.checkNumber,
+        invoice.paidAt,
+        invoice.voidNote,
+      ];
+    });
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `wvcs-accounts-receivable-${today}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus("Accounts receivable CSV exported.");
   }
 
   function loadIncidentalRecord(record) {
@@ -1474,18 +1611,45 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       setStatus("Enter the check number before marking a check payment paid.");
       return;
     }
+    const paymentAmount = money(invoiceToPay.paymentAmount || incidentalBalance(invoiceToPay));
+    if (paymentAmount <= 0) {
+      setStatus("Enter a payment amount greater than zero.");
+      return;
+    }
 
     try {
       const paidAt = invoiceToPay.paidAt || new Date().toISOString();
+      const nextHistory = [
+        ...getPaymentHistory(invoiceToPay),
+        {
+          id: uid("payment"),
+          type: "payment",
+          date: paidAt,
+          amount: paymentAmount.toFixed(2),
+          method: invoiceToPay.paymentMethod,
+          checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
+          note: invoiceToPay.paymentNote || "",
+          recordedBy: currentUserEmail,
+        },
+      ];
+      const nextInvoice = {
+        ...invoiceToPay,
+        paymentHistory: nextHistory,
+      };
+      const nextPaymentStatus = getIncidentalPaymentStatus(nextInvoice);
       const record = await saveCurrentIncidentalInvoiceFor(invoiceToPay, {
         status: invoiceToPay.status === "Draft" ? "Saved" : invoiceToPay.status,
-        paymentStatus: "Paid",
-        paidAt,
+        paymentStatus: nextPaymentStatus,
+        paidAt: nextPaymentStatus === "Paid" ? paidAt : invoiceToPay.paidAt || "",
+        receiptNumber: invoiceToPay.receiptNumber || "",
+        paymentHistory: nextHistory,
+        paymentAmount: "",
+        paymentNote: "",
         paidInOffice: true,
         paymentMethod: invoiceToPay.paymentMethod,
         checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
       });
-      setStatus(`${record.familyName || "Incidental invoice"} marked paid in office.`);
+      setStatus(`${record.familyName || "Incidental invoice"} payment recorded.`);
     } catch (error) {
       setStatus(`Unable to mark paid in office: ${error.message}`);
     }
@@ -1504,10 +1668,19 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       sentAt: patch.sentAt || baseInvoice.sentAt || "",
       sentTo: patch.sentTo || baseInvoice.sentTo || [],
       paidAt: patch.paidAt || baseInvoice.paidAt || "",
+      receiptNumber: patch.receiptNumber ?? baseInvoice.receiptNumber ?? "",
+      paymentHistory: patch.paymentHistory ?? baseInvoice.paymentHistory ?? [],
+      paymentAmount: patch.paymentAmount ?? baseInvoice.paymentAmount ?? "",
+      paymentNote: patch.paymentNote ?? baseInvoice.paymentNote ?? "",
       paidInOffice: patch.paidInOffice ?? baseInvoice.paidInOffice ?? false,
       paymentMethod: patch.paymentMethod ?? baseInvoice.paymentMethod ?? "",
       checkNumber: patch.checkNumber ?? baseInvoice.checkNumber ?? "",
+      voidNote: patch.voidNote ?? baseInvoice.voidNote ?? "",
+      refundNote: patch.refundNote ?? baseInvoice.refundNote ?? "",
     };
+    nextInvoice.paymentStatus = nextInvoice.paymentStatus === "Voided" || nextInvoice.status === "Voided"
+      ? "Voided"
+      : getIncidentalPaymentStatus(nextInvoice);
     const record = {
       id: invoiceId,
       publicToken,
@@ -1520,9 +1693,13 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       sentAt: nextInvoice.sentAt || "",
       sentTo: nextInvoice.sentTo || [],
       paidAt: nextInvoice.paidAt || "",
+      receiptNumber: nextInvoice.receiptNumber || "",
+      paymentHistory: nextInvoice.paymentHistory || [],
       paidInOffice: nextInvoice.paidInOffice,
       paymentMethod: nextInvoice.paymentMethod,
       checkNumber: nextInvoice.checkNumber,
+      voidNote: nextInvoice.voidNote || "",
+      refundNote: nextInvoice.refundNote || "",
     };
     const result = await saveIncidentalInvoice(record, currentUserEmail);
     const savedInvoice = getRecordInvoice(result.invoice);
@@ -2318,21 +2495,37 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Field label="Payment Status">
                     <select
                       value={incidentalInvoice.paymentStatus || "Unpaid"}
-                      onChange={(event) => updateIncidentalInvoice({ paymentStatus: event.target.value })}
+                      onChange={(event) => updateIncidentalInvoice({ paymentStatus: event.target.value, status: event.target.value === "Voided" ? "Voided" : incidentalInvoice.status })}
                       className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
                     >
                       <option>Unpaid</option>
                       <option>Pending</option>
+                      <option>Partial</option>
                       <option>Paid</option>
                       <option>Voided</option>
                     </select>
                   </Field>
                   <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <div className="flex items-center gap-2 text-sm font-bold text-white">
-                      <CheckCircle2 size={16} className="text-emerald-300" />
-                      Paid in Office
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-white">
+                        <CheckCircle2 size={16} className="text-emerald-300" />
+                        Record Office Payment
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs font-bold">
+                        <span className="rounded-full border border-slate-700 px-2 py-1 text-slate-300">Total {formatCurrency(incidentalTotal(incidentalInvoice))}</span>
+                        <span className="rounded-full border border-emerald-500/40 px-2 py-1 text-emerald-200">Paid {formatCurrency(incidentalPaidTotal(incidentalInvoice))}</span>
+                        <span className="rounded-full border border-amber-500/40 px-2 py-1 text-amber-200">Balance {formatCurrency(incidentalBalance(incidentalInvoice))}</span>
+                        {incidentalInvoice.receiptNumber && <span className="rounded-full border border-sky-500/40 px-2 py-1 text-sky-200">{incidentalInvoice.receiptNumber}</span>}
+                      </div>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto] sm:items-end">
+                      <Field label="Amount">
+                        <MoneyInput
+                          value={incidentalInvoice.paymentAmount || ""}
+                          onChange={(event) => updateIncidentalInvoice({ paymentAmount: event.target.value })}
+                          placeholder={incidentalBalance(incidentalInvoice).toFixed(2)}
+                        />
+                      </Field>
                       <Field label="Date Paid">
                         <Input
                           type="date"
@@ -2376,10 +2569,29 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                         className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
                       >
                         <CheckCircle2 size={16} />
-                        Mark Paid
+                        Record
                       </button>
                     </div>
-                    {incidentalInvoice.paymentStatus === "Paid" && (
+                    <Field label="Payment Note">
+                      <Input
+                        value={incidentalInvoice.paymentNote || ""}
+                        onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
+                        placeholder="Optional memo for this payment"
+                      />
+                    </Field>
+                    {getPaymentHistory(incidentalInvoice).length > 0 && (
+                      <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                        {getPaymentHistory(incidentalInvoice).map((payment) => (
+                          <div key={payment.id} className="grid gap-2 border-b border-slate-800 px-3 py-2 text-xs last:border-b-0 sm:grid-cols-[90px_90px_90px_1fr]">
+                            <div className="font-semibold text-white">{formatShortDate(payment.date)}</div>
+                            <div className="text-emerald-200">{formatCurrency(payment.amount)}</div>
+                            <div className="text-slate-300">{payment.method}{payment.checkNumber ? ` #${payment.checkNumber}` : ""}</div>
+                            <div className="text-slate-500">{payment.note || payment.recordedBy || ""}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {getIncidentalPaymentStatus(incidentalInvoice) === "Paid" && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -2400,6 +2612,28 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                       </div>
                     )}
                   </div>
+                  {(incidentalInvoice.paymentStatus === "Voided" || incidentalInvoice.status === "Voided") && (
+                    <div className="sm:col-span-2">
+                      <Field label="Void Note">
+                        <Input
+                          value={incidentalInvoice.voidNote || ""}
+                          onChange={(event) => updateIncidentalInvoice({ voidNote: event.target.value })}
+                          placeholder="Required reason for voiding this invoice"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                  {getPaymentHistory(incidentalInvoice).length > 0 && (
+                    <div className="sm:col-span-2">
+                      <Field label="Refund / Adjustment Note">
+                        <Input
+                          value={incidentalInvoice.refundNote || ""}
+                          onChange={(event) => updateIncidentalInvoice({ refundNote: event.target.value })}
+                          placeholder="Optional note for refunds or payment adjustments"
+                        />
+                      </Field>
+                    </div>
+                  )}
                   <div className="sm:col-span-2">
                     <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="text-sm font-semibold text-slate-200">Parent Payment Portal</div>
@@ -2559,9 +2793,22 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <div className="mt-2 text-2xl font-bold text-white">{filteredReceivables.length}</div>
                 </div>
               </div>
+              <div className="grid gap-3 lg:grid-cols-4">
+                {[
+                  ["Current", agingBuckets.current],
+                  ["1-30 Past Due", agingBuckets.days30],
+                  ["31-60 Past Due", agingBuckets.days60],
+                  ["60+ Past Due", agingBuckets.daysOver60],
+                ].map(([label, amount]) => (
+                  <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+                    <div className="mt-1 text-lg font-bold text-white">{formatCurrency(amount)}</div>
+                  </div>
+                ))}
+              </div>
 
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto_auto] lg:items-center">
+                <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto_auto_auto] lg:items-center">
                   <label className="relative">
                     <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
                     <Input
@@ -2577,6 +2824,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
                   >
                     <option value="open">Open only</option>
+                    <option value="partial">Partial only</option>
                     <option value="paid">Paid only</option>
                     <option value="voided">Voided only</option>
                     <option value="all">All records</option>
@@ -2591,6 +2839,14 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   </button>
                   <button
                     type="button"
+                    onClick={exportReceivablesCsv}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    <Download size={16} />
+                    Export CSV
+                  </button>
+                  <button
+                    type="button"
                     onClick={loadSavedIncidentalInvoices}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
                   >
@@ -2600,11 +2856,71 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                 </div>
               </div>
 
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+                  <div>
+                    <div className="text-sm font-bold text-white">Family Ledger</div>
+                    <label className="relative mt-3 block">
+                      <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+                      <Input
+                        value={ledgerFamilySearch}
+                        onChange={(event) => setLedgerFamilySearch(event.target.value)}
+                        placeholder="Search family ledger"
+                        className="pl-9"
+                      />
+                    </label>
+                    {ledgerFamilyResults.length > 0 && (
+                      <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950">
+                        {ledgerFamilyResults.map((family) => (
+                          <button
+                            key={family.familyKey}
+                            type="button"
+                            onClick={() => {
+                              setLedgerFamilyKey(family.familyKey);
+                              setLedgerFamilySearch(family.familyName);
+                            }}
+                            className={`block w-full border-b border-slate-800 px-3 py-2 text-left text-sm font-semibold last:border-b-0 hover:bg-slate-800 ${
+                              ledgerFamilyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
+                            }`}
+                          >
+                            {family.familyName}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950">
+                    {ledgerFamilyKey ? (
+                      <div className="divide-y divide-slate-800">
+                        {ledgerRecords.map((record) => {
+                          const invoice = getRecordInvoice(record);
+                          return (
+                            <div key={record.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1fr_110px_110px_110px] md:items-center">
+                              <div>
+                                <div className="font-semibold text-white">{formatShortDate(invoice.invoiceDate) || "No date"} - {invoice.status || "Draft"}</div>
+                                <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map((charge) => charge.description).filter(Boolean).join(", ") || "Incidental invoice"}</div>
+                              </div>
+                              <div className="text-slate-300">{getIncidentalPaymentStatus(invoice)}</div>
+                              <div className="font-semibold text-emerald-200">{formatCurrency(incidentalPaidTotal(invoice))}</div>
+                              <div className="font-semibold text-amber-200">{formatCurrency(incidentalBalance(invoice))}</div>
+                            </div>
+                          );
+                        })}
+                        {!ledgerRecords.length && <div className="p-4 text-sm text-slate-500">No incidental records for this family yet.</div>}
+                      </div>
+                    ) : (
+                      <div className="p-4 text-sm text-slate-500">Select a family to view its incidental ledger.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
-                <div className="grid grid-cols-[1.4fr_1fr_120px_150px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                <div className="grid grid-cols-[1.4fr_1fr_110px_110px_140px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
                   <div>Family / Students</div>
                   <div>Charges</div>
                   <div className="text-right">Total</div>
+                  <div className="text-right">Balance</div>
                   <div>Status</div>
                   <div>Actions</div>
                 </div>
@@ -2612,7 +2928,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   {filteredReceivables.map((record) => {
                     const recordInvoice = getRecordInvoice(record);
                     return (
-                      <div key={record.id} className="grid grid-cols-[1.4fr_1fr_120px_150px_190px] gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
+                      <div key={record.id} className="grid grid-cols-[1.4fr_1fr_110px_110px_140px_190px] gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
                           <div className="mt-1 text-xs leading-5 text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
@@ -2624,15 +2940,22 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           ))}
                           {(recordInvoice.charges || []).length > 2 && <div className="text-xs text-slate-500">+{recordInvoice.charges.length - 2} more</div>}
                         </div>
-                        <div className="text-right font-bold text-white">{formatCurrency(incidentalTotal(recordInvoice))}</div>
+                        <div className="text-right">
+                          <div className="font-bold text-white">{formatCurrency(incidentalTotal(recordInvoice))}</div>
+                          <div className="mt-1 text-xs text-emerald-300">Paid {formatCurrency(incidentalPaidTotal(recordInvoice))}</div>
+                        </div>
+                        <div className="text-right font-bold text-amber-200">{formatCurrency(incidentalBalance(recordInvoice))}</div>
                         <div>
                           <div className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${
-                            recordInvoice.paymentStatus === "Paid"
+                            getIncidentalPaymentStatus(recordInvoice) === "Paid"
                               ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                              : getIncidentalPaymentStatus(recordInvoice) === "Partial"
+                              ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
                               : "border-amber-500/40 bg-amber-500/10 text-amber-200"
                           }`}>
-                            {recordInvoice.paymentStatus || "Unpaid"}
+                            {getIncidentalPaymentStatus(recordInvoice)}
                           </div>
+                          {recordInvoice.receiptNumber && <div className="mt-2 text-xs text-sky-300">{recordInvoice.receiptNumber}</div>}
                           {recordInvoice.paymentMethod && (
                             <div className="mt-2 text-xs text-slate-500">
                               {recordInvoice.paymentMethod}{recordInvoice.checkNumber ? ` #${recordInvoice.checkNumber}` : ""}
@@ -2647,7 +2970,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           >
                             Open
                           </button>
-                          {recordInvoice.paymentStatus === "Paid" ? (
+                          {getIncidentalPaymentStatus(recordInvoice) === "Paid" ? (
                             <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
