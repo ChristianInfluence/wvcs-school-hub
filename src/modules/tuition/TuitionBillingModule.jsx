@@ -50,6 +50,7 @@ function createBlankParent() {
     id: uid("parent"),
     name: "",
     email: "",
+    sendEmail: true,
   };
 }
 
@@ -287,17 +288,33 @@ function incidentalTitle(invoice) {
 }
 
 function getIncidentalParents(invoice) {
-  if (Array.isArray(invoice.parents) && invoice.parents.length) return invoice.parents;
+  if (Array.isArray(invoice.parents) && invoice.parents.length) {
+    return invoice.parents.map((parent) => ({
+      id: parent.id || uid("parent"),
+      name: parent.name || "",
+      email: parent.email || "",
+      sendEmail: parent.sendEmail !== false,
+    }));
+  }
   return [
     {
+      id: "incidental-parent-primary",
       name: invoice.parentName || "",
       email: invoice.parentEmail || "",
+      sendEmail: true,
     },
   ].filter((parent) => parent.name || parent.email);
 }
 
 function getIncidentalRecipients(invoice) {
-  return [...new Set(getIncidentalParents(invoice).map((parent) => String(parent.email || "").trim().toLowerCase()).filter(Boolean))];
+  return [
+    ...new Set(
+      getIncidentalParents(invoice)
+        .filter((parent) => parent.sendEmail !== false)
+        .map((parent) => String(parent.email || "").trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
 }
 
 function getIncidentalStudentSummary(invoice) {
@@ -1195,6 +1212,40 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
     });
   }
 
+  function updateIncidentalParent(parentId, patch) {
+    setIncidentalInvoice((current) => {
+      const parents = getIncidentalParents(current).map((parent) => (parent.id === parentId ? { ...parent, ...patch } : parent));
+      const firstParent = parents[0] || createBlankParent();
+      return {
+        ...current,
+        parents,
+        parentName: firstParent.name,
+        parentEmail: firstParent.email,
+      };
+    });
+  }
+
+  function addIncidentalParent() {
+    setIncidentalInvoice((current) => ({
+      ...current,
+      parents: [...getIncidentalParents(current), createBlankParent()],
+    }));
+  }
+
+  function removeIncidentalParent(parentId) {
+    setIncidentalInvoice((current) => {
+      const nextParents = getIncidentalParents(current).filter((parent) => parent.id !== parentId);
+      const parents = nextParents.length ? nextParents : [createBlankParent()];
+      const firstParent = parents[0];
+      return {
+        ...current,
+        parents,
+        parentName: firstParent.name,
+        parentEmail: firstParent.email,
+      };
+    });
+  }
+
   async function saveCurrentInvoice(patch = {}) {
     const invoiceId = invoice.id || selectedInvoiceId || crypto.randomUUID();
     const nextInvoice = {
@@ -1522,14 +1573,20 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   function selectIncidentalFamily(family) {
-    const primaryParent = family.parents?.find((parent) => parent.email) || family.parents?.[0] || { name: "", email: "" };
+    const parents = (family.parents?.length ? family.parents : [createBlankParent()]).map((parent) => ({
+      id: parent.id || uid("parent"),
+      name: parent.name || "",
+      email: parent.email || "",
+      sendEmail: parent.sendEmail !== false,
+    }));
+    const primaryParent = parents.find((parent) => parent.email) || parents[0] || { name: "", email: "" };
     setIncidentalInvoice((current) => ({
       ...current,
       familyKey: family.familyKey,
       familyName: family.familyName,
       parentName: primaryParent.name,
       parentEmail: primaryParent.email,
-      parents: family.parents || [],
+      parents,
       studentIds: (family.students || []).map((student) => student.studentId).filter(Boolean),
       students: family.students || [],
     }));
@@ -2511,17 +2568,59 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Field label="Family Name">
                     <Input value={incidentalInvoice.familyName} onChange={(event) => updateIncidentalInvoice({ familyName: event.target.value })} />
                   </Field>
-                  <Field label="Parent Name">
-                    <Input value={incidentalInvoice.parentName} onChange={(event) => updateIncidentalInvoice({ parentName: event.target.value })} />
-                  </Field>
-                  <Field label="Parent Email">
-                    <Input type="email" value={incidentalInvoice.parentEmail} onChange={(event) => updateIncidentalInvoice({ parentEmail: event.target.value })} />
-                  </Field>
-                  {getIncidentalParents(incidentalInvoice).length > 1 && (
-                    <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400">
-                      Recipients: {getIncidentalRecipients(incidentalInvoice).join(", ")}
+                  <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">Email Recipients</div>
+                        <div className="mt-1 text-xs text-slate-500">Choose which family contacts should receive this invoice email.</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addIncidentalParent}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                      >
+                        <Plus size={13} />
+                        Add Recipient
+                      </button>
                     </div>
-                  )}
+                    <div className="mt-3 space-y-2">
+                      {getIncidentalParents(incidentalInvoice).map((parent) => (
+                        <div key={parent.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 md:grid-cols-[auto_1fr_1fr_auto] md:items-center">
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={parent.sendEmail !== false}
+                              onChange={(event) => updateIncidentalParent(parent.id, { sendEmail: event.target.checked })}
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-sky-500"
+                            />
+                            Send
+                          </label>
+                          <Input
+                            value={parent.name}
+                            onChange={(event) => updateIncidentalParent(parent.id, { name: event.target.value })}
+                            placeholder="Parent/guardian name"
+                          />
+                          <Input
+                            type="email"
+                            value={parent.email}
+                            onChange={(event) => updateIncidentalParent(parent.id, { email: event.target.value })}
+                            placeholder="parent@example.com"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeIncidentalParent(parent.id)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-400 hover:border-rose-400 hover:text-rose-200"
+                            aria-label="Remove recipient"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Sending to: {getIncidentalRecipients(incidentalInvoice).join(", ") || "No recipients selected"}
+                    </div>
+                  </div>
                   <Field label="Invoice Date">
                     <Input type="date" value={incidentalInvoice.invoiceDate} onChange={(event) => updateIncidentalInvoice({ invoiceDate: event.target.value })} />
                   </Field>
