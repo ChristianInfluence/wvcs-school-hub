@@ -298,6 +298,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
             <p className="mt-2 text-sm text-slate-400">
               {previewFamilyKey ? "Office preview of the family portal." : "View FOS progress, invoice history, and family account tools."}
             </p>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+              Tuition payments are processed through FACTS and are not recorded in the WVCS School Hub. Please use FACTS for tuition payment records and balances.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -361,6 +364,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     <div className="flex items-center gap-2 text-sm font-bold text-white">
                       <FileText size={16} className="text-sky-300" />
                       Account Summary
+                    </div>
+                    <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                      Tuition payments are processed through FACTS and are not recorded in the Hub.
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
@@ -433,6 +439,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                 <div className="flex items-center gap-2 text-sm font-bold text-white">
                   <ReceiptText size={16} className="text-sky-300" />
                   Invoice History
+                </div>
+                <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-100">
+                  Tuition payment activity is not tracked in the WVCS School Hub. Tuition payments and tuition account balances are handled through FACTS.
                 </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {invoices.map((invoice) => (
