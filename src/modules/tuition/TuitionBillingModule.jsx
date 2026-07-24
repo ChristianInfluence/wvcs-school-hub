@@ -1124,6 +1124,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   );
   const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
   const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const compactReceivablesView = activeView === "incidentals" && incidentalWorkspaceView === "receivables";
   const ledgerFamilyResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)),
     [familyDirectory, ledgerFamilySearch]
@@ -1991,44 +1992,46 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         }
       `}</style>
       <div className="mx-auto max-w-[1500px]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
-              <ReceiptText size={15} />
-              Office Manager and Finance
+        {!compactReceivablesView && (
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
+                <ReceiptText size={15} />
+                Office Manager and Finance
+              </div>
+              <h1 className="mt-2 text-2xl font-bold text-white">Office & Finance</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                Prepare tuition breakdowns for families and manage separate incidental charge invoices from one office workspace.
+              </p>
             </div>
-            <h1 className="mt-2 text-2xl font-bold text-white">Office & Finance</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Prepare tuition breakdowns for families and manage separate incidental charge invoices from one office workspace.
-            </p>
+            {activeView === "tuition" && (
+              <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={saveDraft}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                <Save size={16} />
+                Save Invoice
+              </button>
+              <button
+                type="button"
+                onClick={loadSavedInvoices}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Refresh List
+              </button>
+              <button
+                type="button"
+                onClick={resetInvoice}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                New Invoice
+              </button>
+              </div>
+            )}
           </div>
-          {activeView === "tuition" && (
-            <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={saveDraft}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-            >
-              <Save size={16} />
-              Save Invoice
-            </button>
-            <button
-              type="button"
-              onClick={loadSavedInvoices}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-            >
-              Refresh List
-            </button>
-            <button
-              type="button"
-              onClick={resetInvoice}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-            >
-              New Invoice
-            </button>
-            </div>
-          )}
-        </div>
+        )}
 
         {!hideOfficeFinanceNavigation && (
         <div className="mt-5 flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
@@ -2929,31 +2932,31 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           </div>
           )}
           {incidentalWorkspaceView === "receivables" && (
-            <div className="mt-4 space-y-3">
+            <div className="mt-2 space-y-2">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Open AR</div>
-                  <div className="mt-1 text-xl font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Open AR</div>
+                  <div className="text-lg font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Paid</div>
-                  <div className="mt-1 text-xl font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Paid</div>
+                  <div className="text-lg font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Fees</div>
-                  <div className="mt-1 text-xl font-bold text-rose-200">{formatCurrency(receivableTotals.fees)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Fees</div>
+                  <div className="text-lg font-bold text-rose-200">{formatCurrency(receivableTotals.fees)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Net</div>
-                  <div className="mt-1 text-xl font-bold text-sky-200">{formatCurrency(receivableTotals.net)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Net</div>
+                  <div className="text-lg font-bold text-sky-200">{formatCurrency(receivableTotals.net)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">All Incidentals</div>
-                  <div className="mt-1 text-xl font-bold text-white">{formatCurrency(receivableTotals.total)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">All Incidentals</div>
+                  <div className="text-lg font-bold text-white">{formatCurrency(receivableTotals.total)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Records</div>
-                  <div className="mt-1 text-xl font-bold text-white">{filteredReceivables.length}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Records</div>
+                  <div className="text-lg font-bold text-white">{filteredReceivables.length}</div>
                 </div>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -2963,9 +2966,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   ["31-60 Past Due", agingBuckets.days60],
                   ["60+ Past Due", agingBuckets.daysOver60],
                 ].map(([label, amount]) => (
-                  <div key={label} className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</div>
-                    <div className="mt-0.5 text-base font-bold text-white">{formatCurrency(amount)}</div>
+                  <div key={label} className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
+                    <div className="text-sm font-bold text-white">{formatCurrency(amount)}</div>
                   </div>
                 ))}
               </div>
