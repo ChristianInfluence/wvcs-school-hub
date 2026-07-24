@@ -36,6 +36,7 @@ import HubMessages from "./modules/messages/HubMessages.jsx";
 import FamilyPortalPage from "./modules/familyPortal/FamilyPortalPage.jsx";
 import FosAdminModule from "./modules/familyPortal/FosAdminModule.jsx";
 import LunchAdminModule from "./modules/lunch/LunchAdminModule.jsx";
+import FamilyRecordsModule, { OfficeRolloverModule } from "./modules/office/FamilyRecordsModule.jsx";
 import StaffLunchOrderModule from "./modules/lunch/StaffLunchOrderModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
@@ -44,8 +45,11 @@ import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
+import { calculateFosBalance, fetchFamilyPortalAccessRecords, fetchFosEntries } from "./lib/familyPortalData.js";
 import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
+import { fetchLunchAdminData } from "./lib/lunchData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
+import { fetchIncidentalInvoices } from "./lib/tuitionBillingData.js";
 import warriorHeadNew from "./assets/warrior-head-new.png";
 
 const WVCS_DOMAIN = "wvcs.org";
@@ -415,7 +419,82 @@ function formatActivityDate(value) {
   });
 }
 
-function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpenAideView }) {
+function OfficeTodayPanel({ access, onOpenOfficeFinance }) {
+  const [summary, setSummary] = useState({ loading: true, pendingFos: 0, fosBalanceFamilies: 0, unpaidIncidentals: 0, todayLunch: 0, lowLunchAccounts: 0, noPortalLogin: 0, error: "" });
+
+  useEffect(() => {
+    if (!access.canUseOfficePayroll) return undefined;
+    let active = true;
+    async function loadOfficeSummary() {
+      try {
+        const [incidentalResult, lunchResult, fosResult, accessResult] = await Promise.all([
+          fetchIncidentalInvoices(),
+          fetchLunchAdminData(),
+          fetchFosEntries(),
+          fetchFamilyPortalAccessRecords(),
+        ]);
+        if (!active) return;
+        const fosByFamily = new Map();
+        (fosResult.entries || []).forEach((entry) => {
+          fosByFamily.set(entry.familyKey, [...(fosByFamily.get(entry.familyKey) || []), entry]);
+        });
+        const accessByFamily = new Map((accessResult.access || []).map((record) => [record.familyKey, record]));
+        const fosBalanceFamilies = [...fosByFamily.entries()].filter(([familyKey, entries]) => calculateFosBalance(entries, accessByFamily.get(familyKey) || {}).remainingBalance > 0).length;
+        setSummary({
+          loading: false,
+          pendingFos: (fosResult.entries || []).filter((entry) => entry.status === "Pending").length,
+          fosBalanceFamilies,
+          unpaidIncidentals: (incidentalResult.invoices || []).filter((invoice) => !String(invoice.paymentStatus || "").toLowerCase().includes("paid")).length,
+          todayLunch: (lunchResult.orders || []).filter((order) => order.orderDate === new Date().toISOString().slice(0, 10) && order.status !== "Cancelled").length,
+          lowLunchAccounts: (lunchResult.accounts || []).filter((account) => Number(account.balance || 0) < 0).length,
+          noPortalLogin: (accessResult.access || []).filter((record) => !record.lastParentLoginAt).length,
+          error: incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || "",
+        });
+      } catch (error) {
+        if (active) setSummary((current) => ({ ...current, loading: false, error: error.message }));
+      }
+    }
+    loadOfficeSummary();
+    return () => {
+      active = false;
+    };
+  }, [access.canUseOfficePayroll]);
+
+  if (!access.canUseOfficePayroll) return null;
+
+  const cards = [
+    { label: "Unpaid Incidentals", value: summary.unpaidIncidentals, target: { officeView: "receivables" } },
+    { label: "FOS Pending", value: summary.pendingFos, target: { officeView: "fos" } },
+    { label: "FOS Balances", value: summary.fosBalanceFamilies, target: { officeView: "families", savedView: "fos" } },
+    { label: "Today's Lunches", value: summary.todayLunch, target: { officeView: "lunch" } },
+    { label: "Low Lunch Accounts", value: summary.lowLunchAccounts, target: { officeView: "families", savedView: "lunch" } },
+    { label: "No Portal Login", value: summary.noPortalLogin, target: { officeView: "families", savedView: "portal" } },
+  ];
+
+  return (
+    <div className="mb-5 rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Today in Office & Finance</div>
+          <div className="mt-1 text-xs text-slate-500">{summary.loading ? "Loading office snapshot..." : summary.error || "Quick counts for office work that may need attention."}</div>
+        </div>
+        <button type="button" onClick={() => onOpenOfficeFinance({ officeView: "families" })} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800">
+          Open Family Records
+        </button>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {cards.map((card) => (
+          <button key={card.label} type="button" onClick={() => onOpenOfficeFinance(card.target)} className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-left hover:border-sky-500/60">
+            <div className="text-2xl font-black text-white">{summary.loading ? "-" : card.value}</div>
+            <div className="mt-1 text-xs font-semibold text-slate-400">{card.label}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpenAideView, onOpenOfficeFinance }) {
   const launchModules = modules.filter((module) => module.id !== "dashboard" && module.id !== "admin" && !module.topLevelOnly);
   const featured = launchModules.find((module) => module.id === "structured-recess");
   const [activity, setActivity] = useState({ loading: true, submissions: [], messages: [], error: "" });
@@ -482,6 +561,8 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
             <StaffLunchOrderModule currentUserEmail={currentUserEmail} onClose={() => setShowStaffLunch(false)} />
           </div>
         )}
+
+        <OfficeTodayPanel access={access} onOpenOfficeFinance={onOpenOfficeFinance} />
 
         <div className="grid gap-4 lg:grid-cols-5">
           <button
@@ -749,9 +830,9 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             id: "office-finance-billing",
             type: "Office & Finance",
             title: "Office & Finance",
-            detail: "Tuition breakdowns, incidentals, accounts receivable, family ledger, and substitutes.",
-            terms: "office finance billing tuition incidentals incidental accounts receivable family ledger substitutes payroll invoices payments",
-            target: { officeView: "tuition" },
+            detail: "Incidentals, family records, accounts receivable, lunch, FOS, rollover, tuition, and substitutes.",
+            terms: "office finance billing tuition incidentals incidental accounts receivable family records family ledger substitutes payroll invoices payments lunch fos rollover today",
+            target: { officeView: "incidentals" },
           },
           {
             id: "office-finance-incidentals",
@@ -760,6 +841,30 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             detail: "Create and send incidental invoices.",
             terms: "incidentals incidental invoice invoices charges fees payments office finance",
             target: { officeView: "incidentals", activeView: "incidentals", incidentalWorkspaceView: "invoice" },
+          },
+          {
+            id: "office-finance-families",
+            type: "Office & Finance",
+            title: "Family Records",
+            detail: "Unified family profiles with contacts, students, invoices, lunch, FOS, portal access, and activity.",
+            terms: "family records family profile profiles parent student contacts portal access invoices lunch fos activity unified",
+            target: { officeView: "families" },
+          },
+          {
+            id: "office-finance-family-unpaid",
+            type: "Office & Finance",
+            title: "Families With Unpaid Incidentals",
+            detail: "Saved view for families with unpaid incidental balances.",
+            terms: "saved view unpaid incidentals balances family records accounts receivable",
+            target: { officeView: "families", savedView: "unpaid" },
+          },
+          {
+            id: "office-finance-family-fos",
+            type: "Office & Finance",
+            title: "Families With FOS Balances",
+            detail: "Saved view for families with FOS balances or pending FOS hours.",
+            terms: "saved view fos friends school volunteer balances pending family records",
+            target: { officeView: "families", savedView: "fos" },
           },
           {
             id: "office-finance-receivables",
@@ -800,6 +905,14 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             detail: "Create lunch menus, track daily lunches, and manage family lunch balances.",
             terms: "lunch menu meals food account balance deposits daily served anticipated family portal",
             target: { officeView: "lunch" },
+          },
+          {
+            id: "office-finance-rollover",
+            type: "Office & Finance",
+            title: "Yearly Rollover",
+            detail: "Safe school-year rollover checklist for roster, portal, FOS, lunch, and billing records.",
+            terms: "yearly rollover school year archive promote roster next year checklist family records",
+            target: { officeView: "rollover" },
           },
         ]
           .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
@@ -969,11 +1082,13 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
         <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
           {[
             ["incidentals", "Incidentals", Calculator],
+            ["families", "Family Records", Users],
             ["receivables", "Accounts Receivable", Calculator],
             ["ledger", "Family Ledger", ReceiptText],
             ["lunch", "Lunch", Utensils],
             ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
+            ["rollover", "Yearly Rollover", CalendarClock],
             ["tuition", "Tuition Breakdowns", ReceiptText],
           ].map(([id, label, Icon]) => (
             <button
@@ -992,7 +1107,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           ))}
         </div>
       </div>
-      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && (
+      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && officeView !== "families" && officeView !== "rollover" && (
         <TuitionBillingModule
           currentUserEmail={currentUserEmail}
           officeFinanceTarget={{
@@ -1008,6 +1123,8 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           hideOfficeFinanceNavigation
         />
       )}
+      {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} />}
+      {officeView === "rollover" && <OfficeRolloverModule />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
@@ -1494,6 +1611,7 @@ export default function App() {
           currentUserEmail={user.email}
           onSelectModule={openModule}
           onOpenAideView={openStructuredRecessAideView}
+          onOpenOfficeFinance={openOfficeFinanceTarget}
         />
       )}
 
