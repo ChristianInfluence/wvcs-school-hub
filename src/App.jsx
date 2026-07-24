@@ -32,6 +32,8 @@ import SubstituteCalendarModule from "./modules/admin/SubstituteCalendarModule.j
 import LookOfWeekModule, { AdminLookOfWeekModule } from "./modules/lookOfWeek/LookOfWeekModule.jsx";
 import MeetingsModule, { AdminMeetingsModule } from "./modules/meetings/MeetingsModule.jsx";
 import HubMessages from "./modules/messages/HubMessages.jsx";
+import FamilyPortalPage from "./modules/familyPortal/FamilyPortalPage.jsx";
+import FosAdminModule from "./modules/familyPortal/FosAdminModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
 import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
@@ -173,6 +175,7 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: "",
       formShareToken: "",
       publicFormsDirectory: false,
+      familyPortalToken: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -186,6 +189,7 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: "",
       formShareToken: "",
       publicFormsDirectory: false,
+      familyPortalToken: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -199,6 +203,7 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: decodeURIComponent(formApprovalMatch[1]),
       formShareToken: "",
       publicFormsDirectory: false,
+      familyPortalToken: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -212,6 +217,7 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: "",
       formShareToken: decodeURIComponent(formShareMatch[1]),
       publicFormsDirectory: false,
+      familyPortalToken: "",
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -224,6 +230,7 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: "",
       formShareToken: "",
       publicFormsDirectory: false,
+      familyPortalToken: "",
       moduleId: "structured-recess",
       structuredRecessView: "aide",
     };
@@ -236,6 +243,21 @@ function getRouteFromHash(hash = window.location.hash) {
       formApprovalToken: "",
       formShareToken: "",
       publicFormsDirectory: true,
+      familyPortalToken: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
+  const familyPortalMatch = hash.match(/^#\/family-portal\/(.+)$/);
+  if (familyPortalMatch) {
+    return {
+      incidentalPaymentToken: "",
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      familyPortalToken: decodeURIComponent(familyPortalMatch[1]),
       moduleId: "dashboard",
       structuredRecessView: "full",
     };
@@ -249,6 +271,7 @@ function getRouteFromHash(hash = window.location.hash) {
     formApprovalToken: "",
     formShareToken: "",
     publicFormsDirectory: false,
+    familyPortalToken: "",
     moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
     structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
   };
@@ -683,6 +706,14 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             terms: "substitutes substitute calendar office finance payroll",
             target: { officeView: "substitutes" },
           },
+          {
+            id: "office-finance-fos",
+            type: "Office & Finance",
+            title: "FOS Volunteer Hours",
+            detail: "Manage family portal links, Friends of School hour submissions, approvals, and balances.",
+            terms: "fos friends of school volunteer hours family portal balance approve deny adjust",
+            target: { officeView: "fos" },
+          },
         ]
           .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
           .map((item) => ({
@@ -854,6 +885,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
             ["incidentals", "Incidentals", Calculator],
             ["receivables", "Accounts Receivable", Calculator],
             ["ledger", "Family Ledger", ReceiptText],
+            ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
           ].map(([id, label, Icon]) => (
             <button
@@ -872,7 +904,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           ))}
         </div>
       </div>
-      {officeView !== "substitutes" && (
+      {officeView !== "substitutes" && officeView !== "fos" && (
         <TuitionBillingModule
           currentUserEmail={currentUserEmail}
           officeFinanceTarget={{
@@ -888,6 +920,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           hideOfficeFinanceNavigation
         />
       )}
+      {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
     </section>
   );
@@ -1212,6 +1245,7 @@ export default function App() {
   const [formApprovalToken, setFormApprovalToken] = useState(initialRoute.formApprovalToken);
   const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
   const [publicFormsDirectory, setPublicFormsDirectory] = useState(initialRoute.publicFormsDirectory);
+  const [familyPortalToken, setFamilyPortalToken] = useState(initialRoute.familyPortalToken);
   const [officeFinanceTarget, setOfficeFinanceTarget] = useState(null);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
@@ -1227,6 +1261,7 @@ export default function App() {
       setFormApprovalToken(route.formApprovalToken);
       setFormShareToken(route.formShareToken);
       setPublicFormsDirectory(route.publicFormsDirectory);
+      setFamilyPortalToken(route.familyPortalToken);
       setActiveModule(route.moduleId);
       setStructuredRecessView(route.structuredRecessView);
     }
@@ -1242,6 +1277,7 @@ export default function App() {
     setFormApprovalToken("");
     setFormShareToken("");
     setPublicFormsDirectory(false);
+    setFamilyPortalToken("");
     if (!options.keepOfficeFinanceTarget) setOfficeFinanceTarget(null);
     setModuleHash(moduleId, "full");
   }
@@ -1257,6 +1293,7 @@ export default function App() {
     setFormApprovalToken("");
     setFormShareToken("");
     setPublicFormsDirectory(false);
+    setFamilyPortalToken("");
     setModuleHash("structured-recess", "aide");
   }
 
@@ -1278,6 +1315,10 @@ export default function App() {
 
   if (publicFormsDirectory) {
     return <PublicFormsDirectoryPage />;
+  }
+
+  if (familyPortalToken) {
+    return <FamilyPortalPage token={familyPortalToken} />;
   }
 
   return (
