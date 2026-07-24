@@ -3,6 +3,7 @@ import {
   Bell,
   CalendarClock,
   CalendarDays,
+  ChevronDown,
   ClipboardCheck,
   Files,
   FileText,
@@ -19,6 +20,7 @@ import {
   Settings,
   Sparkles,
   X,
+  UserCircle,
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
@@ -731,6 +733,48 @@ function getRoleLabels(access) {
   return roles.length ? roles : ["No active role"];
 }
 
+function UserProfileMenu({ user, access, signOut }) {
+  const [open, setOpen] = useState(false);
+  const displayName = user.user_metadata?.full_name || user.email;
+  const roles = getRoleLabels(access);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+      >
+        <UserCircle size={16} className="text-sky-300" />
+        <span className="max-w-[180px] truncate">{user.email}</span>
+        <ChevronDown size={14} className={`transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-800 bg-slate-950 p-3 text-left shadow-2xl shadow-black/40">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">User Profile</div>
+          <div className="mt-2 text-sm font-bold text-white">{displayName}</div>
+          <div className="mt-1 break-all text-xs text-slate-500">{user.email}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {roles.map((role) => (
+              <span key={role} className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                {role}
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={signOut}
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficePayrollWorkspace({ currentUserEmail = "" }) {
   const [officeView, setOfficeView] = useState("billing");
 
@@ -777,19 +821,6 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
 
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-5 pt-6 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Admin Access</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {getRoleLabels(access).map((role) => (
-              <span key={role} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-200">
-                {role}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="text-xs text-slate-500">{currentUserEmail}</div>
-      </div>
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
           ["settings", "Settings", Settings],
@@ -1206,17 +1237,7 @@ export default function App() {
               currentUserName={user.user_metadata?.full_name || user.email}
             />
             <FormNotificationBadge access={access} onOpenAdmin={() => openModule("admin")} />
-            <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300">
-              {user.email}
-            </div>
-            <button
-              type="button"
-              onClick={signOut}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-            >
-              <LogOut size={16} />
-              Sign Out
-            </button>
+            <UserProfileMenu user={user} access={access} signOut={signOut} />
           </nav>
         </div>
 
