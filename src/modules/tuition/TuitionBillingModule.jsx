@@ -1086,7 +1086,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const [familySearch, setFamilySearch] = useState("");
   const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
   const [receivablesSearch, setReceivablesSearch] = useState("");
-  const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("open");
+  const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
   const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
   const [ledgerFamilyKey, setLedgerFamilyKey] = useState("");
   const [savedInvoices, setSavedInvoices] = useState([]);
@@ -2418,6 +2418,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
             {[
               ["invoice", "Create / Send Invoice", ReceiptText],
               ["receivables", "Accounts Receivable", Calculator],
+              ["ledger", "Family Ledger", ReceiptText],
             ].map(([id, label, Icon]) => (
               <button
                 key={id}
@@ -3024,67 +3025,6 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-                  <div>
-                    <div className="text-sm font-bold text-white">Family Ledger</div>
-                    <label className="relative mt-3 block">
-                      <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
-                      <Input
-                        value={ledgerFamilySearch}
-                        onChange={(event) => setLedgerFamilySearch(event.target.value)}
-                        placeholder="Search family ledger"
-                        className="pl-9"
-                      />
-                    </label>
-                    {ledgerFamilyResults.length > 0 && (
-                      <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950">
-                        {ledgerFamilyResults.map((family) => (
-                          <button
-                            key={family.familyKey}
-                            type="button"
-                            onClick={() => {
-                              setLedgerFamilyKey(family.familyKey);
-                              setLedgerFamilySearch(family.familyName);
-                            }}
-                            className={`block w-full border-b border-slate-800 px-3 py-2 text-left text-sm font-semibold last:border-b-0 hover:bg-slate-800 ${
-                              ledgerFamilyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
-                            }`}
-                          >
-                            {family.familyName}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950">
-                    {ledgerFamilyKey ? (
-                      <div className="divide-y divide-slate-800">
-                        {ledgerRecords.map((record) => {
-                          const invoice = getRecordInvoice(record);
-                          return (
-                            <div key={record.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1fr_95px_95px_95px_95px_95px] md:items-center">
-                              <div>
-                                <div className="font-semibold text-white">{formatShortDate(invoice.invoiceDate) || "No date"} - {invoice.status || "Draft"}</div>
-                                <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map((charge) => charge.description).filter(Boolean).join(", ") || "Incidental invoice"}</div>
-                              </div>
-                              <div className="text-slate-300">{getIncidentalPaymentStatus(invoice)}</div>
-                              <div className="font-semibold text-emerald-200">{formatCurrency(incidentalPaidTotal(invoice))}</div>
-                              <div className="font-semibold text-rose-200">{formatCurrency(incidentalProcessingFeeTotal(invoice))}</div>
-                              <div className="font-semibold text-sky-200">{formatCurrency(incidentalNetTotal(invoice))}</div>
-                              <div className="font-semibold text-amber-200">{formatCurrency(incidentalBalance(invoice))}</div>
-                            </div>
-                          );
-                        })}
-                        {!ledgerRecords.length && <div className="p-4 text-sm text-slate-500">No incidental records for this family yet.</div>}
-                      </div>
-                    ) : (
-                      <div className="p-4 text-sm text-slate-500">Select a family to view its incidental ledger.</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
                 <div className="grid grid-cols-[1.4fr_1fr_110px_110px_120px_140px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
                   <div>Family / Students</div>
@@ -3169,6 +3109,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                                 setIncidentalInvoice(recordInvoice);
                                 setSelectedIncidentalInvoiceId(record.id);
                                 setIncidentalWorkspaceView("invoice");
+                                setOfficePaymentOpen(true);
                               }}
                               className="rounded-lg border border-emerald-500/40 px-2 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/10"
                             >
@@ -3181,6 +3122,85 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   })}
                   {!filteredReceivables.length && (
                     <div className="p-6 text-sm text-slate-500">No incidental receivables match this search.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          {incidentalWorkspaceView === "ledger" && (
+            <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+                <div>
+                  <div className="text-sm font-bold text-white">Family Ledger</div>
+                  <div className="mt-1 text-xs text-slate-500">Look up a family to see its full incidental invoice and payment history.</div>
+                  <label className="relative mt-3 block">
+                    <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+                    <Input
+                      value={ledgerFamilySearch}
+                      onChange={(event) => setLedgerFamilySearch(event.target.value)}
+                      placeholder="Search by family, parent, student, or grade"
+                      className="pl-9"
+                    />
+                  </label>
+                  {ledgerFamilyResults.length > 0 && (
+                    <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950">
+                      {ledgerFamilyResults.map((family) => (
+                        <button
+                          key={family.familyKey}
+                          type="button"
+                          onClick={() => {
+                            setLedgerFamilyKey(family.familyKey);
+                            setLedgerFamilySearch(family.familyName);
+                          }}
+                          className={`block w-full border-b border-slate-800 px-3 py-2 text-left text-sm font-semibold last:border-b-0 hover:bg-slate-800 ${
+                            ledgerFamilyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
+                          }`}
+                        >
+                          <span className="block">{family.familyName}</span>
+                          <span className="mt-1 block truncate text-xs font-normal text-slate-500">
+                            {(family.students || []).map((student) => student.name).filter(Boolean).join(", ") || "No students listed"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+                  {ledgerFamilyKey ? (
+                    <div className="divide-y divide-slate-800">
+                      <div className="grid gap-2 bg-slate-900 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500 md:grid-cols-[1fr_95px_95px_95px_95px_95px]">
+                        <div>Invoice</div>
+                        <div>Status</div>
+                        <div>Paid</div>
+                        <div>Fees</div>
+                        <div>Net</div>
+                        <div>Balance</div>
+                      </div>
+                      {ledgerRecords.map((record) => {
+                        const invoice = getRecordInvoice(record);
+                        return (
+                          <button
+                            key={record.id}
+                            type="button"
+                            onClick={() => loadIncidentalRecord(record)}
+                            className="grid w-full gap-2 px-3 py-2 text-left text-sm hover:bg-slate-900 md:grid-cols-[1fr_95px_95px_95px_95px_95px] md:items-center"
+                          >
+                            <div>
+                              <div className="font-semibold text-white">{formatShortDate(invoice.invoiceDate) || "No date"} - {invoice.status || "Draft"}</div>
+                              <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map((charge) => charge.description).filter(Boolean).join(", ") || "Incidental invoice"}</div>
+                            </div>
+                            <div className="text-slate-300">{getIncidentalPaymentStatus(invoice)}</div>
+                            <div className="font-semibold text-emerald-200">{formatCurrency(incidentalPaidTotal(invoice))}</div>
+                            <div className="font-semibold text-rose-200">{formatCurrency(incidentalProcessingFeeTotal(invoice))}</div>
+                            <div className="font-semibold text-sky-200">{formatCurrency(incidentalNetTotal(invoice))}</div>
+                            <div className="font-semibold text-amber-200">{formatCurrency(incidentalBalance(invoice))}</div>
+                          </button>
+                        );
+                      })}
+                      {!ledgerRecords.length && <div className="p-4 text-sm text-slate-500">No incidental records for this family yet.</div>}
+                    </div>
+                  ) : (
+                    <div className="p-4 text-sm text-slate-500">Select a family to view its incidental ledger.</div>
                   )}
                 </div>
               </div>
