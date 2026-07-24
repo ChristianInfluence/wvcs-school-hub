@@ -109,6 +109,7 @@ const defaultIncidentalInvoice = {
   receiptNumber: "",
   paymentHistory: [],
   paymentAmount: "",
+  processingFee: "",
   paymentNote: "",
   paidInOffice: false,
   paymentMethod: "",
@@ -257,6 +258,16 @@ function incidentalPaidTotal(invoice) {
   return invoice.paymentStatus === "Paid" ? incidentalTotal(invoice) : 0;
 }
 
+function incidentalProcessingFeeTotal(invoice) {
+  return getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .reduce((total, payment) => total + money(payment.processingFee), 0);
+}
+
+function incidentalNetTotal(invoice) {
+  return Math.max(incidentalPaidTotal(invoice) - incidentalProcessingFeeTotal(invoice), 0);
+}
+
 function incidentalBalance(invoice) {
   return Math.max(incidentalTotal(invoice) - incidentalPaidTotal(invoice), 0);
 }
@@ -326,13 +337,17 @@ function getReceivableTotals(records) {
       const invoice = getRecordInvoice(record);
       const total = incidentalTotal(invoice);
       const paid = incidentalPaidTotal(invoice);
+      const fees = incidentalProcessingFeeTotal(invoice);
+      const net = incidentalNetTotal(invoice);
       const balance = incidentalBalance(invoice);
       totals.total += total;
       totals.paid += paid;
+      totals.fees += fees;
+      totals.net += net;
       if (getIncidentalPaymentStatus(invoice) !== "Voided") totals.open += balance;
       return totals;
     },
-    { total: 0, open: 0, paid: 0 }
+    { total: 0, open: 0, paid: 0, fees: 0, net: 0 }
   );
 }
 
@@ -1457,6 +1472,8 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       "Status",
       "Total",
       "Paid",
+      "Processing Fees",
+      "Net Received",
       "Balance",
       "Receipt Number",
       "Payment Method",
@@ -1474,6 +1491,8 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         getIncidentalPaymentStatus(invoice),
         incidentalTotal(invoice).toFixed(2),
         incidentalPaidTotal(invoice).toFixed(2),
+        incidentalProcessingFeeTotal(invoice).toFixed(2),
+        incidentalNetTotal(invoice).toFixed(2),
         incidentalBalance(invoice).toFixed(2),
         invoice.receiptNumber,
         invoice.paymentMethod,
@@ -1628,6 +1647,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       setStatus("Enter a payment amount greater than zero.");
       return;
     }
+    const processingFee = money(invoiceToPay.processingFee);
 
     try {
       const paidAt = invoiceToPay.paidAt || new Date().toISOString();
@@ -1638,6 +1658,8 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
           type: "payment",
           date: paidAt,
           amount: paymentAmount.toFixed(2),
+          processingFee: processingFee ? processingFee.toFixed(2) : "",
+          netAmount: Math.max(paymentAmount - processingFee, 0).toFixed(2),
           method: invoiceToPay.paymentMethod,
           checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
           note: invoiceToPay.paymentNote || "",
@@ -1656,6 +1678,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         receiptNumber: invoiceToPay.receiptNumber || "",
         paymentHistory: nextHistory,
         paymentAmount: "",
+        processingFee: "",
         paymentNote: "",
         paidInOffice: true,
         paymentMethod: invoiceToPay.paymentMethod,
@@ -1683,6 +1706,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       receiptNumber: patch.receiptNumber ?? baseInvoice.receiptNumber ?? "",
       paymentHistory: patch.paymentHistory ?? baseInvoice.paymentHistory ?? [],
       paymentAmount: patch.paymentAmount ?? baseInvoice.paymentAmount ?? "",
+      processingFee: patch.processingFee ?? baseInvoice.processingFee ?? "",
       paymentNote: patch.paymentNote ?? baseInvoice.paymentNote ?? "",
       paidInOffice: patch.paidInOffice ?? baseInvoice.paidInOffice ?? false,
       paymentMethod: patch.paymentMethod ?? baseInvoice.paymentMethod ?? "",
@@ -2536,6 +2560,14 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           <span className="block text-[10px] uppercase tracking-[0.12em] text-amber-300/70">Balance</span>
                           {formatCurrency(incidentalBalance(incidentalInvoice))}
                         </span>
+                        <span className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-rose-200">
+                          <span className="block text-[10px] uppercase tracking-[0.12em] text-rose-300/70">Fees</span>
+                          {formatCurrency(incidentalProcessingFeeTotal(incidentalInvoice))}
+                        </span>
+                        <span className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sky-200">
+                          <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Net</span>
+                          {formatCurrency(incidentalNetTotal(incidentalInvoice))}
+                        </span>
                         {incidentalInvoice.receiptNumber && (
                           <span className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sky-200">
                             <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Receipt</span>
@@ -2589,6 +2621,13 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           className={incidentalInvoice.paymentMethod !== "check" ? "opacity-50" : ""}
                         />
                       </Field>
+                      <Field label="Processing Fee">
+                        <MoneyInput
+                          value={incidentalInvoice.processingFee || ""}
+                          onChange={(event) => updateIncidentalInvoice({ processingFee: event.target.value })}
+                          placeholder="Optional"
+                        />
+                      </Field>
                     </div>
                     <button
                       type="button"
@@ -2614,7 +2653,9 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                             <div className="font-semibold text-white">{formatShortDate(payment.date)}</div>
                             <div className="text-emerald-200">{formatCurrency(payment.amount)}</div>
                             <div className="text-slate-300">{payment.method}{payment.checkNumber ? ` #${payment.checkNumber}` : ""}</div>
-                            <div className="text-slate-500">{payment.note || payment.recordedBy || ""}</div>
+                            <div className="text-slate-500">
+                              {money(payment.processingFee) ? `Fee ${formatCurrency(payment.processingFee)} | Net ${formatCurrency(payment.netAmount)}` : payment.note || payment.recordedBy || ""}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2803,7 +2844,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
           )}
           {incidentalWorkspaceView === "receivables" && (
             <div className="mt-6 space-y-4">
-              <div className="grid gap-3 lg:grid-cols-4">
+              <div className="grid gap-3 lg:grid-cols-6">
                 <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Open AR</div>
                   <div className="mt-2 text-2xl font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
@@ -2811,6 +2852,14 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                 <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Paid</div>
                   <div className="mt-2 text-2xl font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Fees</div>
+                  <div className="mt-2 text-2xl font-bold text-rose-200">{formatCurrency(receivableTotals.fees)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Net</div>
+                  <div className="mt-2 text-2xl font-bold text-sky-200">{formatCurrency(receivableTotals.net)}</div>
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">All Incidentals</div>
@@ -2923,13 +2972,15 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                         {ledgerRecords.map((record) => {
                           const invoice = getRecordInvoice(record);
                           return (
-                            <div key={record.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1fr_110px_110px_110px] md:items-center">
+                            <div key={record.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1fr_95px_95px_95px_95px_95px] md:items-center">
                               <div>
                                 <div className="font-semibold text-white">{formatShortDate(invoice.invoiceDate) || "No date"} - {invoice.status || "Draft"}</div>
                                 <div className="mt-1 truncate text-xs text-slate-500">{(invoice.charges || []).map((charge) => charge.description).filter(Boolean).join(", ") || "Incidental invoice"}</div>
                               </div>
                               <div className="text-slate-300">{getIncidentalPaymentStatus(invoice)}</div>
                               <div className="font-semibold text-emerald-200">{formatCurrency(incidentalPaidTotal(invoice))}</div>
+                              <div className="font-semibold text-rose-200">{formatCurrency(incidentalProcessingFeeTotal(invoice))}</div>
+                              <div className="font-semibold text-sky-200">{formatCurrency(incidentalNetTotal(invoice))}</div>
                               <div className="font-semibold text-amber-200">{formatCurrency(incidentalBalance(invoice))}</div>
                             </div>
                           );
@@ -2944,11 +2995,12 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
               </div>
 
               <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
-                <div className="grid grid-cols-[1.4fr_1fr_110px_110px_140px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                <div className="grid grid-cols-[1.4fr_1fr_110px_110px_120px_140px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
                   <div>Family / Students</div>
                   <div>Charges</div>
                   <div className="text-right">Total</div>
                   <div className="text-right">Balance</div>
+                  <div className="text-right">Fees / Net</div>
                   <div>Status</div>
                   <div>Actions</div>
                 </div>
@@ -2956,7 +3008,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   {filteredReceivables.map((record) => {
                     const recordInvoice = getRecordInvoice(record);
                     return (
-                      <div key={record.id} className="grid grid-cols-[1.4fr_1fr_110px_110px_140px_190px] gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
+                      <div key={record.id} className="grid grid-cols-[1.4fr_1fr_110px_110px_120px_140px_190px] gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
                           <div className="mt-1 text-xs leading-5 text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
@@ -2973,6 +3025,10 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                           <div className="mt-1 text-xs text-emerald-300">Paid {formatCurrency(incidentalPaidTotal(recordInvoice))}</div>
                         </div>
                         <div className="text-right font-bold text-amber-200">{formatCurrency(incidentalBalance(recordInvoice))}</div>
+                        <div className="text-right">
+                          <div className="font-semibold text-rose-200">{formatCurrency(incidentalProcessingFeeTotal(recordInvoice))}</div>
+                          <div className="mt-1 text-xs text-sky-300">Net {formatCurrency(incidentalNetTotal(recordInvoice))}</div>
+                        </div>
                         <div>
                           <div className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${
                             getIncidentalPaymentStatus(recordInvoice) === "Paid"

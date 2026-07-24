@@ -65,7 +65,27 @@ function getInvoiceLookup(session: Record<string, any>) {
   };
 }
 
-function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<string, any>) {
+async function retrieveProcessingFee(paymentIntentId: string) {
+  if (!paymentIntentId) return { fee: 0, net: 0, balanceTransactionId: "" };
+  const response = await fetch(
+    `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge.balance_transaction`,
+    {
+      headers: {
+        Authorization: `Bearer ${requiredEnv("STRIPE_SECRET_KEY")}`,
+      },
+    },
+  );
+  const data = await response.json();
+  if (!response.ok) return { fee: 0, net: 0, balanceTransactionId: "" };
+  const balanceTransaction = data.latest_charge?.balance_transaction;
+  return {
+    fee: (balanceTransaction?.fee || 0) / 100,
+    net: (balanceTransaction?.net || 0) / 100,
+    balanceTransactionId: balanceTransaction?.id || "",
+  };
+}
+
+function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<string, any>, feeData: Record<string, any>) {
   const existingHistory = Array.isArray(invoiceJson.paymentHistory) ? invoiceJson.paymentHistory : [];
   if (existingHistory.some((payment: Record<string, any>) => payment.stripeCheckoutSessionId === session.id)) {
     return existingHistory;
@@ -78,12 +98,15 @@ function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<s
       type: "payment",
       date: new Date().toISOString(),
       amount: ((session.amount_total || 0) / 100).toFixed(2),
+      processingFee: feeData.fee ? feeData.fee.toFixed(2) : "",
+      netAmount: feeData.net ? feeData.net.toFixed(2) : "",
       method: "card",
       checkNumber: "",
       note: "Stripe checkout payment",
       recordedBy: "Stripe",
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: session.payment_intent || "",
+      stripeBalanceTransactionId: feeData.balanceTransactionId || "",
     },
   ];
 }
@@ -121,7 +144,8 @@ async function updateIncidentalInvoicePayment({
   const existing = existingRows?.[0];
   if (!existing) return { updated: false, reason: "Matching incidental invoice was not found." };
 
-  const paymentHistory = paymentStatus === "Paid" ? buildPaymentHistory(existing.invoice_json || {}, session) : existing.invoice_json?.paymentHistory || [];
+  const feeData = paymentStatus === "Paid" ? await retrieveProcessingFee(session.payment_intent || "") : { fee: 0, net: 0, balanceTransactionId: "" };
+  const paymentHistory = paymentStatus === "Paid" ? buildPaymentHistory(existing.invoice_json || {}, session, feeData) : existing.invoice_json?.paymentHistory || [];
   patch.payment_history = paymentHistory;
   patch.invoice_json = {
     ...(existing.invoice_json || {}),
@@ -134,6 +158,9 @@ async function updateIncidentalInvoicePayment({
       paymentIntentId: session.payment_intent || "",
       customerEmail: session.customer_details?.email || session.customer_email || "",
       amountTotal: session.amount_total || 0,
+      processingFee: feeData.fee ? feeData.fee.toFixed(2) : "",
+      netAmount: feeData.net ? feeData.net.toFixed(2) : "",
+      balanceTransactionId: feeData.balanceTransactionId || "",
       currency: session.currency || "usd",
       paymentStatus: session.payment_status || "",
       updatedAt: patch.updated_at,

@@ -31,7 +31,27 @@ async function retrieveCheckoutSession(sessionId: string) {
   return data;
 }
 
-function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<string, any>) {
+async function retrieveProcessingFee(paymentIntentId: string) {
+  if (!paymentIntentId) return { fee: 0, net: 0, balanceTransactionId: "" };
+  const response = await fetch(
+    `https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge.balance_transaction`,
+    {
+      headers: {
+        Authorization: `Bearer ${requiredEnv("STRIPE_SECRET_KEY")}`,
+      },
+    },
+  );
+  const data = await response.json();
+  if (!response.ok) return { fee: 0, net: 0, balanceTransactionId: "" };
+  const balanceTransaction = data.latest_charge?.balance_transaction;
+  return {
+    fee: (balanceTransaction?.fee || 0) / 100,
+    net: (balanceTransaction?.net || 0) / 100,
+    balanceTransactionId: balanceTransaction?.id || "",
+  };
+}
+
+function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<string, any>, feeData: Record<string, any>) {
   const existingHistory = Array.isArray(invoiceJson.paymentHistory) ? invoiceJson.paymentHistory : [];
   if (existingHistory.some((payment: Record<string, any>) => payment.stripeCheckoutSessionId === session.id)) {
     return existingHistory;
@@ -44,12 +64,15 @@ function buildPaymentHistory(invoiceJson: Record<string, any>, session: Record<s
       type: "payment",
       date: new Date().toISOString(),
       amount: ((session.amount_total || 0) / 100).toFixed(2),
+      processingFee: feeData.fee ? feeData.fee.toFixed(2) : "",
+      netAmount: feeData.net ? feeData.net.toFixed(2) : "",
       method: "card",
       checkNumber: "",
       note: "Stripe checkout payment",
       recordedBy: "Stripe",
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: session.payment_intent || "",
+      stripeBalanceTransactionId: feeData.balanceTransactionId || "",
     },
   ];
 }
@@ -92,7 +115,8 @@ Deno.serve(async (request) => {
     }
 
     const invoiceJson = invoice.invoice_json || {};
-    const paymentHistory = buildPaymentHistory(invoiceJson, session);
+    const feeData = await retrieveProcessingFee(session.payment_intent || "");
+    const paymentHistory = buildPaymentHistory(invoiceJson, session, feeData);
     const paidAt = invoice.paid_at || new Date().toISOString();
     const patch = {
       payment_status: "Paid",
@@ -112,6 +136,9 @@ Deno.serve(async (request) => {
           paymentIntentId: session.payment_intent || "",
           customerEmail: session.customer_details?.email || session.customer_email || "",
           amountTotal: session.amount_total || Math.round(invoiceTotal(invoiceJson) * 100),
+          processingFee: feeData.fee ? feeData.fee.toFixed(2) : "",
+          netAmount: feeData.net ? feeData.net.toFixed(2) : "",
+          balanceTransactionId: feeData.balanceTransactionId || "",
           currency: session.currency || "usd",
           paymentStatus: session.payment_status || "",
           reconciledAt: new Date().toISOString(),
