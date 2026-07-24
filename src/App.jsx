@@ -579,7 +579,7 @@ function FormNotificationBadge({ access, onOpenAdmin }) {
   );
 }
 
-function GlobalSearch({ access, currentUserEmail = "", onSelectModule }) {
+function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOfficeFinance }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [data, setData] = useState({ loading: false, submissions: [], messages: [], error: "" });
@@ -629,6 +629,56 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule }) {
         action: () => onSelectModule(module.id),
       }));
 
+    const officeFinanceResults = access.canUseAdmin && access.canUseOfficePayroll
+      ? [
+          {
+            id: "office-finance-billing",
+            type: "Office & Finance",
+            title: "Office & Finance",
+            detail: "Billing, tuition breakdowns, incidentals, accounts receivable, family ledger, and substitutes.",
+            terms: "office finance billing tuition incidentals incidental accounts receivable family ledger substitutes payroll invoices payments",
+            target: { officeView: "billing" },
+          },
+          {
+            id: "office-finance-incidentals",
+            type: "Office & Finance",
+            title: "Incidentals",
+            detail: "Create and send incidental invoices.",
+            terms: "incidentals incidental invoice invoices charges fees payments office finance",
+            target: { officeView: "billing", activeView: "incidentals", incidentalWorkspaceView: "invoice" },
+          },
+          {
+            id: "office-finance-receivables",
+            type: "Office & Finance",
+            title: "Accounts Receivable",
+            detail: "View incidental invoice balances, payments, fees, and receipt records.",
+            terms: "accounts receivable ar records balances paid unpaid partial fees net receipts incidentals",
+            target: { officeView: "billing", activeView: "incidentals", incidentalWorkspaceView: "receivables" },
+          },
+          {
+            id: "office-finance-ledger",
+            type: "Office & Finance",
+            title: "Family Ledger",
+            detail: "Look up family incidental invoice and payment history.",
+            terms: "family ledger account history family records incidentals invoices payments office finance",
+            target: { officeView: "billing", activeView: "incidentals", incidentalWorkspaceView: "ledger" },
+          },
+          {
+            id: "office-finance-substitutes",
+            type: "Office & Finance",
+            title: "Substitutes",
+            detail: "Office & Finance substitute calendar.",
+            terms: "substitutes substitute calendar office finance payroll",
+            target: { officeView: "substitutes" },
+          },
+        ]
+          .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
+          .map((item) => ({
+            ...item,
+            action: () => onOpenOfficeFinance(item.target),
+          }))
+      : [];
+
     const formResults = data.submissions
       .filter((submission) =>
         `${submission.templateTitle} ${submission.submitterName} ${submission.submitterEmail} ${submission.status}`.toLowerCase().includes(needle)
@@ -657,8 +707,8 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule }) {
         action: () => window.dispatchEvent(new CustomEvent("wvcs-open-message", { detail: { threadId: thread.id } })),
       }));
 
-    return [...moduleResults, ...formResults, ...messageResults].slice(0, 12);
-  }, [access, data.messages, data.submissions, needle, onSelectModule]);
+    return [...moduleResults, ...officeFinanceResults, ...formResults, ...messageResults].slice(0, 12);
+  }, [access, data.messages, data.submissions, needle, onOpenOfficeFinance, onSelectModule]);
 
   function runAction(result) {
     result.action();
@@ -775,8 +825,12 @@ function UserProfileMenu({ user, access, signOut }) {
   );
 }
 
-function OfficePayrollWorkspace({ currentUserEmail = "" }) {
+function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null }) {
   const [officeView, setOfficeView] = useState("billing");
+
+  useEffect(() => {
+    if (officeFinanceTarget?.officeView) setOfficeView(officeFinanceTarget.officeView);
+  }, [officeFinanceTarget]);
 
   return (
     <section>
@@ -802,13 +856,13 @@ function OfficePayrollWorkspace({ currentUserEmail = "" }) {
           ))}
         </div>
       </div>
-      {officeView === "billing" && <TuitionBillingModule currentUserEmail={currentUserEmail} />}
+      {officeView === "billing" && <TuitionBillingModule currentUserEmail={currentUserEmail} officeFinanceTarget={officeFinanceTarget} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
     </section>
   );
 }
 
-function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
+function AdminModule({ currentUserEmail = "", access = defaultAccess, officeFinanceTarget = null }) {
   const [adminView, setAdminView] = useState("module-admin");
   const [moduleAdminView, setModuleAdminView] = useState("forms");
   const moduleAdminOptions = [
@@ -818,6 +872,10 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
     ["suggestions", "Suggestions", Lightbulb],
     ["look-of-the-week", "Look of the Week", Sparkles],
   ];
+
+  useEffect(() => {
+    if (officeFinanceTarget && access.canUseOfficePayroll) setAdminView("office-payroll");
+  }, [access.canUseOfficePayroll, officeFinanceTarget]);
 
   return (
     <section className="min-h-[680px] bg-slate-950 text-slate-100">
@@ -845,7 +903,9 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       </div>
       {adminView === "student-directory" && <StudentDirectoryModule />}
       {adminView === "settings" && <AdminSettingsModule currentUserEmail={currentUserEmail} canManageUsers={access.canManageUsers} />}
-      {adminView === "office-payroll" && access.canUseOfficePayroll && <OfficePayrollWorkspace currentUserEmail={currentUserEmail} />}
+      {adminView === "office-payroll" && access.canUseOfficePayroll && (
+        <OfficePayrollWorkspace currentUserEmail={currentUserEmail} officeFinanceTarget={officeFinanceTarget} />
+      )}
       {adminView === "module-admin" && (
         <>
           <div className="mx-auto max-w-[1500px] px-5 pt-4">
@@ -1129,6 +1189,7 @@ export default function App() {
   const [formApprovalToken, setFormApprovalToken] = useState(initialRoute.formApprovalToken);
   const [formShareToken, setFormShareToken] = useState(initialRoute.formShareToken);
   const [publicFormsDirectory, setPublicFormsDirectory] = useState(initialRoute.publicFormsDirectory);
+  const [officeFinanceTarget, setOfficeFinanceTarget] = useState(null);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
     [activeModule]
@@ -1159,6 +1220,11 @@ export default function App() {
     setFormShareToken("");
     setPublicFormsDirectory(false);
     setModuleHash(moduleId, "full");
+  }
+
+  function openOfficeFinanceTarget(target) {
+    setOfficeFinanceTarget({ ...target, key: Date.now() });
+    openModule("admin");
   }
 
   function openStructuredRecessAideView() {
@@ -1231,7 +1297,12 @@ export default function App() {
               );
             })}
             <div className="hidden h-8 w-px bg-slate-800 sm:block" />
-            <GlobalSearch access={access} currentUserEmail={user.email} onSelectModule={openModule} />
+            <GlobalSearch
+              access={access}
+              currentUserEmail={user.email}
+              onSelectModule={openModule}
+              onOpenOfficeFinance={openOfficeFinanceTarget}
+            />
             <HubMessages
               currentUserEmail={user.email}
               currentUserName={user.user_metadata?.full_name || user.email}
@@ -1295,7 +1366,7 @@ export default function App() {
       )}
 
       {activeModule === "admin" && access.canUseAdmin && (
-        <AdminModule currentUserEmail={user.email} access={access} />
+        <AdminModule currentUserEmail={user.email} access={access} officeFinanceTarget={officeFinanceTarget} />
       )}
     </div>
       )}

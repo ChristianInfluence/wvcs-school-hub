@@ -1077,7 +1077,7 @@ export function IncidentalPaymentPortalPage({ token = "" }) {
   );
 }
 
-export default function TuitionBillingModule({ currentUserEmail = "" }) {
+export default function TuitionBillingModule({ currentUserEmail = "", officeFinanceTarget = null }) {
   const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
   const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
@@ -1174,6 +1174,12 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
     loadSavedIncidentalInvoices();
     loadFamilyDirectory();
   }, []);
+
+  useEffect(() => {
+    if (!officeFinanceTarget) return;
+    if (officeFinanceTarget.activeView) setActiveView(officeFinanceTarget.activeView);
+    if (officeFinanceTarget.incidentalWorkspaceView) setIncidentalWorkspaceView(officeFinanceTarget.incidentalWorkspaceView);
+  }, [officeFinanceTarget]);
 
   function updateInvoice(patch) {
     setInvoice((current) => ({ ...current, ...patch }));
