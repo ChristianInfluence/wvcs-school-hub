@@ -1298,7 +1298,6 @@ export default function App() {
             {modules
               .filter((module) =>
                 module.id === "dashboard" ||
-                module.id === "forms" ||
                 (module.id === "scheduler" && access.canUseScheduler) ||
                 (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
                 (module.id === "office-finance" && access.canUseOfficePayroll) ||
@@ -1334,7 +1333,6 @@ export default function App() {
               currentUserEmail={user.email}
               currentUserName={user.user_metadata?.full_name || user.email}
             />
-            <FormNotificationBadge access={access} onOpenAdmin={() => openModule("admin")} />
             <UserProfileMenu user={user} access={access} signOut={signOut} />
           </nav>
         </div>
