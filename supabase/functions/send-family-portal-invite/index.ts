@@ -61,7 +61,7 @@ Deno.serve(async (request) => {
         {
           family_key: familyKey,
           family_name: familyName,
-          contact_emails: rosterEmails,
+          contact_emails: selectedRecipients,
           public_token: existing?.public_token || makeToken(),
           active: true,
           updated_by_email: requesterEmail,

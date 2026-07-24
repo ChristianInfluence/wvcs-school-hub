@@ -13,10 +13,6 @@ Deno.serve(async (request) => {
     const { family, currentUserEmail } = await request.json();
     const familyKey = String(family?.familyKey || "").trim();
     const familyName = String(family?.familyName || "WVCS Family").trim();
-    const contactEmails = (family?.parents || [])
-      .map((parent: { email?: string }) => normalizeEmail(parent.email || ""))
-      .filter(Boolean);
-
     if (!familyKey) throw new Error("Missing family record.");
 
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
@@ -44,7 +40,7 @@ Deno.serve(async (request) => {
     const nextRecord = {
       family_key: familyKey,
       family_name: familyName,
-      contact_emails: contactEmails,
+      contact_emails: existing?.contact_emails || [],
       public_token: existing?.public_token || makeToken(),
       active: true,
       updated_by_email: requesterEmail,
