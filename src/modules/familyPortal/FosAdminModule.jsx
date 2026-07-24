@@ -7,6 +7,7 @@ import {
   FOS_HOUR_VALUE,
   calculateFosBalance,
   ensureFamilyPortalAccess,
+  fetchFosAuditEvents,
   fetchFamilyPortalAccessRecords,
   fetchFosReminderTemplate,
   fetchFosEntries,
@@ -75,14 +76,17 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [bulkSending, setBulkSending] = useState(false);
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [reminderTemplate, setReminderTemplate] = useState(DEFAULT_FOS_REMINDER_TEMPLATE);
+  const [familyFilter, setFamilyFilter] = useState("all");
+  const [auditEvents, setAuditEvents] = useState([]);
 
   async function loadData() {
     try {
-      const [entryResult, familyResult, accessResult, templateResult] = await Promise.all([
+      const [entryResult, familyResult, accessResult, templateResult, auditResult] = await Promise.all([
         fetchFosEntries(),
         fetchOfficeFamilyDirectory(),
         fetchFamilyPortalAccessRecords(),
         fetchFosReminderTemplate(),
+        fetchFosAuditEvents(),
       ]);
       setEntries(entryResult.entries || []);
       setFamilies(familyResult.families || []);
@@ -98,6 +102,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setLiabilityDrafts((current) => ({ ...draftMap, ...current }));
       setInviteDrafts((current) => ({ ...inviteMap, ...current }));
       setReminderTemplate(templateResult.template || DEFAULT_FOS_REMINDER_TEMPLATE);
+      setAuditEvents(auditResult.events || []);
       setStatus("FOS records loaded.");
     } catch (error) {
       setStatus(`Unable to load FOS records: ${error.message}`);
@@ -112,7 +117,29 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     () => entries.filter((entry) => filter === "All" || entry.status === filter),
     [entries, filter]
   );
-  const familyResults = useMemo(() => families.filter((family) => familyMatches(family, familySearch)), [families, familySearch]);
+  function balanceForFamily(family) {
+    const access = portalAccess[family.familyKey] || {};
+    const familyEntries = entries.filter((entry) => entry.familyKey === family.familyKey);
+    return calculateFosBalance(familyEntries, {
+      liabilityAmount: access.liabilityAmount || FOS_BUYOUT_AMOUNT,
+      hourValue: access.hourValue || FOS_HOUR_VALUE,
+    });
+  }
+
+  const familyResults = useMemo(
+    () =>
+      families.filter((family) => {
+        if (!familyMatches(family, familySearch)) return false;
+        const access = portalAccess[family.familyKey];
+        const balance = balanceForFamily(family);
+        if (familyFilter === "balance") return balance.remainingBalance > 0;
+        if (familyFilter === "no-login") return !access?.lastParentLoginAt;
+        if (familyFilter === "no-access") return !(access?.contactEmails || []).length;
+        if (familyFilter === "reminded") return Boolean(access?.lastFosReminderSentAt);
+        return true;
+      }),
+    [families, familySearch, familyFilter, portalAccess, entries]
+  );
   const selectedFamilyEntries = useMemo(
     () => (selectedFamily ? entries.filter((entry) => entry.familyKey === selectedFamily.familyKey) : []),
     [entries, selectedFamily]
@@ -191,6 +218,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       const result = await sendFamilyFosReminder(family.familyKey, recipients);
       const sentRecipients = result.results?.[0]?.recipients || result.recipients || [];
       setStatus(`FOS reminder sent to ${sentRecipients.join(", ")}.`);
+      await loadData();
     } catch (error) {
       setStatus(`Unable to send FOS reminder: ${error.message}`);
     } finally {
@@ -222,6 +250,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
           ? `FOS reminders sent to ${result.sentCount || 0} recipients. ${failed.length} families were skipped because they need authorized portal access.`
           : `FOS reminders sent to ${result.sentCount || 0} recipients.`
       );
+      await loadData();
     } catch (error) {
       setStatus(`Unable to send bulk FOS reminders: ${error.message}`);
     } finally {
@@ -309,6 +338,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setPortalAccess((current) => ({ ...current, [selectedFamily.familyKey]: result.access }));
       setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: String(result.access.liabilityAmount) }));
       setStatus(`FOS liability saved for ${selectedFamily.familyName}.`);
+      await loadData();
     } catch (error) {
       setStatus(`Unable to save FOS liability: ${error.message}`);
     }
@@ -471,6 +501,17 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
               <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
               <Input value={familySearch} onChange={(event) => setFamilySearch(event.target.value)} placeholder="Search family" className="pl-9" />
             </label>
+            <select
+              value={familyFilter}
+              onChange={(event) => setFamilyFilter(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+            >
+              <option value="all">All families</option>
+              <option value="balance">Balance owed</option>
+              <option value="no-login">No portal login</option>
+              <option value="no-access">No authorized access</option>
+              <option value="reminded">Reminder sent</option>
+            </select>
             <div className="mt-3 max-h-[520px] overflow-y-auto rounded-lg border border-slate-800 bg-slate-950">
               {familyResults.map((family) => (
                 <button
@@ -510,6 +551,14 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-slate-500">
                       {(family.students || []).map((student) => student.name).join(", ")}
+                    </span>
+                    <span className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                      <span className="rounded border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-rose-100">
+                        {money(balanceForFamily(family).remainingBalance)} owed
+                      </span>
+                      <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-400">
+                        {portalAccess[family.familyKey]?.lastFosReminderSentAt ? `Reminded ${shortDate(portalAccess[family.familyKey].lastFosReminderSentAt)}` : "No reminder"}
+                      </span>
                     </span>
                   </span>
                 </button>
@@ -595,6 +644,85 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                     className="mt-1 normal-case tracking-normal"
                   />
                 </label>
+                <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(reminderTemplate.schedule?.enabled)}
+                        onChange={(event) =>
+                          setReminderTemplate((current) => ({
+                            ...current,
+                            schedule: { ...(current.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule), enabled: event.target.checked },
+                          }))
+                        }
+                        className="h-4 w-4 accent-amber-500"
+                      />
+                      Save automatic reminder plan
+                    </label>
+                    <div className="text-xs text-slate-500">Saved only; a background scheduler can be connected later.</div>
+                  </div>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                      Frequency
+                      <select
+                        value={reminderTemplate.schedule?.frequency || "monthly"}
+                        onChange={(event) =>
+                          setReminderTemplate((current) => ({
+                            ...current,
+                            schedule: { ...(current.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule), frequency: event.target.value },
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                      Day
+                      <Input
+                        inputMode="numeric"
+                        value={reminderTemplate.schedule?.dayOfMonth || 1}
+                        onChange={(event) =>
+                          setReminderTemplate((current) => ({
+                            ...current,
+                            schedule: { ...(current.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule), dayOfMonth: event.target.value },
+                          }))
+                        }
+                        className="mt-1 normal-case tracking-normal"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                      Skip Days
+                      <Input
+                        inputMode="numeric"
+                        value={reminderTemplate.schedule?.skipRecentlyRemindedDays || 14}
+                        onChange={(event) =>
+                          setReminderTemplate((current) => ({
+                            ...current,
+                            schedule: { ...(current.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule), skipRecentlyRemindedDays: event.target.value },
+                          }))
+                        }
+                        className="mt-1 normal-case tracking-normal"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 self-end rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={reminderTemplate.schedule?.onlyWithBalance !== false}
+                        onChange={(event) =>
+                          setReminderTemplate((current) => ({
+                            ...current,
+                            schedule: { ...(current.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule), onlyWithBalance: event.target.checked },
+                          }))
+                        }
+                        className="h-4 w-4 accent-amber-500"
+                      />
+                      Balance only
+                    </label>
+                  </div>
+                </div>
                 <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="text-xs text-slate-500">
                     Variables: {"{familyName}"}, {"{amountOwed}"}, {"{approvedHours}"}, {"{remainingHours}"}, {"{portalLoginUrl}"}
@@ -687,6 +815,40 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
             {!visibleEntries.length && <div className="rounded-lg border border-slate-800 bg-slate-950 p-6 text-sm text-slate-500">No FOS submissions match this filter.</div>}
           </div>
         </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-white">FOS Audit History</div>
+                <div className="mt-1 text-xs text-slate-500">Recent reminder sends and office review actions.</div>
+              </div>
+              <button
+                type="button"
+                onClick={loadData}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                <RefreshCw size={16} />
+                Refresh
+              </button>
+            </div>
+            <div className="mt-3 max-h-[280px] overflow-y-auto rounded-lg border border-slate-800 bg-slate-950">
+              {auditEvents.map((event) => (
+                <div key={event.id} className="border-b border-slate-800 px-3 py-2 text-sm last:border-b-0">
+                  <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="font-semibold text-white">{event.familyName || "Family"}</div>
+                    <div className="text-xs text-slate-500">{dateTime(event.createdAt)}</div>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {event.eventType === "fos_reminder_sent" ? "Reminder sent" : "Hours reviewed"} by {event.actorEmail || "office"}
+                  </div>
+                  {!!event.recipientEmails.length && (
+                    <div className="mt-1 truncate text-xs text-slate-500">Recipients: {event.recipientEmails.join(", ")}</div>
+                  )}
+                </div>
+              ))}
+              {!auditEvents.length && <div className="p-4 text-sm text-slate-500">No FOS audit events have been recorded yet.</div>}
+            </div>
+          </div>
         </div>
       </div>
     </section>

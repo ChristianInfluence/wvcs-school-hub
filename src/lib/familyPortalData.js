@@ -17,6 +17,13 @@ You currently have {approvedHours} approved volunteer hours and {remainingHours}
 If you have completed volunteer hours that have not yet been reported, please log into your WVCS Family Portal and submit them for office review.
 
 Family Portal: {portalLoginUrl}`,
+  schedule: {
+    enabled: false,
+    frequency: "monthly",
+    dayOfMonth: 1,
+    onlyWithBalance: true,
+    skipRecentlyRemindedDays: 14,
+  },
   updatedAt: "",
   updatedByEmail: "",
 };
@@ -72,6 +79,21 @@ function mapFamilyAccess(row) {
     hourValue: Number(row.fos_hour_value ?? FOS_HOUR_VALUE),
     lastParentLoginAt: row.last_parent_login_at || "",
     lastParentLoginEmail: row.last_parent_login_email || "",
+    lastFosReminderSentAt: row.last_fos_reminder_sent_at || "",
+    lastFosReminderSentByEmail: row.last_fos_reminder_sent_by_email || "",
+  };
+}
+
+function mapFosAuditEvent(row) {
+  return {
+    id: row.id,
+    eventType: row.event_type || "",
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    actorEmail: row.actor_email || "",
+    recipientEmails: row.recipient_emails || [],
+    metadata: row.metadata || {},
+    createdAt: row.created_at || "",
   };
 }
 
@@ -83,6 +105,7 @@ function mapFosReminderTemplate(row) {
     subject: row.subject || DEFAULT_FOS_REMINDER_TEMPLATE.subject,
     heading: row.heading || DEFAULT_FOS_REMINDER_TEMPLATE.heading,
     body: row.body || DEFAULT_FOS_REMINDER_TEMPLATE.body,
+    schedule: { ...DEFAULT_FOS_REMINDER_TEMPLATE.schedule, ...(row.reminder_schedule || {}) },
     updatedAt: row.updated_at || "",
     updatedByEmail: row.updated_by_email || "",
   };
@@ -105,7 +128,7 @@ export async function fetchFamilyPortalAccessRecords() {
 
   const { data, error } = await supabase
     .from("family_portal_access")
-    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email")
+    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email,last_fos_reminder_sent_at,last_fos_reminder_sent_by_email")
     .order("family_name", { ascending: true });
 
   if (error) throw error;
@@ -134,6 +157,8 @@ export async function ensureFamilyPortalAccess(family, currentUserEmail = "") {
       hourValue: Number(accessRecord.fos_hour_value ?? FOS_HOUR_VALUE),
       lastParentLoginAt: accessRecord.last_parent_login_at || "",
       lastParentLoginEmail: accessRecord.last_parent_login_email || "",
+      lastFosReminderSentAt: accessRecord.last_fos_reminder_sent_at || "",
+      lastFosReminderSentByEmail: accessRecord.last_fos_reminder_sent_by_email || "",
       updatedByEmail: currentUserEmail,
     },
   };
@@ -149,11 +174,23 @@ export async function updateFamilyFosSettings(familyKey, settings) {
       fos_hour_value: Number(settings.hourValue || FOS_HOUR_VALUE),
     })
     .eq("family_key", familyKey)
-    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email")
+    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email,last_fos_reminder_sent_at,last_fos_reminder_sent_by_email")
     .single();
 
   if (error) throw error;
   return { saved: true, access: mapFamilyAccess(data) };
+}
+
+export async function fetchFosAuditEvents(limit = 80) {
+  if (!isSupabaseConfigured) return { loaded: false, events: [], reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("fos_audit_events")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return { loaded: false, events: [], reason: "FOS audit table is not installed yet." };
+  return { loaded: true, events: (data || []).map(mapFosAuditEvent) };
 }
 
 export async function fetchFosReminderTemplate() {
@@ -169,10 +206,19 @@ export async function fetchFosReminderTemplate() {
 }
 
 export async function saveFosReminderTemplate(template, updatedByEmail = "") {
+  const schedule = {
+    ...DEFAULT_FOS_REMINDER_TEMPLATE.schedule,
+    ...(template.schedule || {}),
+    dayOfMonth: Math.min(Math.max(Number(template.schedule?.dayOfMonth || 1), 1), 28),
+    skipRecentlyRemindedDays: Math.max(Number(template.schedule?.skipRecentlyRemindedDays || 14), 0),
+    enabled: Boolean(template.schedule?.enabled),
+    onlyWithBalance: template.schedule?.onlyWithBalance !== false,
+  };
   const normalized = {
     ...DEFAULT_FOS_REMINDER_TEMPLATE,
     ...template,
     id: "reminder",
+    schedule,
   };
   if (!isSupabaseConfigured) return { saved: false, template: normalized, reason: "Supabase is not configured." };
 
@@ -184,6 +230,7 @@ export async function saveFosReminderTemplate(template, updatedByEmail = "") {
         subject: normalized.subject,
         heading: normalized.heading,
         body: normalized.body,
+        reminder_schedule: normalized.schedule || DEFAULT_FOS_REMINDER_TEMPLATE.schedule,
         updated_by_email: updatedByEmail || null,
       },
       { onConflict: "id" }

@@ -90,6 +90,22 @@ Deno.serve(async (request) => {
       );
     }
 
+    await supabase.from("fos_audit_events").insert({
+      event_type: "fos_hours_reviewed",
+      family_key: updated.family_key,
+      family_name: updated.family_name,
+      actor_email: reviewerEmail,
+      recipient_emails: recipient ? [recipient] : [],
+      metadata: {
+        entryId: updated.id,
+        status,
+        submittedHours: Number(updated.submitted_hours || 0),
+        approvedHours: Number(updated.approved_hours || 0),
+        activity: updated.activity,
+        balance,
+      },
+    });
+
     return new Response(JSON.stringify({ reviewed: true, entry: updated, balance }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

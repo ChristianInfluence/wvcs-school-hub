@@ -123,6 +123,26 @@ Deno.serve(async (request) => {
           }),
         )
       ));
+      const sentAt = new Date().toISOString();
+      await supabase
+        .from("family_portal_access")
+        .update({
+          last_fos_reminder_sent_at: sentAt,
+          last_fos_reminder_sent_by_email: requesterEmail,
+        })
+        .eq("family_key", access.family_key);
+      await supabase.from("fos_audit_events").insert({
+        event_type: "fos_reminder_sent",
+        family_key: access.family_key,
+        family_name: access.family_name,
+        actor_email: requesterEmail,
+        recipient_emails: authorizedRecipients,
+        metadata: {
+          balance,
+          templateSubject: subject,
+          sentAt,
+        },
+      });
       sentCount += authorizedRecipients.length;
       results.push({ familyKey: access.family_key, familyName: access.family_name, sent: true, recipients: authorizedRecipients, balance });
     }
