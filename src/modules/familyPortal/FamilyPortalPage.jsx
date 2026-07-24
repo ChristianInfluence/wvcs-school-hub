@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, CreditCard, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
+import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
 import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunchOrders, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
+import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -112,6 +113,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [showFosForm, setShowFosForm] = useState(false);
   const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00", editing: false });
   const [lunchStatus, setLunchStatus] = useState("");
+  const [permissionStatus, setPermissionStatus] = useState("");
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
 
@@ -181,6 +183,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const openInvoices = invoices.filter(isOpenInvoice);
   const openInvoiceBalance = openInvoices.reduce((total, invoice) => total + invoiceTotal(invoice), 0);
   const latestInvoice = invoices[0];
+  const permissionSlips = portal.data?.permissionSlips || [];
+  const permissionNeedsSignature = permissionSlips.filter((slip) => slip.status === "Needs Signature");
+  const completedPermissionSlips = permissionSlips.filter((slip) => slip.status === "Completed");
   const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
   const lunch = portal.data?.lunch || {};
   const lunchMenus = lunch.menus || [];
@@ -254,6 +259,30 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   function incidentalUrl(invoice) {
     if (invoice?.type !== "incidental" || !invoice.publicToken) return "";
     return `${window.location.origin}${window.location.pathname}#/incidental-pay/${encodeURIComponent(invoice.publicToken)}`;
+  }
+
+  function permissionSignUrl(slip) {
+    if (!slip?.signingToken) return "";
+    return `${window.location.origin}${window.location.pathname}#/permission-sign/${encodeURIComponent(slip.signingToken)}`;
+  }
+
+  async function openSignedPermissionPdf(slip) {
+    if (!slip?.submissionId || !slip?.pdfToken) {
+      setPermissionStatus("Signed PDF is not available yet. Please contact the WVCS office if you need a copy.");
+      return;
+    }
+    setPermissionStatus("Opening signed permission slip...");
+    try {
+      const url = await createParentPermissionPdfUrl({ token: slip.pdfToken, submissionId: slip.submissionId });
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        setPermissionStatus("");
+      } else {
+        setPermissionStatus("Signed PDF is not available yet.");
+      }
+    } catch (error) {
+      setPermissionStatus(`Unable to open signed PDF: ${error.message}`);
+    }
   }
 
   async function submitHours() {
@@ -470,6 +499,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
               {[
                 ["overview", "Overview", Users],
                 ["invoices", "Invoices", ReceiptText],
+                ["permissions", "Permission Slips", FileSignature],
                 ["lunch", "Lunch", Utensils],
                 ["fos", "FOS Hours", Clock],
               ].map(([id, label, Icon]) => (
@@ -515,6 +545,24 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Lunch Balance</div>
                         <div className="mt-2 text-sm font-bold text-white">{money(lunch.balance || 0)}</div>
                         <div className="mt-1 text-xs text-slate-500">Family lunch account</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 md:col-span-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Permission Slips</div>
+                            <div className="mt-2 text-sm font-bold text-white">
+                              {permissionNeedsSignature.length ? `${permissionNeedsSignature.length} need signature` : "No permission slips need signature"}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">{completedPermissionSlips.length} completed slip(s) available</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("permissions")}
+                            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20"
+                          >
+                            Open Permission Slips
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -567,6 +615,82 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <Utensils size={16} />
                       Open Lunch Account
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "permissions" && (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Stat label="Needs Signature" value={permissionNeedsSignature.length} tone={permissionNeedsSignature.length ? "amber" : "green"} />
+                  <Stat label="Completed" value={completedPermissionSlips.length} tone="green" />
+                  <Stat label="Total Slips" value={permissionSlips.length} tone="sky" />
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-white">
+                    <FileSignature size={16} className="text-sky-300" />
+                    Permission Slips
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-slate-500">
+                    These records are tied to the students connected to your WVCS family record.
+                  </div>
+                  {permissionStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{permissionStatus}</div>}
+                  <div className="mt-4 grid gap-3">
+                    {permissionSlips.map((slip) => (
+                      <div key={slip.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-bold text-white">{slip.title || "Permission Slip"}</div>
+                              <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${
+                                slip.status === "Completed"
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                                  : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                              }`}>
+                                {slip.status}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-slate-500">
+                              {slip.studentName || "Student"}{slip.grade ? ` | Grade ${slip.grade}` : ""}{slip.eventDate ? ` | ${shortDate(slip.eventDate)}` : ""}
+                              {slip.destination ? ` | ${slip.destination}` : ""}
+                            </div>
+                            {slip.signedAt && (
+                              <div className="mt-1 text-xs text-emerald-300">
+                                Signed {shortDate(slip.signedAt)}{slip.signedBy ? ` by ${slip.signedBy}` : ""}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {slip.status === "Needs Signature" && permissionSignUrl(slip) && (
+                              <a
+                                href={permissionSignUrl(slip)}
+                                className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-500/20"
+                              >
+                                <FileSignature size={14} />
+                                Sign Now
+                              </a>
+                            )}
+                            {slip.status === "Completed" && (
+                              <button
+                                type="button"
+                                onClick={() => openSignedPermissionPdf(slip)}
+                                className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20"
+                              >
+                                <ExternalLink size={14} />
+                                View Signed PDF
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {!permissionSlips.length && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm text-slate-500">
+                        No permission slips are connected to this family yet.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

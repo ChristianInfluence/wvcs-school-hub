@@ -73,6 +73,16 @@ function mapLunchTransaction(row: Record<string, any>) {
   };
 }
 
+function mapPermissionEvent(row: Record<string, any>) {
+  return {
+    id: row.id,
+    title: row.title || row.event?.title || "Permission Slip",
+    destination: row.destination || row.event?.destination || "",
+    eventDate: row.event_date || row.event?.eventDate || "",
+    status: row.status || row.event?.status || "",
+  };
+}
+
 function familyNameTerms(familyName: string) {
   const cleanName = String(familyName || "").trim();
   const withoutFamily = cleanName.replace(/\s+Family$/i, "").trim();
@@ -162,6 +172,81 @@ Deno.serve(async (request) => {
     if (lunchTransactionsError) throw lunchTransactionsError;
 
     const students = (directoryRows || []).filter((row) => familyKeyFor(row) === access.family_key).map(mapStudent);
+    const studentIds = students.map((student) => String(student.id || "")).filter(Boolean);
+    const [{ data: permissionRecipients, error: permissionRecipientError }, { data: permissionSubmissions, error: permissionSubmissionError }] = studentIds.length
+      ? await Promise.all([
+        supabase
+          .from("permission_recipients")
+          .select("id,event_id,student_id,grade,student_name,parent_name,parent_email,signing_token,status,sent_at,emailed_at,viewed_at,signed_at")
+          .in("student_id", studentIds)
+          .order("student_name", { ascending: true }),
+        supabase
+          .from("permission_submissions")
+          .select("id,event_id,recipient_id,student_id,grade,student_name,parent_name,parent_email,signer_name,signing_token,signed_at,signed_pdf_bucket,signed_pdf_path")
+          .in("student_id", studentIds)
+          .order("signed_at", { ascending: false }),
+      ])
+      : [{ data: [], error: null }, { data: [], error: null }];
+    if (permissionRecipientError) throw permissionRecipientError;
+    if (permissionSubmissionError) throw permissionSubmissionError;
+
+    const permissionEventIds = [...new Set([...(permissionRecipients || []), ...(permissionSubmissions || [])].map((row) => row.event_id).filter(Boolean))];
+    const { data: permissionEvents, error: permissionEventError } = permissionEventIds.length
+      ? await supabase
+        .from("permission_events")
+        .select("id,title,destination,event_date,status,event")
+        .in("id", permissionEventIds)
+      : { data: [], error: null };
+    if (permissionEventError) throw permissionEventError;
+    const permissionEventMap = new Map((permissionEvents || []).map((event) => [event.id, mapPermissionEvent(event)]));
+    const permissionRows = new Map<string, Record<string, any>>();
+    (permissionRecipients || []).forEach((recipient) => {
+      const key = `${recipient.event_id}:${recipient.student_id || recipient.student_name}`;
+      const existing = permissionRows.get(key) || {
+        event: permissionEventMap.get(recipient.event_id) || { id: recipient.event_id, title: "Permission Slip", eventDate: "" },
+        studentId: recipient.student_id || "",
+        studentName: recipient.student_name || "",
+        grade: recipient.grade || "",
+        recipients: [],
+        submissions: [],
+      };
+      existing.recipients.push(recipient);
+      permissionRows.set(key, existing);
+    });
+    (permissionSubmissions || []).forEach((submission) => {
+      const key = `${submission.event_id}:${submission.student_id || submission.student_name}`;
+      const existing = permissionRows.get(key) || {
+        event: permissionEventMap.get(submission.event_id) || { id: submission.event_id, title: "Permission Slip", eventDate: "" },
+        studentId: submission.student_id || "",
+        studentName: submission.student_name || "",
+        grade: submission.grade || "",
+        recipients: [],
+        submissions: [],
+      };
+      existing.submissions.push(submission);
+      permissionRows.set(key, existing);
+    });
+    const permissionSlips = [...permissionRows.values()].map((row) => {
+      const signedSubmission = row.submissions.find((submission: Record<string, any>) => submission.signed_at) || null;
+      const unsignedRecipient = row.recipients.find((recipient: Record<string, any>) => !recipient.signed_at) || row.recipients[0] || null;
+      const pdfToken = signedSubmission?.signing_token || row.recipients.find((recipient: Record<string, any>) => recipient.student_id === signedSubmission?.student_id)?.signing_token || unsignedRecipient?.signing_token || "";
+      return {
+        id: `${row.event.id}:${row.studentId || row.studentName}`,
+        eventId: row.event.id,
+        title: row.event.title,
+        destination: row.event.destination || "",
+        eventDate: row.event.eventDate || "",
+        studentId: row.studentId || "",
+        studentName: row.studentName || signedSubmission?.student_name || "Student",
+        grade: row.grade || signedSubmission?.grade || "",
+        status: signedSubmission ? "Completed" : "Needs Signature",
+        signingToken: signedSubmission ? "" : unsignedRecipient?.signing_token || "",
+        signedAt: signedSubmission?.signed_at || "",
+        signedBy: signedSubmission?.signer_name || signedSubmission?.parent_name || "",
+        submissionId: signedSubmission?.id || "",
+        pdfToken,
+      };
+    }).sort((a, b) => String(b.eventDate || "").localeCompare(String(a.eventDate || "")) || a.studentName.localeCompare(b.studentName));
     const entries = fosRows || [];
     const balance = calculateFosBalance(entries, access);
     const incidentalById = new Map<string, Record<string, any>>();
@@ -210,6 +295,7 @@ Deno.serve(async (request) => {
           orders: (lunchOrders || []).map(mapLunchOrder),
           transactions: (lunchTransactions || []).map(mapLunchTransaction),
         },
+        permissionSlips,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
