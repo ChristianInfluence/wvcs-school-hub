@@ -72,9 +72,9 @@ function isOpenInvoice(invoice) {
 export default function FamilyPortalPage({ token = "", secureLogin = false, previewFamilyKey = "" }) {
   const [portal, setPortal] = useState({ loading: true, error: "", data: null });
   const [familySession, setFamilySession] = useState({ loading: Boolean(secureLogin || previewFamilyKey), user: null });
-  const [loginDraft, setLoginDraft] = useState({ email: "", code: "" });
+  const [loginDraft, setLoginDraft] = useState({ email: "" });
   const [loginStatus, setLoginStatus] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
   const [draft, setDraft] = useState({ parentName: "", parentEmail: "", activityDate: today, activity: "", hours: "", notes: "" });
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -202,16 +202,17 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
     }
   }
 
-  async function sendLoginCode() {
+  async function sendLoginLink() {
     const email = loginDraft.email.trim().toLowerCase();
     if (!email) {
       setLoginStatus("Enter the email address connected to your WVCS family record.");
       return;
     }
-    setLoginStatus("Sending secure login code...");
+    setLoginStatus("Sending secure sign-in link...");
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
+        emailRedirectTo: `${window.location.origin}/#/family-login`,
         shouldCreateUser: false,
       },
     });
@@ -219,24 +220,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setLoginStatus(error.message);
       return;
     }
-    setCodeSent(true);
-    setLoginStatus("Check your email for a one-time login code.");
-  }
-
-  async function verifyLoginCode() {
-    const email = loginDraft.email.trim().toLowerCase();
-    const code = loginDraft.code.trim();
-    if (!email || !code) {
-      setLoginStatus("Enter your email and the one-time code.");
-      return;
-    }
-    setLoginStatus("Signing in...");
-    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
-    if (error) {
-      setLoginStatus(error.message);
-      return;
-    }
-    setLoginStatus("");
+    setLinkSent(true);
+    setLoginStatus("Check your email and click the secure sign-in link to open your family portal.");
   }
 
   async function signOutFamilyPortal() {
@@ -252,33 +237,24 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">WVCS Family Portal</div>
             <h1 className="mt-2 text-3xl font-bold text-white">Family Sign In</h1>
             <p className="mt-3 text-sm leading-6 text-slate-400">
-              Enter the parent or guardian email address that WVCS has connected to your family record. The system will send a one-time login code to that email.
+              Enter the parent or guardian email address that WVCS has connected to your family record. The system will send a secure sign-in link to that email.
             </p>
             <div className="mt-5 grid gap-3">
               <Field label="Email">
                 <Input type="email" value={loginDraft.email} onChange={(event) => setLoginDraft({ ...loginDraft, email: event.target.value })} placeholder="parent@example.com" />
               </Field>
-              {codeSent && (
-                <Field label="One-Time Code">
-                  <Input inputMode="numeric" value={loginDraft.code} onChange={(event) => setLoginDraft({ ...loginDraft, code: event.target.value })} placeholder="123456" />
-                </Field>
-              )}
               <button
                 type="button"
-                onClick={codeSent ? verifyLoginCode : sendLoginCode}
+                onClick={sendLoginLink}
                 disabled={!isSupabaseConfigured}
                 className="inline-flex w-full items-center justify-center rounded-lg border border-sky-400 bg-sky-500 px-3 py-3 text-sm font-bold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {codeSent ? "Sign In" : "Send Login Code"}
+                {linkSent ? "Send Link Again" : "Send Sign-In Link"}
               </button>
-              {codeSent && (
-                <button
-                  type="button"
-                  onClick={sendLoginCode}
-                  className="text-sm font-semibold text-sky-300 hover:text-sky-200"
-                >
-                  Send a new code
-                </button>
+              {linkSent && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+                  Keep this page open, then use the link in your email. On this device, you should stay signed in for future visits unless you sign out or your browser clears the session.
+                </div>
               )}
             </div>
             {loginStatus && <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{loginStatus}</div>}
