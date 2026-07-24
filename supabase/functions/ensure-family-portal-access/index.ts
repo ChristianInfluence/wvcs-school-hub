@@ -36,7 +36,7 @@ Deno.serve(async (request) => {
 
     const { data: existing, error: existingError } = await supabase
       .from("family_portal_access")
-      .select("family_key, family_name, contact_emails, public_token")
+      .select("family_key, family_name, contact_emails, public_token, fos_liability_amount, fos_hour_value")
       .eq("family_key", familyKey)
       .maybeSingle();
     if (existingError) throw existingError;
@@ -54,7 +54,7 @@ Deno.serve(async (request) => {
     const { data: access, error: upsertError } = await supabase
       .from("family_portal_access")
       .upsert(nextRecord, { onConflict: "family_key" })
-      .select("family_key, family_name, contact_emails, public_token")
+      .select("family_key, family_name, contact_emails, public_token, fos_liability_amount, fos_hour_value")
       .single();
     if (upsertError) throw upsertError;
 

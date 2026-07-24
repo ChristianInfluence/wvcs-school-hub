@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Copy, RefreshCw, Search, XCircle } from "lucide-react";
 import { fetchOfficeFamilyDirectory } from "../../lib/tuitionBillingData.js";
-import { calculateFosBalance, ensureFamilyPortalAccess, fetchFosEntries, reviewFosEntry } from "../../lib/familyPortalData.js";
+import {
+  FOS_BUYOUT_AMOUNT,
+  FOS_HOUR_VALUE,
+  calculateFosBalance,
+  ensureFamilyPortalAccess,
+  fetchFamilyPortalAccessRecords,
+  fetchFosEntries,
+  reviewFosEntry,
+  updateFamilyFosSettings,
+} from "../../lib/familyPortalData.js";
 
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -69,12 +78,25 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [portalLinks, setPortalLinks] = useState({});
   const [portalLoadingKey, setPortalLoadingKey] = useState("");
+  const [portalAccess, setPortalAccess] = useState({});
+  const [liabilityDrafts, setLiabilityDrafts] = useState({});
 
   async function loadData() {
     try {
-      const [entryResult, familyResult] = await Promise.all([fetchFosEntries(), fetchOfficeFamilyDirectory()]);
+      const [entryResult, familyResult, accessResult] = await Promise.all([fetchFosEntries(), fetchOfficeFamilyDirectory(), fetchFamilyPortalAccessRecords()]);
       setEntries(entryResult.entries || []);
       setFamilies(familyResult.families || []);
+      const accessMap = {};
+      const linkMap = {};
+      const draftMap = {};
+      (accessResult.access || []).forEach((access) => {
+        accessMap[access.familyKey] = access;
+        if (access.publicToken) linkMap[access.familyKey] = `${window.location.origin}/#/family-portal/${encodeURIComponent(access.publicToken)}`;
+        draftMap[access.familyKey] = String(access.liabilityAmount || FOS_BUYOUT_AMOUNT);
+      });
+      setPortalAccess(accessMap);
+      setPortalLinks((current) => ({ ...linkMap, ...current }));
+      setLiabilityDrafts((current) => ({ ...draftMap, ...current }));
       setStatus("FOS records loaded.");
     } catch (error) {
       setStatus(`Unable to load FOS records: ${error.message}`);
@@ -94,7 +116,12 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     () => (selectedFamily ? entries.filter((entry) => entry.familyKey === selectedFamily.familyKey) : []),
     [entries, selectedFamily]
   );
-  const selectedBalance = calculateFosBalance(selectedFamilyEntries);
+  const selectedAccess = selectedFamily ? portalAccess[selectedFamily.familyKey] : null;
+  const selectedLiabilityAmount = Number(liabilityDrafts[selectedFamily?.familyKey] || selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT);
+  const selectedBalance = calculateFosBalance(selectedFamilyEntries, {
+    liabilityAmount: selectedLiabilityAmount,
+    hourValue: selectedAccess?.hourValue || FOS_HOUR_VALUE,
+  });
 
   async function generatePortalLink(family, { copy = false } = {}) {
     try {
@@ -104,6 +131,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       const result = await ensureFamilyPortalAccess(family, currentUserEmail);
       const url = `${window.location.origin}/#/family-portal/${encodeURIComponent(result.access.publicToken)}`;
       setPortalLinks((current) => ({ ...current, [family.familyKey]: url }));
+      setPortalAccess((current) => ({ ...current, [family.familyKey]: result.access }));
+      setLiabilityDrafts((current) => ({
+        ...current,
+        [family.familyKey]: current[family.familyKey] || String(result.access.liabilityAmount || FOS_BUYOUT_AMOUNT),
+      }));
       if (!copy) setStatus(`Family portal link ready for ${family.familyName}.`);
       return url;
     } catch (error) {
@@ -153,6 +185,32 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     setReviewDrafts((current) => ({ ...current, [entryId]: { ...(current[entryId] || {}), ...patch } }));
   }
 
+  async function saveLiability() {
+    if (!selectedFamily) return;
+    const liabilityAmount = Number(liabilityDrafts[selectedFamily.familyKey] || FOS_BUYOUT_AMOUNT);
+    if (!Number.isFinite(liabilityAmount) || liabilityAmount < 0) {
+      setStatus("Enter a valid FOS liability amount.");
+      return;
+    }
+    try {
+      setStatus(`Saving FOS liability for ${selectedFamily.familyName}...`);
+      let access = portalAccess[selectedFamily.familyKey];
+      if (!access) {
+        const result = await ensureFamilyPortalAccess(selectedFamily, currentUserEmail);
+        access = result.access;
+      }
+      const result = await updateFamilyFosSettings(selectedFamily.familyKey, {
+        liabilityAmount,
+        hourValue: access?.hourValue || FOS_HOUR_VALUE,
+      });
+      setPortalAccess((current) => ({ ...current, [selectedFamily.familyKey]: result.access }));
+      setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: String(result.access.liabilityAmount) }));
+      setStatus(`FOS liability saved for ${selectedFamily.familyName}.`);
+    } catch (error) {
+      setStatus(`Unable to save FOS liability: ${error.message}`);
+    }
+  }
+
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5 text-slate-100">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -160,7 +218,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Friends of School</div>
           <h1 className="mt-2 text-2xl font-bold text-white">FOS Tracking</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-400">
-            Families owe 50 volunteer hours or a $500 balance. Each approved hour reduces the balance by $10.
+            Families normally owe 50 volunteer hours or a $500 amount. Each approved hour reduces the amount owed by $10, and the annual amount can be adjusted for individual families.
           </p>
         </div>
         <button
@@ -214,8 +272,28 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   {selectedBalance.remainingHours}
                 </div>
                 <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-2 text-sky-100">
-                  <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Balance</span>
+                  <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Owed</span>
                   {money(selectedBalance.remainingBalance)}
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Annual FOS Liability</div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <Input
+                    inputMode="decimal"
+                    value={liabilityDrafts[selectedFamily.familyKey] ?? String(selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT)}
+                    onChange={(event) => setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: event.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    onClick={saveLiability}
+                    className="inline-flex items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">
+                  This family currently needs {selectedBalance.requiredHours.toFixed(selectedBalance.requiredHours % 1 ? 1 : 0)} approved hours to reduce the FOS amount to $0.
                 </div>
               </div>
               <button

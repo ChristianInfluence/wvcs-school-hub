@@ -78,7 +78,7 @@ Deno.serve(async (request) => {
 
     const students = (directoryRows || []).filter((row) => familyKeyFor(row) === access.family_key).map(mapStudent);
     const entries = fosRows || [];
-    const balance = calculateFosBalance(entries);
+    const balance = calculateFosBalance(entries, access);
     const incidentalById = new Map<string, Record<string, any>>();
     [...(incidentalRows || []), ...(incidentalNameRows || [])].forEach((row) => incidentalById.set(row.id, row));
 
@@ -94,9 +94,9 @@ Deno.serve(async (request) => {
         },
         fos: {
           schoolYear: "2026-2027",
-          requiredHours: 50,
-          buyoutAmount: 500,
-          hourValue: 10,
+          requiredHours: balance.requiredHours,
+          buyoutAmount: balance.liabilityAmount,
+          hourValue: balance.hourValue,
           balance,
           entries: entries.map((entry) => ({
             id: entry.id,

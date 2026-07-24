@@ -63,7 +63,14 @@ Deno.serve(async (request) => {
       .eq("school_year", updated.school_year);
     if (entriesError) throw entriesError;
 
-    const balance = calculateFosBalance(entries || []);
+    const { data: access, error: accessError } = await supabase
+      .from("family_portal_access")
+      .select("fos_liability_amount,fos_hour_value")
+      .eq("family_key", updated.family_key)
+      .maybeSingle();
+    if (accessError) throw accessError;
+
+    const balance = calculateFosBalance(entries || [], access || {});
     const recipient = normalizeEmail(updated.parent_email);
     if (recipient) {
       await sendEmail(

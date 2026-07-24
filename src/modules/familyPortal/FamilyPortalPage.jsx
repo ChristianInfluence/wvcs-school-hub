@@ -109,7 +109,7 @@ export default function FamilyPortalPage({ token = "" }) {
   const openInvoices = invoices.filter(isOpenInvoice);
   const openInvoiceBalance = openInvoices.reduce((total, invoice) => total + invoiceTotal(invoice), 0);
   const latestInvoice = invoices[0];
-  const fosBalanceInfo = "FOS starts as a $500 family obligation. Each approved volunteer hour reduces this amount by $10 until the 50-hour requirement is complete.";
+  const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";

@@ -72,7 +72,7 @@ export function buildFosMessage({
     ? [
         `Approved hours: ${balance.approvedHours}`,
         `Remaining hours: ${balance.remainingHours}`,
-        `Current FOS balance: ${formatCurrency(balance.remainingBalance)}`,
+        `Current FOS amount owed: ${formatCurrency(balance.remainingBalance)}`,
       ]
     : [];
   const textBody = [
@@ -107,7 +107,7 @@ export function buildFosMessage({
                     ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
                         <tr><td style="padding:11px 13px;background:#f8fafc;font-weight:700;">Approved Hours</td><td style="padding:11px 13px;font-weight:800;">${escapeHtml(balance.approvedHours)}</td></tr>
                         <tr><td style="padding:11px 13px;background:#f8fafc;font-weight:700;">Remaining Hours</td><td style="padding:11px 13px;font-weight:800;">${escapeHtml(balance.remainingHours)}</td></tr>
-                        <tr><td style="padding:11px 13px;background:#f8fafc;font-weight:700;">Current FOS Balance</td><td style="padding:11px 13px;font-weight:800;">${escapeHtml(formatCurrency(balance.remainingBalance))}</td></tr>
+                        <tr><td style="padding:11px 13px;background:#f8fafc;font-weight:700;">FOS Amount Owed</td><td style="padding:11px 13px;font-weight:800;">${escapeHtml(formatCurrency(balance.remainingBalance))}</td></tr>
                       </table>`
                     : ""
                 }
@@ -161,11 +161,16 @@ export async function sendEmail(rawMessage: string) {
   return await response.json();
 }
 
-export function calculateFosBalance(entries: Record<string, any>[]) {
+export function calculateFosBalance(entries: Record<string, any>[], settings: Record<string, any> = {}) {
+  const liabilityAmount = Number(settings.fos_liability_amount ?? settings.liabilityAmount ?? 500);
+  const hourValue = Number(settings.fos_hour_value ?? settings.hourValue ?? 10);
+  const safeLiability = Number.isFinite(liabilityAmount) ? liabilityAmount : 500;
+  const safeHourValue = Number.isFinite(hourValue) && hourValue > 0 ? hourValue : 10;
   const approvedHours = entries
     .filter((entry) => entry.status === "Approved" || entry.status === "Adjusted")
     .reduce((total, entry) => total + Number(entry.approved_hours || 0), 0);
-  const remainingHours = Math.max(50 - approvedHours, 0);
-  const remainingBalance = Math.max(500 - approvedHours * 10, 0);
-  return { approvedHours, remainingHours, remainingBalance };
+  const requiredHours = safeLiability / safeHourValue;
+  const remainingHours = Math.max(requiredHours - approvedHours, 0);
+  const remainingBalance = Math.max(safeLiability - approvedHours * safeHourValue, 0);
+  return { approvedHours, remainingHours, remainingBalance, liabilityAmount: safeLiability, hourValue: safeHourValue, requiredHours };
 }
