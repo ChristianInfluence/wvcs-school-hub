@@ -10,6 +10,7 @@ import {
 } from "../../lib/lunchData.js";
 
 const today = new Date().toISOString().slice(0, 10);
+const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 function Field({ label, children }) {
   return (
@@ -47,6 +48,81 @@ function emptyItem(date = today) {
   return { id: crypto.randomUUID(), date, name: "", description: "", price: "4.50" };
 }
 
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function monthStart(value) {
+  const date = value ? new Date(`${value}T00:00:00`) : new Date();
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthName(value) {
+  return monthStart(value).toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+function buildSchoolMonthDays(value) {
+  const start = monthStart(value);
+  const days = [];
+  const cursor = new Date(start);
+  while (cursor.getMonth() === start.getMonth()) {
+    const day = cursor.getDay();
+    if (day >= 1 && day <= 5) days.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const leading = days.length ? days[0].getDay() - 1 : 0;
+  const cells = Array.from({ length: leading }, () => null).concat(days);
+  while (cells.length % 5 !== 0) cells.push(null);
+  return cells;
+}
+
+function templateItemsForDate(date, weekIndex) {
+  const day = date.getDay();
+  const dateIso = isoDate(date);
+  if (day === 1) {
+    const mondayMeals = [
+      "Chicken alfredo, garlic bread, fruit, and veggie",
+      "Spaghetti & meatballs, garlic bread, fruit, and salad",
+      "Mac & cheese, garlic bread, fruit, and veggie",
+      "Chicken alfredo, garlic bread, fruit, and veggie",
+    ];
+    return [{ id: crypto.randomUUID(), date: dateIso, name: mondayMeals[weekIndex % mondayMeals.length], description: "", price: "4.50" }];
+  }
+  if (day === 2) {
+    return ["2 Soft tacos", "2 Crunchy tacos", "Taco salad and chips"].map((name) => ({ id: crypto.randomUUID(), date: dateIso, name, description: "", price: "4.50" }));
+  }
+  if (day === 3) {
+    const wednesdayMeals = [
+      "Sloppy Joes, fruit and veggies",
+      "Corn dogs, fruit, and veggies",
+      "Pancakes, hash browns, sausage links, and fruit",
+      "Sloppy Joes, fruit and veggies",
+    ];
+    return [{ id: crypto.randomUUID(), date: dateIso, name: wednesdayMeals[weekIndex % wednesdayMeals.length], description: "", price: "4.50" }];
+  }
+  if (day === 4) {
+    return [
+      { name: "Loaded potato, fruit", price: "4.50" },
+      { name: "Chili, chips, fruit", price: "4.50" },
+      { name: "Hot dog, chips, fruit", price: "4.50" },
+      { name: "Extra hot dog", price: "1.00" },
+    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price }));
+  }
+  if (day === 5) {
+    return [
+      { name: "Pizza, fresh fruit, and veggies", price: "4.50" },
+      { name: "Gluten-free pizza", price: "4.50" },
+      { name: "Extra slice of pizza", price: "1.50" },
+    ].map((item) => ({ id: crypto.randomUUID(), date: dateIso, name: item.name, description: "", price: item.price }));
+  }
+  return [];
+}
+
+function createMonthlyTemplate(value) {
+  const cells = buildSchoolMonthDays(value).filter(Boolean);
+  return cells.flatMap((date) => templateItemsForDate(date, Math.floor((date.getDate() - 1) / 7)));
+}
+
 export default function LunchAdminModule({ currentUserEmail = "" }) {
   const [activeView, setActiveView] = useState("daily");
   const [data, setData] = useState({ loading: true, families: [], menus: [], orders: [], accounts: [], transactions: [] });
@@ -56,7 +132,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
-  const [menuDraft, setMenuDraft] = useState({ title: "WVCS Lunch Menu", weekStart: today, status: "Draft", notes: "", items: [emptyItem(today)] });
+  const [menuDraft, setMenuDraft] = useState({ title: "WVCS Lunch Menu", weekStart: today.slice(0, 8) + "01", status: "Draft", notes: "A portion of lunch proceeds supports WVCS student trips. Please contact the office with food allergy questions.", items: createMonthlyTemplate(today) });
   const [deposit, setDeposit] = useState({ familyKey: "", amount: "", method: "cash", checkNumber: "", note: "" });
 
   async function loadData(message = "") {
@@ -90,6 +166,41 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
       .includes(search.toLowerCase())
   );
   const accountFamilies = filteredFamilies.map((family) => ({ ...family, account: accountMap.get(family.familyKey) || { balance: 0 } }));
+  const menuCalendarCells = buildSchoolMonthDays(menuDraft.weekStart);
+  const menuItemsByDate = useMemo(() => {
+    const map = new Map();
+    (menuDraft.items || []).forEach((item) => {
+      if (!item.date) return;
+      map.set(item.date, [...(map.get(item.date) || []), item]);
+    });
+    return map;
+  }, [menuDraft.items]);
+
+  function updateMenuItem(itemId, patch) {
+    setMenuDraft((current) => ({
+      ...current,
+      items: current.items.map((item) => item.id === itemId ? { ...item, ...patch } : item),
+    }));
+  }
+
+  function addItemForDate(itemDate) {
+    setMenuDraft((current) => ({ ...current, items: [...current.items, emptyItem(itemDate)] }));
+  }
+
+  function removeMenuItem(itemId) {
+    setMenuDraft((current) => ({ ...current, items: current.items.filter((item) => item.id !== itemId) }));
+  }
+
+  function applyTemplate() {
+    const items = createMonthlyTemplate(menuDraft.weekStart);
+    setMenuDraft((current) => ({
+      ...current,
+      title: `${monthName(current.weekStart)} WVCS Lunch Menu`,
+      notes: current.notes || "A portion of lunch proceeds supports WVCS student trips. Please contact the office with food allergy questions.",
+      items,
+    }));
+    setStatus("WVCS monthly lunch template loaded. You can edit any day before saving.");
+  }
 
   async function addOrder() {
     if (!selectedFamily || !selectedStudent || !selectedItem) {
@@ -260,27 +371,56 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
               <Utensils size={16} className="text-sky-600" />
-              Digital Lunch Menu
+              Monthly Digital Lunch Menu
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <Field label="Menu title"><Input value={menuDraft.title} onChange={(event) => setMenuDraft({ ...menuDraft, title: event.target.value })} /></Field>
-              <Field label="Week / menu start"><Input type="date" value={menuDraft.weekStart} onChange={(event) => setMenuDraft({ ...menuDraft, weekStart: event.target.value })} /></Field>
+              <Field label="Month"><Input type="month" value={(menuDraft.weekStart || today).slice(0, 7)} onChange={(event) => setMenuDraft({ ...menuDraft, weekStart: `${event.target.value}-01` })} /></Field>
               <Field label="Status"><Select value={menuDraft.status} onChange={(event) => setMenuDraft({ ...menuDraft, status: event.target.value })}><option>Draft</option><option>Open</option><option>Closed</option></Select></Field>
               <div className="md:col-span-3"><Field label="Family note"><Input value={menuDraft.notes} onChange={(event) => setMenuDraft({ ...menuDraft, notes: event.target.value })} placeholder="Optional note about allergies, due dates, or proceeds" /></Field></div>
             </div>
-            <div className="mt-4 space-y-2">
-              {menuDraft.items.map((item, index) => (
-                <div key={item.id} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 md:grid-cols-[145px_1fr_1fr_95px_44px]">
-                  <Input type="date" value={item.date} onChange={(event) => setMenuDraft({ ...menuDraft, items: menuDraft.items.map((row) => row.id === item.id ? { ...row, date: event.target.value } : row) })} />
-                  <Input value={item.name} onChange={(event) => setMenuDraft({ ...menuDraft, items: menuDraft.items.map((row) => row.id === item.id ? { ...row, name: event.target.value } : row) })} placeholder="Lunch choice" />
-                  <Input value={item.description} onChange={(event) => setMenuDraft({ ...menuDraft, items: menuDraft.items.map((row) => row.id === item.id ? { ...row, description: event.target.value } : row) })} placeholder="Description" />
-                  <Input inputMode="decimal" value={item.price} onChange={(event) => setMenuDraft({ ...menuDraft, items: menuDraft.items.map((row) => row.id === item.id ? { ...row, price: event.target.value } : row) })} placeholder="4.50" />
-                  <button type="button" onClick={() => setMenuDraft({ ...menuDraft, items: menuDraft.items.filter((_, itemIndex) => itemIndex !== index) })} className="rounded-lg border border-slate-300 bg-white text-sm font-bold text-slate-600">x</button>
-                </div>
-              ))}
+
+            <div className="mt-4 rounded-lg border border-slate-300 bg-white">
+              <div className="grid grid-cols-5 border-b border-slate-300 bg-slate-100 text-center text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+                {weekDays.map((day) => <div key={day} className="border-r border-slate-300 px-2 py-2 last:border-r-0">{day}</div>)}
+              </div>
+              <div className="grid grid-cols-5">
+                {menuCalendarCells.map((cellDate, index) => {
+                  const cellIso = cellDate ? isoDate(cellDate) : "";
+                  const dayItems = cellIso ? menuItemsByDate.get(cellIso) || [] : [];
+                  return (
+                    <div key={cellIso || `blank-${index}`} className="min-h-48 border-r border-b border-slate-200 bg-white p-2 last:border-r-0">
+                      {cellDate ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-bold text-slate-900">{cellDate.getDate()}</div>
+                            <button type="button" onClick={() => addItemForDate(cellIso)} className="rounded-md border border-slate-300 px-2 py-0.5 text-xs font-bold text-slate-700 hover:bg-slate-50">+</button>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            {dayItems.map((item) => (
+                              <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                                <Input value={item.name} onChange={(event) => updateMenuItem(item.id, { name: event.target.value })} placeholder="Lunch item" className="px-2 py-1 text-xs" />
+                                <div className="mt-1 grid grid-cols-[1fr_54px_28px] gap-1">
+                                  <Input value={item.description} onChange={(event) => updateMenuItem(item.id, { description: event.target.value })} placeholder="Note" className="px-2 py-1 text-xs" />
+                                  <Input inputMode="decimal" value={item.price} onChange={(event) => updateMenuItem(item.id, { price: event.target.value })} placeholder="4.50" className="px-2 py-1 text-xs" />
+                                  <button type="button" onClick={() => removeMenuItem(item.id)} className="rounded-md border border-slate-300 bg-white text-xs font-bold text-slate-600">x</button>
+                                </div>
+                              </div>
+                            ))}
+                            {!dayItems.length && <div className="rounded-md border border-dashed border-slate-200 p-2 text-center text-xs text-slate-400">No lunch</div>}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="h-full rounded-md bg-slate-50" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setMenuDraft({ ...menuDraft, items: [...menuDraft.items, emptyItem(menuDraft.weekStart || today)] })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={16} />Add Item</button>
+              <button type="button" onClick={applyTemplate} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={16} />Use WVCS Template</button>
+              <button type="button" onClick={() => setMenuDraft({ ...menuDraft, items: [...menuDraft.items, emptyItem(menuDraft.weekStart || today)] })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={16} />Add Item by Date</button>
               <button type="button" onClick={() => saveMenuDraft(menuDraft.status)} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white"><Save size={16} />Save Menu</button>
               <button type="button" onClick={() => saveMenuDraft("Open")} className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white"><CheckCircle2 size={16} />Save & Open</button>
             </div>

@@ -4,6 +4,7 @@ import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunch
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
+const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -12,6 +13,34 @@ function money(value) {
 function shortDate(value) {
   if (!value) return "";
   return new Date(value).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function monthStart(value) {
+  const date = value ? new Date(`${value}T00:00:00`) : new Date();
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthName(value) {
+  return monthStart(value).toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+function buildSchoolMonthDays(value) {
+  const start = monthStart(value);
+  const days = [];
+  const cursor = new Date(start);
+  while (cursor.getMonth() === start.getMonth()) {
+    const day = cursor.getDay();
+    if (day >= 1 && day <= 5) days.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const leading = days.length ? days[0].getDay() - 1 : 0;
+  const cells = Array.from({ length: leading }, () => null).concat(days);
+  while (cells.length % 5 !== 0) cells.push(null);
+  return cells;
 }
 
 function Input(props) {
@@ -81,7 +110,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [showFosForm, setShowFosForm] = useState(false);
-  const [lunchDraft, setLunchDraft] = useState({ studentId: "", itemKey: "", amount: "25.00" });
+  const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00" });
   const [lunchStatus, setLunchStatus] = useState("");
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
@@ -154,8 +183,19 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const latestInvoice = invoices[0];
   const fosBalanceInfo = `This family's FOS obligation starts at ${money(balance.liabilityAmount || portal.data?.fos?.buyoutAmount || 500)}. Each approved volunteer hour reduces this amount by ${money(balance.hourValue || portal.data?.fos?.hourValue || 10)} until the requirement is complete.`;
   const lunch = portal.data?.lunch || {};
-  const lunchItems = (lunch.menus || []).flatMap((menu) => (menu.items || []).map((item) => ({ ...item, menuId: menu.id, menuTitle: menu.title, itemKey: `${menu.id}:${item.id}` })));
-  const selectedLunchItem = lunchItems.find((item) => item.itemKey === lunchDraft.itemKey);
+  const activeLunchMenu = (lunch.menus || []).find((menu) => menu.id === lunchDraft.menuId) || lunch.menus?.[0] || null;
+  const lunchItems = (activeLunchMenu?.items || []).map((item) => ({ ...item, menuId: activeLunchMenu.id, menuTitle: activeLunchMenu.title, itemKey: `${activeLunchMenu.id}:${item.id}` }));
+  const lunchItemsByDate = useMemo(() => {
+    const map = new Map();
+    lunchItems.forEach((item) => {
+      if (!item.date) return;
+      map.set(item.date, [...(map.get(item.date) || []), item]);
+    });
+    return map;
+  }, [lunchItems]);
+  const selectedLunchItems = lunchItems.filter((item) => lunchDraft.selectedItems[item.itemKey]);
+  const expectedLunchCost = selectedLunchItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const monthCells = buildSchoolMonthDays(activeLunchMenu?.weekStart || today);
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";
@@ -235,19 +275,29 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   }
 
   async function submitLunchOrder() {
-    if (!lunchDraft.studentId || !selectedLunchItem) {
-      setLunchStatus("Choose a student and lunch item before submitting.");
+    if (!lunchDraft.studentId || !selectedLunchItems.length) {
+      setLunchStatus("Choose a student and at least one lunch item before submitting.");
       return;
     }
-    setLunchStatus("Submitting lunch order...");
+    setLunchStatus("Submitting lunch orders...");
     try {
-      await submitLunchOrders([{ studentId: lunchDraft.studentId, menuId: selectedLunchItem.menuId, itemId: selectedLunchItem.id }]);
-      setLunchDraft((current) => ({ ...current, itemKey: "" }));
-      setLunchStatus("Lunch order submitted. The office will charge the account only if the lunch is served.");
+      await submitLunchOrders(selectedLunchItems.map((item) => ({ studentId: lunchDraft.studentId, menuId: item.menuId, itemId: item.id })));
+      setLunchDraft((current) => ({ ...current, selectedItems: {} }));
+      setLunchStatus(`Lunch menu submitted. Expected cost: ${money(expectedLunchCost)}. The office will charge the account only for lunches that are served.`);
       await loadPortal();
     } catch (error) {
       setLunchStatus(`Unable to submit lunch order: ${error.message}`);
     }
+  }
+
+  function toggleLunchItem(itemKey) {
+    setLunchDraft((current) => ({
+      ...current,
+      selectedItems: {
+        ...current.selectedItems,
+        [itemKey]: !current.selectedItems[itemKey],
+      },
+    }));
   }
 
   async function addLunchFunds() {
@@ -477,9 +527,20 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                     <div className="flex items-center gap-2 text-sm font-bold text-white">
                       <Utensils size={16} className="text-sky-300" />
-                      Order Lunch
+                      Monthly Lunch Menu
                     </div>
                     <div className="mt-4 grid gap-3">
+                      {(lunch.menus || []).length > 1 && (
+                        <Field label="Menu">
+                          <select
+                            value={activeLunchMenu?.id || ""}
+                            onChange={(event) => setLunchDraft({ ...lunchDraft, menuId: event.target.value, selectedItems: {} })}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                          >
+                            {(lunch.menus || []).map((menu) => <option key={menu.id} value={menu.id}>{menu.title}</option>)}
+                          </select>
+                        </Field>
+                      )}
                       <Field label="Student">
                         <select
                           value={lunchDraft.studentId}
@@ -490,28 +551,74 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                           {(portal.data.family?.students || []).map((student) => <option key={student.id} value={student.id}>{student.name} {student.grade ? `(Grade ${student.grade})` : ""}</option>)}
                         </select>
                       </Field>
-                      <Field label="Lunch choice">
-                        <select
-                          value={lunchDraft.itemKey}
-                          onChange={(event) => setLunchDraft({ ...lunchDraft, itemKey: event.target.value })}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                        >
-                          <option value="">Select lunch</option>
-                          {lunchItems.map((item) => (
-                            <option key={item.itemKey} value={item.itemKey}>
-                              {shortDate(item.date)} - {item.name} - {money(item.price)}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      {selectedLunchItem?.description && <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">{selectedLunchItem.description}</div>}
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-bold text-white">{activeLunchMenu?.title || "Lunch Menu"}</div>
+                            <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : "No open menu"}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Expected Cost</div>
+                            <div className="text-xl font-bold text-emerald-200">{money(expectedLunchCost)}</div>
+                          </div>
+                        </div>
+                        {activeLunchMenu?.notes && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-300">{activeLunchMenu.notes}</div>}
+                      </div>
+                      <div className="overflow-x-auto rounded-lg border border-slate-800">
+                        <div className="min-w-[760px]">
+                          <div className="grid grid-cols-5 border-b border-slate-800 bg-slate-900 text-center text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                            {weekDays.map((day) => <div key={day} className="border-r border-slate-800 px-2 py-2 last:border-r-0">{day}</div>)}
+                          </div>
+                          <div className="grid grid-cols-5">
+                            {monthCells.map((cellDate, index) => {
+                              const cellIso = cellDate ? isoDate(cellDate) : "";
+                              const dayItems = cellIso ? lunchItemsByDate.get(cellIso) || [] : [];
+                              return (
+                                <div key={cellIso || `blank-${index}`} className="min-h-40 border-r border-b border-slate-800 bg-slate-950 p-2 last:border-r-0">
+                                  {cellDate ? (
+                                    <>
+                                      <div className="text-sm font-bold text-slate-200">{cellDate.getDate()}</div>
+                                      <div className="mt-2 space-y-2">
+                                        {dayItems.map((item) => {
+                                          const checked = Boolean(lunchDraft.selectedItems[item.itemKey]);
+                                          return (
+                                            <button
+                                              key={item.itemKey}
+                                              type="button"
+                                              onClick={() => toggleLunchItem(item.itemKey)}
+                                              className={`flex w-full items-start gap-2 rounded-md border p-2 text-left text-xs transition ${
+                                                checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"
+                                              }`}
+                                            >
+                                              <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-emerald-300 bg-emerald-400 text-slate-950" : "border-slate-600"}`}>
+                                                {checked ? "✓" : ""}
+                                              </span>
+                                              <span>
+                                                <span className="block font-semibold">{item.name}</span>
+                                                <span className="block text-slate-500">{money(item.price)}</span>
+                                              </span>
+                                            </button>
+                                          );
+                                        })}
+                                        {!dayItems.length && <div className="rounded-md border border-dashed border-slate-800 p-2 text-center text-xs text-slate-600">No lunch</div>}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="h-full rounded-md bg-slate-900/60" />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         onClick={submitLunchOrder}
                         className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
                       >
                         <Send size={16} />
-                        Submit Lunch Order
+                        Submit Monthly Lunch Order
                       </button>
                     </div>
                     {!lunchItems.length && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are open yet.</div>}

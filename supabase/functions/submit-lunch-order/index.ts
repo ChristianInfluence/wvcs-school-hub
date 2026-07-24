@@ -88,7 +88,24 @@ Deno.serve(async (request) => {
       });
     }
 
-    const { data, error } = await supabase.from("lunch_orders").insert(cleanOrders).select("*");
+    const { data: existingOrders, error: existingError } = await supabase
+      .from("lunch_orders")
+      .select("menu_id,student_id,order_date,item_name,status")
+      .eq("family_key", access.family_key)
+      .neq("status", "Cancelled");
+    if (existingError) throw existingError;
+
+    const existingKeys = new Set(
+      (existingOrders || []).map((order: Record<string, any>) => `${order.menu_id}:${order.student_id}:${order.order_date}:${order.item_name}`),
+    );
+    const newOrders = cleanOrders.filter((order) => !existingKeys.has(`${order.menu_id}:${order.student_id}:${order.order_date}:${order.item_name}`));
+    if (!newOrders.length) {
+      return new Response(JSON.stringify({ submitted: true, count: 0, skippedDuplicates: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data, error } = await supabase.from("lunch_orders").insert(newOrders).select("*");
     if (error) throw error;
 
     return new Response(JSON.stringify({ submitted: true, count: data?.length || 0 }), {
