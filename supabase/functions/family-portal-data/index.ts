@@ -50,6 +50,8 @@ Deno.serve(async (request) => {
 
     let accessQuery = supabase.from("family_portal_access").select("*").eq("active", true);
 
+    const isParentPortalLogin = Boolean(!token && !previewFamilyKey);
+
     if (token) {
       accessQuery = accessQuery.eq("public_token", token);
     } else if (previewFamilyKey) {
@@ -72,6 +74,19 @@ Deno.serve(async (request) => {
 
     if (accessError) throw accessError;
     if (!access) return new Response(JSON.stringify({ loaded: true, found: false }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    if (isParentPortalLogin && requesterEmail) {
+      const loginAt = new Date().toISOString();
+      await supabase
+        .from("family_portal_access")
+        .update({
+          last_parent_login_at: loginAt,
+          last_parent_login_email: requesterEmail,
+        })
+        .eq("family_key", access.family_key);
+      access.last_parent_login_at = loginAt;
+      access.last_parent_login_email = requesterEmail;
+    }
 
     const nameTerms = familyNameTerms(access.family_name);
     const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
@@ -109,6 +124,8 @@ Deno.serve(async (request) => {
           familyKey: access.family_key,
           familyName: access.family_name,
           contactEmails: access.contact_emails || [],
+          lastParentLoginAt: access.last_parent_login_at || "",
+          lastParentLoginEmail: access.last_parent_login_email || "",
           students,
         },
         fos: {

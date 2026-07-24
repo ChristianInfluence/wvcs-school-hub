@@ -22,6 +22,11 @@ function shortDate(value) {
   return new Date(value).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
+function dateTime(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function Input(props) {
   return (
     <input
@@ -241,6 +246,20 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
               <div className="mt-2 text-xs text-slate-500">
                 Parents sign in at <span className="font-semibold text-slate-300">wvcshub.org/#/family-login</span> using roster-linked email addresses.
               </div>
+              <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                selectedAccess?.lastParentLoginAt
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-slate-800 bg-slate-950 text-slate-500"
+              }`}>
+                {selectedAccess?.lastParentLoginAt ? (
+                  <>
+                    <span className="font-semibold">Last parent login:</span> {dateTime(selectedAccess.lastParentLoginAt)}
+                    {selectedAccess.lastParentLoginEmail ? ` by ${selectedAccess.lastParentLoginEmail}` : ""}
+                  </>
+                ) : (
+                  "No parent login has been recorded for this family yet."
+                )}
+              </div>
               <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Parent Portal Access</div>
                 <div className="mt-2 space-y-2">
@@ -307,7 +326,24 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                     selectedFamily?.familyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
                   }`}
                 >
-                  <span className="block truncate text-sm font-bold">{family.familyName}</span>
+                  <span className="flex items-center gap-2 text-sm font-bold">
+                    <span className="block min-w-0 flex-1 truncate">{family.familyName}</span>
+                    {portalAccess[family.familyKey]?.lastParentLoginAt ? (
+                      <span
+                        title={`Last login: ${dateTime(portalAccess[family.familyKey].lastParentLoginAt)}${portalAccess[family.familyKey].lastParentLoginEmail ? ` by ${portalAccess[family.familyKey].lastParentLoginEmail}` : ""}`}
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                      >
+                        <CheckCircle2 size={12} />
+                      </span>
+                    ) : (
+                      <span
+                        title="No parent login recorded yet"
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-[10px] font-bold text-slate-500"
+                      >
+                        -
+                      </span>
+                    )}
+                  </span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
                     {(family.students || []).map((student) => student.name).join(", ")}
                   </span>

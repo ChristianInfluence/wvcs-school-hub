@@ -54,6 +54,8 @@ function mapFamilyAccess(row) {
     publicToken: row.public_token || "",
     liabilityAmount: Number(row.fos_liability_amount ?? FOS_BUYOUT_AMOUNT),
     hourValue: Number(row.fos_hour_value ?? FOS_HOUR_VALUE),
+    lastParentLoginAt: row.last_parent_login_at || "",
+    lastParentLoginEmail: row.last_parent_login_email || "",
   };
 }
 
@@ -74,7 +76,7 @@ export async function fetchFamilyPortalAccessRecords() {
 
   const { data, error } = await supabase
     .from("family_portal_access")
-    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value")
+    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email")
     .order("family_name", { ascending: true });
 
   if (error) throw error;
@@ -101,6 +103,8 @@ export async function ensureFamilyPortalAccess(family, currentUserEmail = "") {
       publicToken: accessRecord.public_token,
       liabilityAmount: Number(accessRecord.fos_liability_amount ?? FOS_BUYOUT_AMOUNT),
       hourValue: Number(accessRecord.fos_hour_value ?? FOS_HOUR_VALUE),
+      lastParentLoginAt: accessRecord.last_parent_login_at || "",
+      lastParentLoginEmail: accessRecord.last_parent_login_email || "",
       updatedByEmail: currentUserEmail,
     },
   };
@@ -116,7 +120,7 @@ export async function updateFamilyFosSettings(familyKey, settings) {
       fos_hour_value: Number(settings.hourValue || FOS_HOUR_VALUE),
     })
     .eq("family_key", familyKey)
-    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value")
+    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email")
     .single();
 
   if (error) throw error;
