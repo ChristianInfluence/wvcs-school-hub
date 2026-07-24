@@ -9,6 +9,7 @@ import {
   fetchFamilyPortalAccessRecords,
   fetchFosEntries,
   reviewFosEntry,
+  sendFamilyFosReminder,
   sendFamilyPortalInvite,
   updateFamilyFosSettings,
 } from "../../lib/familyPortalData.js";
@@ -144,6 +145,24 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     }
   }
 
+  async function sendReminder(family) {
+    try {
+      const recipients = inviteDrafts[family.familyKey] || [];
+      if (!recipients.length) {
+        setStatus("Select at least one authorized parent email for the reminder.");
+        return;
+      }
+      setPortalLoadingKey(family.familyKey);
+      setStatus(`Sending FOS reminder for ${family.familyName}...`);
+      const result = await sendFamilyFosReminder(family.familyKey, recipients);
+      setStatus(`FOS reminder sent to ${result.recipients.join(", ")}.`);
+    } catch (error) {
+      setStatus(`Unable to send FOS reminder: ${error.message}`);
+    } finally {
+      setPortalLoadingKey("");
+    }
+  }
+
   async function viewAsFamily(family) {
     await ensureAccessForFamily(family);
     window.open(`${window.location.origin}/#/family-portal-preview/${encodeURIComponent(family.familyKey)}`, "_blank", "noopener,noreferrer");
@@ -261,6 +280,41 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                 )}
               </div>
               <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">FOS Settings</div>
+                  <button
+                    type="button"
+                    onClick={saveLiability}
+                    className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs font-semibold">
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-emerald-100">
+                    <span className="block text-[10px] uppercase tracking-[0.12em] text-emerald-300/70">Approved</span>
+                    {selectedBalance.approvedHours}
+                  </div>
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100">
+                    <span className="block text-[10px] uppercase tracking-[0.12em] text-amber-300/70">Remain</span>
+                    {selectedBalance.remainingHours}
+                  </div>
+                  <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2 text-rose-100">
+                    <span className="block text-[10px] uppercase tracking-[0.12em] text-rose-300/70">Owed</span>
+                    {money(selectedBalance.remainingBalance)}
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2 text-xs text-slate-400">
+                  <span>Annual liability</span>
+                  <Input
+                    inputMode="decimal"
+                    value={liabilityDrafts[selectedFamily.familyKey] ?? String(selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT)}
+                    onChange={(event) => setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: event.target.value }))}
+                    className="py-1.5 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Parent Portal Access</div>
                 <div className="mt-2 space-y-2">
                   {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
@@ -297,6 +351,14 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                 >
                   <Mail size={16} />
                   {portalLoadingKey === selectedFamily.familyKey ? "Working..." : "Send Invite to Selected"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendReminder(selectedFamily)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/20"
+                >
+                  <Mail size={16} />
+                  Send FOS Reminder
                 </button>
                 <button
                   type="button"
@@ -352,45 +414,6 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
             </div>
           </div>
 
-          {selectedFamily && (
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <div className="text-sm font-bold text-white">FOS Settings</div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-semibold">
-                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-emerald-100">
-                  <span className="block text-[10px] uppercase tracking-[0.12em] text-emerald-300/70">Approved</span>
-                  {selectedBalance.approvedHours}
-                </div>
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100">
-                  <span className="block text-[10px] uppercase tracking-[0.12em] text-amber-300/70">Remaining</span>
-                  {selectedBalance.remainingHours}
-                </div>
-                <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-2 text-sky-100">
-                  <span className="block text-[10px] uppercase tracking-[0.12em] text-sky-300/70">Owed</span>
-                  {money(selectedBalance.remainingBalance)}
-                </div>
-              </div>
-              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Annual FOS Liability</div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <Input
-                    inputMode="decimal"
-                    value={liabilityDrafts[selectedFamily.familyKey] ?? String(selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT)}
-                    onChange={(event) => setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: event.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    onClick={saveLiability}
-                    className="inline-flex items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
-                  >
-                    Save
-                  </button>
-                </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  This family currently needs {selectedBalance.requiredHours.toFixed(selectedBalance.requiredHours % 1 ? 1 : 0)} approved hours to reduce the FOS amount to $0.
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">

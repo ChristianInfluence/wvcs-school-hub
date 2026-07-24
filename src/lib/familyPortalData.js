@@ -165,3 +165,13 @@ export async function sendFamilyPortalInvite(family, currentUserEmail = "", reci
   if (data?.error) throw new Error(data.error);
   return data || { sent: false };
 }
+
+export async function sendFamilyFosReminder(familyKey, recipients = []) {
+  if (!isSupabaseConfigured) return { sent: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("send-family-fos-reminder", {
+    body: { familyKey, recipients },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { sent: false };
+}
