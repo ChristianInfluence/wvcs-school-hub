@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, DollarSign, FileText, ReceiptText, RefreshCw, Send, Users } from "lucide-react";
+import { CheckCircle2, Clock, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users } from "lucide-react";
 import { fetchFamilyPortalData, submitFosHours } from "../../lib/familyPortalData.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -31,16 +31,33 @@ function Field({ label, children }) {
   );
 }
 
-function Stat({ label, value, tone = "white" }) {
+function Stat({ label, value, tone = "white", info = "" }) {
   const tones = {
     white: "text-white",
     green: "text-emerald-200",
     amber: "text-amber-200",
+    rose: "text-rose-200",
     sky: "text-sky-200",
   };
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <span>{label}</span>
+        {info && (
+          <span className="group relative inline-flex">
+            <button
+              type="button"
+              aria-label={`${label} explanation`}
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-slate-400 outline-none hover:border-sky-400 hover:text-sky-200 focus:border-sky-400 focus:text-sky-200"
+            >
+              <Info size={12} />
+            </button>
+            <span className="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left text-xs font-medium normal-case leading-5 tracking-normal text-slate-200 shadow-xl group-hover:block group-focus-within:block">
+              {info}
+            </span>
+          </span>
+        )}
+      </div>
       <div className={`mt-2 text-2xl font-bold ${tones[tone] || tones.white}`}>{value}</div>
     </div>
   );
@@ -92,6 +109,7 @@ export default function FamilyPortalPage({ token = "" }) {
   const openInvoices = invoices.filter(isOpenInvoice);
   const openInvoiceBalance = openInvoices.reduce((total, invoice) => total + invoiceTotal(invoice), 0);
   const latestInvoice = invoices[0];
+  const fosBalanceInfo = "FOS starts as a $500 family obligation. Each approved volunteer hour reduces this amount by $10 until the 50-hour requirement is complete.";
 
   function invoiceTitle(invoice) {
     if (!invoice) return "Invoice";
@@ -171,7 +189,7 @@ export default function FamilyPortalPage({ token = "" }) {
               <Stat label="Open Invoices" value={openInvoices.length} tone="amber" />
               <Stat label="Open Balance" value={money(openInvoiceBalance)} tone="sky" />
               <Stat label="FOS Remaining" value={`${balance.remainingHours || 0} hrs`} tone="amber" />
-              <Stat label="FOS Balance" value={money(balance.remainingBalance)} tone="green" />
+              <Stat label="FOS Amount Owed" value={money(balance.remainingBalance)} tone="rose" info={fosBalanceInfo} />
             </div>
 
             <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
@@ -345,7 +363,7 @@ export default function FamilyPortalPage({ token = "" }) {
                 <div className="grid gap-3 md:grid-cols-3">
                   <Stat label="Approved Hours" value={balance.approvedHours || 0} tone="green" />
                   <Stat label="Remaining Hours" value={balance.remainingHours || 0} tone="amber" />
-                  <Stat label="Current FOS Balance" value={money(balance.remainingBalance)} tone="sky" />
+                  <Stat label="FOS Amount Owed" value={money(balance.remainingBalance)} tone="rose" info={fosBalanceInfo} />
                 </div>
 
                 <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
