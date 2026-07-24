@@ -237,7 +237,7 @@ export async function deleteLunchOrder(order, currentUserEmail = "") {
 
 export async function fetchPublishedLunchMenus() {
   if (!isSupabaseConfigured) return { loaded: false, menus: [], reason: "Supabase is not configured." };
-  const { data, error } = await supabase.functions.invoke("staff-lunch-data", { body: {} });
+  const { data, error } = await supabase.functions.invoke("get-staff-lunch-menus", { body: {} });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data || { loaded: false, menus: [] };
