@@ -49,23 +49,22 @@ export async function fetchFosEntries() {
 
 export async function ensureFamilyPortalAccess(family, currentUserEmail = "") {
   if (!isSupabaseConfigured) return { ready: false, reason: "Supabase is not configured." };
-  const contactEmails = (family.parents || []).map((parent) => parent.email).filter(Boolean);
-  const { data, error } = await supabase.rpc("ensure_family_portal_access", {
-    target_family_key: family.familyKey,
-    target_family_name: family.familyName,
-    target_contact_emails: contactEmails,
+  const { data, error } = await supabase.functions.invoke("ensure-family-portal-access", {
+    body: { family, currentUserEmail },
   });
 
   if (error) throw error;
+  if (data?.error) throw new Error(data.error);
   const access = Array.isArray(data) ? data[0] : data;
-  if (!access?.public_token) throw new Error("The portal link could not be generated. Please confirm this user has Office & Finance access.");
+  const accessRecord = access?.access || access;
+  if (!accessRecord?.public_token) throw new Error("The portal link could not be generated. Please confirm this user has Office & Finance access.");
   return {
     ready: true,
     access: {
-      familyKey: access.family_key,
-      familyName: access.family_name,
-      contactEmails: access.contact_emails || [],
-      publicToken: access.public_token,
+      familyKey: accessRecord.family_key,
+      familyName: accessRecord.family_name,
+      contactEmails: accessRecord.contact_emails || [],
+      publicToken: accessRecord.public_token,
       updatedByEmail: currentUserEmail,
     },
   };
