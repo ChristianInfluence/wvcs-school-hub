@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Mail, RefreshCw, Search, XCircle } from "lucide-react";
 import { fetchOfficeFamilyDirectory } from "../../lib/tuitionBillingData.js";
 import {
@@ -79,6 +79,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [familyFilter, setFamilyFilter] = useState("all");
   const [auditEvents, setAuditEvents] = useState([]);
   const [liabilitySaveState, setLiabilitySaveState] = useState("");
+  const selectedFamilyPanelRef = useRef(null);
 
   async function loadData({ quiet = false } = {}) {
     try {
@@ -269,6 +270,9 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   function selectFamily(family) {
     setSelectedFamily(family);
     setLiabilitySaveState("");
+    window.requestAnimationFrame(() => {
+      selectedFamilyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     setInviteDrafts((current) => {
       if (current[family.familyKey]) return current;
       const existingEmails = portalAccess[family.familyKey]?.contactEmails || [];
@@ -390,7 +394,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
         <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           {selectedFamily && (
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div ref={selectedFamilyPanelRef} className="rounded-lg border border-slate-800 bg-slate-900 p-4 scroll-mt-4">
               <div className="text-sm font-bold text-white">{selectedFamily.familyName}</div>
               <div className="mt-2 text-xs text-slate-500">
                 Parents sign in at <span className="font-semibold text-slate-300">wvcshub.org/#/family-login</span> using roster-linked email addresses.
