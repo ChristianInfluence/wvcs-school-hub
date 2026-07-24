@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calculator,
+  CheckCircle2,
   Copy,
   CreditCard,
   Download,
@@ -11,6 +12,7 @@ import {
   ReceiptText,
   RefreshCw,
   Save,
+  Search,
   Trash2,
 } from "lucide-react";
 import {
@@ -19,6 +21,7 @@ import {
   createIncidentalCheckoutSession,
   fetchIncidentalInvoiceByToken,
   fetchIncidentalInvoices,
+  fetchOfficeFamilyDirectory,
   fetchTuitionInvoices,
   saveIncidentalInvoice,
   saveTuitionInvoice,
@@ -87,14 +90,24 @@ const defaultInvoice = {
 };
 
 const defaultIncidentalInvoice = {
+  id: "",
+  publicToken: "",
+  familyKey: "",
   familyName: "",
   parentName: "",
   parentEmail: "",
+  parents: [],
+  studentIds: [],
+  students: [],
   invoiceDate: today,
   dueDate: "",
   status: "Draft",
   paymentStatus: "Unpaid",
   paymentUrl: "",
+  paidAt: "",
+  paidInOffice: false,
+  paymentMethod: "",
+  checkNumber: "",
   note: "Please contact the school office with any questions about these incidental charges.",
   charges: [{ id: "charge-1", description: "", amount: "" }],
 };
@@ -230,6 +243,94 @@ function incidentalTitle(invoice) {
   return `${family} Incidental Invoice`;
 }
 
+function getIncidentalParents(invoice) {
+  if (Array.isArray(invoice.parents) && invoice.parents.length) return invoice.parents;
+  return [
+    {
+      name: invoice.parentName || "",
+      email: invoice.parentEmail || "",
+    },
+  ].filter((parent) => parent.name || parent.email);
+}
+
+function getIncidentalRecipients(invoice) {
+  return [...new Set(getIncidentalParents(invoice).map((parent) => String(parent.email || "").trim().toLowerCase()).filter(Boolean))];
+}
+
+function getIncidentalStudentSummary(invoice) {
+  const students = Array.isArray(invoice.students) ? invoice.students : [];
+  if (!students.length) return "";
+  return students.map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ");
+}
+
+function getRecordInvoice(record) {
+  return {
+    ...defaultIncidentalInvoice,
+    ...(record.invoice || {}),
+    id: record.id || record.invoice?.id || "",
+    publicToken: record.publicToken || record.invoice?.publicToken || "",
+    familyKey: record.familyKey || record.invoice?.familyKey || "",
+    familyName: record.familyName || record.invoice?.familyName || "",
+    studentIds: record.studentIds || record.invoice?.studentIds || [],
+    status: record.status || record.invoice?.status || "Draft",
+    paymentStatus: record.paymentStatus || record.invoice?.paymentStatus || "Unpaid",
+    paymentUrl: record.paymentUrl || record.invoice?.paymentUrl || "",
+    sentAt: record.sentAt || record.invoice?.sentAt || "",
+    sentTo: record.sentTo || record.invoice?.sentTo || [],
+    paidAt: record.paidAt || record.invoice?.paidAt || "",
+    paidInOffice: Boolean(record.paidInOffice || record.invoice?.paidInOffice),
+    paymentMethod: record.paymentMethod || record.invoice?.paymentMethod || "",
+    checkNumber: record.checkNumber || record.invoice?.checkNumber || "",
+  };
+}
+
+function getReceivableTotals(records) {
+  return records.reduce(
+    (totals, record) => {
+      const invoice = getRecordInvoice(record);
+      const total = incidentalTotal(invoice);
+      totals.total += total;
+      if (invoice.paymentStatus === "Paid") totals.paid += total;
+      else if (invoice.paymentStatus !== "Voided") totals.open += total;
+      return totals;
+    },
+    { total: 0, open: 0, paid: 0 }
+  );
+}
+
+function familyMatchesSearch(family, query) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    family.familyName,
+    ...(family.parents || []).flatMap((parent) => [parent.name, parent.email]),
+    ...(family.students || []).flatMap((student) => [student.name, student.grade]),
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(needle);
+}
+
+function recordMatchesSearch(record, query) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const invoice = getRecordInvoice(record);
+  return [
+    invoice.familyName,
+    invoice.parentName,
+    invoice.parentEmail,
+    invoice.status,
+    invoice.paymentStatus,
+    invoice.paymentMethod,
+    invoice.checkNumber,
+    getIncidentalStudentSummary(invoice),
+    ...(invoice.charges || []).map((charge) => charge.description),
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(needle);
+}
+
 function getIncidentalPortalUrl(invoice) {
   if (!invoice.publicToken) return "";
   return `${window.location.origin}${window.location.pathname}#/incidental-pay/${encodeURIComponent(invoice.publicToken)}`;
@@ -301,6 +402,73 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function buildIncidentalReceiptDocument(invoice) {
+  const total = incidentalTotal(invoice);
+  const paidDate = invoice.paidAt ? formatDate(String(invoice.paidAt).slice(0, 10)) : formatDate(today);
+  const method = invoice.paymentMethod ? invoice.paymentMethod.charAt(0).toUpperCase() + invoice.paymentMethod.slice(1) : "Payment";
+  const checkLine = invoice.paymentMethod === "check" && invoice.checkNumber ? `<div><strong>Check #:</strong> ${escapeHtml(invoice.checkNumber)}</div>` : "";
+  const chargeRows = (invoice.charges || [])
+    .map(
+      (charge) => `
+        <tr>
+          <td>${escapeHtml(charge.description || "Incidental charge")}</td>
+          <td class="amount">${escapeHtml(formatCurrency(charge.amount))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(invoice.familyName || "Incidental")} Receipt</title>
+        <style>
+          @page { size: letter portrait; margin: 0.5in; }
+          body { margin: 0; color: #0f172a; font-family: Arial, Helvetica, sans-serif; }
+          .receipt { max-width: 7.2in; margin: 0 auto; }
+          .header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 18px; }
+          .school { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #0369a1; text-transform: uppercase; }
+          h1 { margin: 8px 0 0; font-size: 28px; }
+          .meta { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; min-width: 210px; font-size: 13px; line-height: 1.7; background: #f8fafc; }
+          table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 13px; }
+          th { background: #f1f5f9; text-align: left; color: #334155; }
+          th, td { border: 1px solid #cbd5e1; padding: 10px 12px; }
+          .amount { text-align: right; font-weight: 700; }
+          .total { margin-top: 18px; display: flex; justify-content: flex-end; font-size: 18px; font-weight: 800; }
+          .paid { margin-top: 20px; border-radius: 8px; background: #ecfdf5; color: #047857; padding: 14px; font-weight: 800; }
+          .footer { margin-top: 28px; border-top: 1px solid #cbd5e1; padding-top: 12px; font-size: 11px; color: #64748b; }
+        </style>
+      </head>
+      <body>
+        <main class="receipt">
+          <section class="header">
+            <div>
+              <div class="school">Willamette Valley Christian School</div>
+              <h1>Payment Receipt</h1>
+              <p>${escapeHtml(invoice.familyName || "Family")}</p>
+              ${getIncidentalStudentSummary(invoice) ? `<p>${escapeHtml(getIncidentalStudentSummary(invoice))}</p>` : ""}
+            </div>
+            <div class="meta">
+              <div><strong>Date Paid:</strong> ${escapeHtml(paidDate)}</div>
+              <div><strong>Method:</strong> ${escapeHtml(method)}</div>
+              ${checkLine}
+              <div><strong>Receipt Total:</strong> ${escapeHtml(formatCurrency(total))}</div>
+            </div>
+          </section>
+          <div class="paid">Paid in full: ${escapeHtml(formatCurrency(total))}</div>
+          <table>
+            <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
+            <tbody>${chargeRows}</tbody>
+          </table>
+          <div class="total">Total Paid: ${escapeHtml(formatCurrency(total))}</div>
+          <div class="footer">Willamette Valley Christian School | 9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236 | wvcs.org</div>
+        </main>
+      </body>
+    </html>
+  `;
 }
 
 function buildTuitionInvoiceDocument(invoice) {
@@ -594,6 +762,7 @@ function IncidentalInvoicePreview({ invoice, publicView = false, onStartPayment,
             <div className="mt-3 text-sm leading-6 text-slate-600">
               <div>{invoice.parentName || "Parent/Guardian"}</div>
               {invoice.parentEmail && <div>{invoice.parentEmail}</div>}
+              {getIncidentalStudentSummary(invoice) && <div>{getIncidentalStudentSummary(invoice)}</div>}
             </div>
           </div>
         </div>
@@ -801,6 +970,12 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const [activeView, setActiveView] = useState("tuition");
   const [invoice, setInvoice] = useState(defaultInvoice);
   const [incidentalInvoice, setIncidentalInvoice] = useState(defaultIncidentalInvoice);
+  const [incidentalWorkspaceView, setIncidentalWorkspaceView] = useState("invoice");
+  const [familyDirectory, setFamilyDirectory] = useState([]);
+  const [familySearch, setFamilySearch] = useState("");
+  const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
+  const [receivablesSearch, setReceivablesSearch] = useState("");
+  const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("open");
   const [savedInvoices, setSavedInvoices] = useState([]);
   const [savedIncidentalInvoices, setSavedIncidentalInvoices] = useState([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
@@ -814,6 +989,24 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
   const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
   const incidentalDraftTotal = useMemo(() => incidentalTotal(incidentalInvoice), [incidentalInvoice]);
+  const familySearchResults = useMemo(
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, familySearch)).slice(0, 10),
+    [familyDirectory, familySearch]
+  );
+  const filteredReceivables = useMemo(
+    () =>
+      savedIncidentalInvoices
+        .filter((record) => {
+          const invoice = getRecordInvoice(record);
+          if (receivablesStatusFilter === "open") return invoice.paymentStatus !== "Paid" && invoice.paymentStatus !== "Voided";
+          if (receivablesStatusFilter === "paid") return invoice.paymentStatus === "Paid";
+          if (receivablesStatusFilter === "voided") return invoice.paymentStatus === "Voided";
+          return true;
+        })
+        .filter((record) => recordMatchesSearch(record, receivablesSearch)),
+    [savedIncidentalInvoices, receivablesSearch, receivablesStatusFilter]
+  );
+  const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
 
   async function loadSavedInvoices() {
     try {
@@ -835,9 +1028,20 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
     }
   }
 
+  async function loadFamilyDirectory() {
+    try {
+      const result = await fetchOfficeFamilyDirectory();
+      setFamilyDirectory(result.families || []);
+      setFamilyDirectoryStatus(result.loaded ? "Family roster loaded." : result.reason || "Family roster unavailable.");
+    } catch (error) {
+      setFamilyDirectoryStatus(`Unable to load family roster: ${error.message}`);
+    }
+  }
+
   useEffect(() => {
     loadSavedInvoices();
     loadSavedIncidentalInvoices();
+    loadFamilyDirectory();
   }, []);
 
   function updateInvoice(patch) {
@@ -1124,43 +1328,13 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   async function saveCurrentIncidentalInvoice(patch = {}) {
-    const invoiceId = incidentalInvoice.id || selectedIncidentalInvoiceId || crypto.randomUUID();
-    const publicToken = incidentalInvoice.publicToken || crypto.randomUUID().replaceAll("-", "");
-    const nextInvoice = {
-      ...incidentalInvoice,
-      id: invoiceId,
-      publicToken,
-      status: patch.status || incidentalInvoice.status || "Draft",
-      paymentStatus: patch.paymentStatus || incidentalInvoice.paymentStatus || "Unpaid",
-    };
-    const record = {
-      id: invoiceId,
-      publicToken,
-      invoice: nextInvoice,
-      status: nextInvoice.status,
-      paymentStatus: nextInvoice.paymentStatus,
-      paymentUrl: nextInvoice.paymentUrl || "",
-      sentAt: patch.sentAt || incidentalInvoice.sentAt || "",
-      sentTo: patch.sentTo || incidentalInvoice.sentTo || [],
-      paidAt: patch.paidAt || incidentalInvoice.paidAt || "",
-    };
-    const result = await saveIncidentalInvoice(record, currentUserEmail);
-    setIncidentalInvoice({
-      ...defaultIncidentalInvoice,
-      ...result.invoice.invoice,
-      id: result.invoice.id,
-      publicToken: result.invoice.publicToken,
-      status: result.invoice.status || "Draft",
-      paymentStatus: result.invoice.paymentStatus || "Unpaid",
-      paymentUrl: result.invoice.paymentUrl || result.invoice.invoice?.paymentUrl || "",
-      sentAt: result.invoice.sentAt || "",
-      sentTo: result.invoice.sentTo || [],
-      paidAt: result.invoice.paidAt || "",
-    });
-    setSelectedIncidentalInvoiceId(result.invoice.id);
-    setSavedIncidentalInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
-    setIncidentalStatus(result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved.");
-    return result.invoice;
+    return saveCurrentIncidentalInvoiceFor(
+      {
+        ...incidentalInvoice,
+        id: incidentalInvoice.id || selectedIncidentalInvoiceId || "",
+      },
+      patch
+    );
   }
 
   async function saveIncidentalDraft() {
@@ -1173,20 +1347,42 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   function loadIncidentalRecord(record) {
+    setIncidentalInvoice(getRecordInvoice(record));
+    setSelectedIncidentalInvoiceId(record.id);
+    setIncidentalWorkspaceView("invoice");
+    setStatus(`Loaded ${record.familyName || "incidental invoice"}.`);
+  }
+
+  function selectIncidentalFamily(family) {
+    const primaryParent = family.parents?.find((parent) => parent.email) || family.parents?.[0] || { name: "", email: "" };
+    setIncidentalInvoice((current) => ({
+      ...current,
+      familyKey: family.familyKey,
+      familyName: family.familyName,
+      parentName: primaryParent.name,
+      parentEmail: primaryParent.email,
+      parents: family.parents || [],
+      studentIds: (family.students || []).map((student) => student.studentId).filter(Boolean),
+      students: family.students || [],
+    }));
+    setFamilySearch(family.familyName);
+    setStatus(`Attached incidental invoice to ${family.familyName}.`);
+  }
+
+  function startManualReceivableEntry() {
     setIncidentalInvoice({
       ...defaultIncidentalInvoice,
-      ...(record.invoice || {}),
-      id: record.id,
-      publicToken: record.publicToken || record.invoice?.publicToken || "",
-      status: record.status || "Draft",
-      paymentStatus: record.paymentStatus || "Unpaid",
-      paymentUrl: record.paymentUrl || record.invoice?.paymentUrl || "",
-      sentAt: record.sentAt || "",
-      sentTo: record.sentTo || [],
-      paidAt: record.paidAt || "",
+      id: "",
+      publicToken: "",
+      invoiceDate: today,
+      status: "Manual Entry",
+      paymentStatus: "Unpaid",
+      note: "Manual accounts receivable entry.",
+      charges: [{ id: uid("charge"), description: "", amount: "" }],
     });
-    setSelectedIncidentalInvoiceId(record.id);
-    setStatus(`Loaded ${record.familyName || "incidental invoice"}.`);
+    setSelectedIncidentalInvoiceId("");
+    setIncidentalWorkspaceView("invoice");
+    setStatus("Started a manual accounts receivable entry.");
   }
 
   async function removeSavedIncidentalInvoice(record) {
@@ -1231,9 +1427,9 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   }
 
   async function sendIncidentalEmail() {
-    const recipient = incidentalInvoice.parentEmail?.trim().toLowerCase();
-    if (!recipient) {
-      setStatus("Enter a parent email before sending.");
+    const recipients = getIncidentalRecipients(incidentalInvoice);
+    if (!recipients.length) {
+      setStatus("Select a family or enter at least one parent email before sending.");
       return;
     }
     setSendingIncidentalEmail(true);
@@ -1242,7 +1438,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
       const savedRecord = await saveCurrentIncidentalInvoice({
         status: "Sent",
         sentAt: new Date().toISOString(),
-        sentTo: [recipient],
+        sentTo: recipients,
       });
       const savedInvoice = {
         ...savedRecord.invoice,
@@ -1254,9 +1450,9 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         invoice: savedInvoice,
         total: incidentalTotal(savedInvoice),
         portalUrl: getIncidentalPortalUrl(savedInvoice),
-        recipients: [recipient],
+        recipients,
       });
-      setStatus(result.sent ? `Incidental invoice sent to ${recipient}.` : result.reason || "Email was not sent.");
+      setStatus(result.sent ? `Incidental invoice sent to ${recipients.join(", ")}.` : result.reason || "Email was not sent.");
     } catch (error) {
       setStatus(`Unable to send incidental invoice: ${error.message}`);
     } finally {
@@ -1266,6 +1462,119 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
 
   function updateIncidentalInvoice(patch) {
     setIncidentalInvoice((current) => ({ ...current, ...patch }));
+  }
+
+  async function markIncidentalPaidInOffice(recordOrInvoice = incidentalInvoice) {
+    const invoiceToPay = recordOrInvoice.invoice ? getRecordInvoice(recordOrInvoice) : recordOrInvoice;
+    if (!invoiceToPay.paymentMethod) {
+      setStatus("Select cash, card, or check before marking paid in office.");
+      return;
+    }
+    if (invoiceToPay.paymentMethod === "check" && !String(invoiceToPay.checkNumber || "").trim()) {
+      setStatus("Enter the check number before marking a check payment paid.");
+      return;
+    }
+
+    try {
+      const paidAt = invoiceToPay.paidAt || new Date().toISOString();
+      const record = await saveCurrentIncidentalInvoiceFor(invoiceToPay, {
+        status: invoiceToPay.status === "Draft" ? "Saved" : invoiceToPay.status,
+        paymentStatus: "Paid",
+        paidAt,
+        paidInOffice: true,
+        paymentMethod: invoiceToPay.paymentMethod,
+        checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
+      });
+      setStatus(`${record.familyName || "Incidental invoice"} marked paid in office.`);
+    } catch (error) {
+      setStatus(`Unable to mark paid in office: ${error.message}`);
+    }
+  }
+
+  async function saveCurrentIncidentalInvoiceFor(baseInvoice, patch = {}) {
+    const invoiceId = baseInvoice.id || crypto.randomUUID();
+    const publicToken = baseInvoice.publicToken || crypto.randomUUID().replaceAll("-", "");
+    const nextInvoice = {
+      ...baseInvoice,
+      ...patch,
+      id: invoiceId,
+      publicToken,
+      status: patch.status || baseInvoice.status || "Draft",
+      paymentStatus: patch.paymentStatus || baseInvoice.paymentStatus || "Unpaid",
+      sentAt: patch.sentAt || baseInvoice.sentAt || "",
+      sentTo: patch.sentTo || baseInvoice.sentTo || [],
+      paidAt: patch.paidAt || baseInvoice.paidAt || "",
+      paidInOffice: patch.paidInOffice ?? baseInvoice.paidInOffice ?? false,
+      paymentMethod: patch.paymentMethod ?? baseInvoice.paymentMethod ?? "",
+      checkNumber: patch.checkNumber ?? baseInvoice.checkNumber ?? "",
+    };
+    const record = {
+      id: invoiceId,
+      publicToken,
+      familyKey: nextInvoice.familyKey || "",
+      studentIds: nextInvoice.studentIds || [],
+      invoice: nextInvoice,
+      status: nextInvoice.status,
+      paymentStatus: nextInvoice.paymentStatus,
+      paymentUrl: nextInvoice.paymentUrl || "",
+      sentAt: nextInvoice.sentAt || "",
+      sentTo: nextInvoice.sentTo || [],
+      paidAt: nextInvoice.paidAt || "",
+      paidInOffice: nextInvoice.paidInOffice,
+      paymentMethod: nextInvoice.paymentMethod,
+      checkNumber: nextInvoice.checkNumber,
+    };
+    const result = await saveIncidentalInvoice(record, currentUserEmail);
+    const savedInvoice = getRecordInvoice(result.invoice);
+    setIncidentalInvoice(savedInvoice);
+    setSelectedIncidentalInvoiceId(result.invoice.id);
+    setSavedIncidentalInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
+    setIncidentalStatus(result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved.");
+    return result.invoice;
+  }
+
+  function printIncidentalReceipt(recordOrInvoice = incidentalInvoice) {
+    const receiptInvoice = recordOrInvoice.invoice ? getRecordInvoice(recordOrInvoice) : recordOrInvoice;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setStatus("Unable to open receipt print window. Check popup settings and try again.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(buildIncidentalReceiptDocument(receiptInvoice));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
+  }
+
+  async function exportIncidentalReceipt(recordOrInvoice = incidentalInvoice) {
+    const receiptInvoice = recordOrInvoice.invoice ? getRecordInvoice(recordOrInvoice) : recordOrInvoice;
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const host = document.createElement("div");
+      host.style.position = "fixed";
+      host.style.left = "-10000px";
+      host.innerHTML = buildIncidentalReceiptDocument(receiptInvoice);
+      document.body.appendChild(host);
+      const filename = `${(receiptInvoice.familyName || "incidental").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-receipt.pdf`;
+      await html2pdf()
+        .set({
+          margin: 0.5,
+          filename,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+          jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+        })
+        .from(host.querySelector(".receipt"))
+        .save();
+      host.remove();
+      setStatus("Receipt exported.");
+    } catch (error) {
+      setStatus(`Unable to export receipt: ${error.message}`);
+    }
   }
 
   function updateCharge(chargeId, patch) {
@@ -1829,6 +2138,29 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
         )}
 
         {activeView === "incidentals" && (
+          <>
+          <div className="mt-5 flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+            {[
+              ["invoice", "Create / Send Invoice", ReceiptText],
+              ["receivables", "Accounts Receivable", Calculator],
+            ].map(([id, label, Icon]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setIncidentalWorkspaceView(id)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                  incidentalWorkspaceView === id
+                    ? "border-sky-400 bg-sky-500 text-white"
+                    : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                }`}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {incidentalWorkspaceView === "invoice" && (
           <div className="mt-6 grid gap-4 xl:grid-cols-[240px_480px_minmax(640px,1fr)]">
             <div className="rounded-lg border border-slate-800 bg-slate-900">
               <div className="border-b border-slate-800 p-3">
@@ -1912,6 +2244,56 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Calculator size={16} className="text-sky-300" />
                   Incidental Invoice Details
                 </div>
+                <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">Attach to Family Roster</div>
+                      <div className="mt-1 text-xs text-slate-500">{familyDirectoryStatus}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={loadFamilyDirectory}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                    >
+                      <RefreshCw size={13} />
+                      Refresh
+                    </button>
+                  </div>
+                  <label className="relative mt-3 block">
+                    <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+                    <Input
+                      value={familySearch}
+                      onChange={(event) => setFamilySearch(event.target.value)}
+                      placeholder="Type family, parent email, student name, or grade"
+                      className="pl-9"
+                    />
+                  </label>
+                  {familySearchResults.length > 0 && (
+                    <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-slate-800 bg-slate-900">
+                      {familySearchResults.map((family) => (
+                        <button
+                          key={family.familyKey}
+                          type="button"
+                          onClick={() => selectIncidentalFamily(family)}
+                          className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800"
+                        >
+                          <div className="text-sm font-bold text-white">{family.familyName}</div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {(family.students || []).map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {(family.parents || []).map((parent) => parent.email || parent.name).filter(Boolean).join(" | ")}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {incidentalInvoice.familyKey && (
+                    <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100">
+                      Attached to {incidentalInvoice.familyName}: {getIncidentalStudentSummary(incidentalInvoice) || "family roster"}
+                    </div>
+                  )}
+                </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <Field label="Family Name">
                     <Input value={incidentalInvoice.familyName} onChange={(event) => updateIncidentalInvoice({ familyName: event.target.value })} />
@@ -1922,6 +2304,11 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                   <Field label="Parent Email">
                     <Input type="email" value={incidentalInvoice.parentEmail} onChange={(event) => updateIncidentalInvoice({ parentEmail: event.target.value })} />
                   </Field>
+                  {getIncidentalParents(incidentalInvoice).length > 1 && (
+                    <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400">
+                      Recipients: {getIncidentalRecipients(incidentalInvoice).join(", ")}
+                    </div>
+                  )}
                   <Field label="Invoice Date">
                     <Input type="date" value={incidentalInvoice.invoiceDate} onChange={(event) => updateIncidentalInvoice({ invoiceDate: event.target.value })} />
                   </Field>
@@ -1940,6 +2327,79 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                       <option>Voided</option>
                     </select>
                   </Field>
+                  <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CheckCircle2 size={16} className="text-emerald-300" />
+                      Paid in Office
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+                      <Field label="Date Paid">
+                        <Input
+                          type="date"
+                          value={incidentalInvoice.paidAt ? String(incidentalInvoice.paidAt).slice(0, 10) : today}
+                          onChange={(event) =>
+                            updateIncidentalInvoice({
+                              paidAt: event.target.value ? new Date(`${event.target.value}T12:00:00`).toISOString() : "",
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Method">
+                        <select
+                          value={incidentalInvoice.paymentMethod || ""}
+                          onChange={(event) =>
+                            updateIncidentalInvoice({
+                              paymentMethod: event.target.value,
+                              checkNumber: event.target.value === "check" ? incidentalInvoice.checkNumber : "",
+                            })
+                          }
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                        >
+                          <option value="">Select method</option>
+                          <option value="cash">Cash</option>
+                          <option value="card">Card</option>
+                          <option value="check">Check</option>
+                        </select>
+                      </Field>
+                      <Field label="Check Number">
+                        <Input
+                          value={incidentalInvoice.checkNumber || ""}
+                          onChange={(event) => updateIncidentalInvoice({ checkNumber: event.target.value })}
+                          placeholder="Required for check"
+                          disabled={incidentalInvoice.paymentMethod !== "check"}
+                          className={incidentalInvoice.paymentMethod !== "check" ? "opacity-50" : ""}
+                        />
+                      </Field>
+                      <button
+                        type="button"
+                        onClick={() => markIncidentalPaidInOffice()}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                      >
+                        <CheckCircle2 size={16} />
+                        Mark Paid
+                      </button>
+                    </div>
+                    {incidentalInvoice.paymentStatus === "Paid" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => printIncidentalReceipt()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                        >
+                          <Printer size={16} />
+                          Print Receipt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportIncidentalReceipt()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                        >
+                          <Download size={16} />
+                          Export Receipt
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div className="sm:col-span-2">
                     <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="text-sm font-semibold text-slate-200">Parent Payment Portal</div>
@@ -2078,6 +2538,157 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
               </div>
             </div>
           </div>
+          )}
+          {incidentalWorkspaceView === "receivables" && (
+            <div className="mt-6 space-y-4">
+              <div className="grid gap-3 lg:grid-cols-4">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Open AR</div>
+                  <div className="mt-2 text-2xl font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Paid</div>
+                  <div className="mt-2 text-2xl font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">All Incidentals</div>
+                  <div className="mt-2 text-2xl font-bold text-white">{formatCurrency(receivableTotals.total)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Records</div>
+                  <div className="mt-2 text-2xl font-bold text-white">{filteredReceivables.length}</div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto_auto] lg:items-center">
+                  <label className="relative">
+                    <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+                    <Input
+                      value={receivablesSearch}
+                      onChange={(event) => setReceivablesSearch(event.target.value)}
+                      placeholder="Search family, student, charge, payment method, or check number"
+                      className="pl-9"
+                    />
+                  </label>
+                  <select
+                    value={receivablesStatusFilter}
+                    onChange={(event) => setReceivablesStatusFilter(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  >
+                    <option value="open">Open only</option>
+                    <option value="paid">Paid only</option>
+                    <option value="voided">Voided only</option>
+                    <option value="all">All records</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={startManualReceivableEntry}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                  >
+                    <Plus size={16} />
+                    Manual Entry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loadSavedIncidentalInvoices}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  >
+                    <RefreshCw size={16} />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+                <div className="grid grid-cols-[1.4fr_1fr_120px_150px_190px] gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <div>Family / Students</div>
+                  <div>Charges</div>
+                  <div className="text-right">Total</div>
+                  <div>Status</div>
+                  <div>Actions</div>
+                </div>
+                <div className="max-h-[720px] overflow-auto">
+                  {filteredReceivables.map((record) => {
+                    const recordInvoice = getRecordInvoice(record);
+                    return (
+                      <div key={record.id} className="grid grid-cols-[1.4fr_1fr_120px_150px_190px] gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
+                        <div>
+                          <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
+                          {recordInvoice.paidAt && <div className="mt-1 text-xs text-emerald-300">Paid {formatShortDate(recordInvoice.paidAt)}</div>}
+                        </div>
+                        <div className="text-slate-300">
+                          {(recordInvoice.charges || []).slice(0, 2).map((charge) => (
+                            <div key={charge.id || charge.description} className="truncate">{charge.description || "Charge"}</div>
+                          ))}
+                          {(recordInvoice.charges || []).length > 2 && <div className="text-xs text-slate-500">+{recordInvoice.charges.length - 2} more</div>}
+                        </div>
+                        <div className="text-right font-bold text-white">{formatCurrency(incidentalTotal(recordInvoice))}</div>
+                        <div>
+                          <div className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${
+                            recordInvoice.paymentStatus === "Paid"
+                              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                              : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                          }`}>
+                            {recordInvoice.paymentStatus || "Unpaid"}
+                          </div>
+                          {recordInvoice.paymentMethod && (
+                            <div className="mt-2 text-xs text-slate-500">
+                              {recordInvoice.paymentMethod}{recordInvoice.checkNumber ? ` #${recordInvoice.checkNumber}` : ""}
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid gap-2">
+                          <button
+                            type="button"
+                            onClick={() => loadIncidentalRecord(record)}
+                            className="rounded-lg border border-slate-700 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                          >
+                            Open
+                          </button>
+                          {recordInvoice.paymentStatus === "Paid" ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => printIncidentalReceipt(record)}
+                                className="rounded-lg border border-slate-700 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                              >
+                                Print
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => exportIncidentalReceipt(record)}
+                                className="rounded-lg border border-emerald-500/40 px-2 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                              >
+                                Receipt
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIncidentalInvoice(recordInvoice);
+                                setSelectedIncidentalInvoiceId(record.id);
+                                setIncidentalWorkspaceView("invoice");
+                              }}
+                              className="rounded-lg border border-emerald-500/40 px-2 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                            >
+                              Record Payment
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!filteredReceivables.length && (
+                    <div className="p-6 text-sm text-slate-500">No incidental receivables match this search.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </section>

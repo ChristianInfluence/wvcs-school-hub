@@ -57,6 +57,8 @@ function mapIncidentalInvoiceFromDatabase(row) {
     id: row.id,
     publicToken: row.public_token || "",
     familyName: row.family_name || "",
+    familyKey: row.family_key || row.invoice_json?.familyKey || "",
+    studentIds: row.student_ids || row.invoice_json?.studentIds || [],
     status: row.status || "Draft",
     paymentStatus: row.payment_status || "Unpaid",
     invoice: row.invoice_json || {},
@@ -64,6 +66,9 @@ function mapIncidentalInvoiceFromDatabase(row) {
     sentAt: row.sent_at || "",
     sentTo: row.sent_to || [],
     paidAt: row.paid_at || "",
+    paidInOffice: Boolean(row.paid_in_office || row.invoice_json?.paidInOffice),
+    paymentMethod: row.payment_method || row.invoice_json?.paymentMethod || "",
+    checkNumber: row.check_number || row.invoice_json?.checkNumber || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -77,6 +82,8 @@ function mapIncidentalInvoiceToDatabase(record, updatedByEmail = "") {
     id,
     public_token: publicToken,
     family_name: invoice.familyName || record.familyName || "",
+    family_key: invoice.familyKey || record.familyKey || null,
+    student_ids: invoice.studentIds || record.studentIds || [],
     status: record.status || invoice.status || "Draft",
     payment_status: record.paymentStatus || invoice.paymentStatus || "Unpaid",
     invoice_json: { ...invoice, id, publicToken },
@@ -84,9 +91,47 @@ function mapIncidentalInvoiceToDatabase(record, updatedByEmail = "") {
     sent_at: record.sentAt || invoice.sentAt || null,
     sent_to: record.sentTo || invoice.sentTo || [],
     paid_at: record.paidAt || invoice.paidAt || null,
+    paid_in_office: Boolean(record.paidInOffice || invoice.paidInOffice),
+    payment_method: record.paymentMethod || invoice.paymentMethod || null,
+    check_number: record.checkNumber || invoice.checkNumber || null,
     updated_by_email: updatedByEmail || null,
     updated_at: new Date().toISOString(),
   };
+}
+
+function mapFamilyDirectoryRows(rows = []) {
+  const families = new Map();
+
+  rows.forEach((row) => {
+    const familyKey = row.family_key || row.family_name || row.student_last_name || "Family";
+    const family = families.get(familyKey) || {
+      familyKey,
+      familyName: row.family_name || `${row.student_last_name || "Family"} Family`,
+      parents: [],
+      students: [],
+    };
+
+    [
+      { name: [row.parent1_first_name, row.parent1_last_name].filter(Boolean).join(" "), email: row.email1 || "" },
+      { name: [row.parent2_first_name, row.parent2_last_name].filter(Boolean).join(" "), email: row.email2 || "" },
+    ].forEach((parent) => {
+      const emailKey = parent.email.toLowerCase();
+      const nameKey = parent.name.toLowerCase();
+      if ((parent.email || parent.name) && !family.parents.some((item) => item.email.toLowerCase() === emailKey && item.name.toLowerCase() === nameKey)) {
+        family.parents.push(parent);
+      }
+    });
+
+    family.students.push({
+      studentId: row.student_id,
+      name: [row.student_first_name, row.student_last_name].filter(Boolean).join(" "),
+      grade: row.grade || "",
+    });
+
+    families.set(familyKey, family);
+  });
+
+  return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 }
 
 export async function fetchTuitionInvoices() {
@@ -209,6 +254,8 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
       id: row.id,
       publicToken: row.public_token,
       familyName: row.family_name,
+      familyKey: row.family_key || "",
+      studentIds: row.student_ids || [],
       status: row.status,
       paymentStatus: row.payment_status,
       invoice: row.invoice_json,
@@ -216,6 +263,9 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
       sentAt: row.sent_at || "",
       sentTo: row.sent_to || [],
       paidAt: row.paid_at || "",
+      paidInOffice: row.paid_in_office || false,
+      paymentMethod: row.payment_method || "",
+      checkNumber: row.check_number || "",
       createdAt: existing.find((item) => item.id === row.id)?.createdAt || now,
       updatedAt: now,
     };
@@ -242,6 +292,8 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
       id: row.id,
       publicToken: row.public_token,
       familyName: row.family_name,
+      familyKey: row.family_key || "",
+      studentIds: row.student_ids || [],
       status: row.status,
       paymentStatus: row.payment_status,
       invoice: row.invoice_json,
@@ -249,6 +301,9 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
       sentAt: row.sent_at || "",
       sentTo: row.sent_to || [],
       paidAt: row.paid_at || "",
+      paidInOffice: row.paid_in_office || false,
+      paymentMethod: row.payment_method || "",
+      checkNumber: row.check_number || "",
       createdAt: existing.find((item) => item.id === row.id)?.createdAt || now,
       updatedAt: now,
     };
@@ -321,4 +376,14 @@ export async function sendIncidentalInvoiceEmail(payload) {
 
   if (error) throw error;
   return data || { sent: true };
+}
+
+export async function fetchOfficeFamilyDirectory() {
+  if (!isSupabaseConfigured) {
+    return { loaded: false, reason: "Supabase is not configured.", families: [] };
+  }
+
+  const { data, error } = await supabase.rpc("get_office_family_directory");
+  if (error) throw error;
+  return { loaded: true, families: mapFamilyDirectoryRows(data || []) };
 }
