@@ -14,7 +14,6 @@ import {
   reviewFosEntry,
   saveFosReminderTemplate,
   sendFamilyFosReminder,
-  sendFamilyPortalInvite,
   updateFamilyFosSettings,
 } from "../../lib/familyPortalData.js";
 
@@ -71,7 +70,6 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [portalLoadingKey, setPortalLoadingKey] = useState("");
   const [portalAccess, setPortalAccess] = useState({});
   const [liabilityDrafts, setLiabilityDrafts] = useState({});
-  const [inviteDrafts, setInviteDrafts] = useState({});
   const [bulkSelectedKeys, setBulkSelectedKeys] = useState([]);
   const [bulkSending, setBulkSending] = useState(false);
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
@@ -94,15 +92,12 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setFamilies(familyResult.families || []);
       const accessMap = {};
       const draftMap = {};
-      const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
         accessMap[access.familyKey] = access;
         draftMap[access.familyKey] = String(access.liabilityAmount ?? FOS_BUYOUT_AMOUNT);
-        inviteMap[access.familyKey] = access.contactEmails || [];
       });
       setPortalAccess(accessMap);
       setLiabilityDrafts((current) => ({ ...current, ...draftMap }));
-      setInviteDrafts((current) => ({ ...inviteMap, ...current }));
       setReminderTemplate(templateResult.template || DEFAULT_FOS_REMINDER_TEMPLATE);
       setAuditEvents(auditResult.events || []);
       if (!quiet) setStatus("FOS records loaded.");
@@ -177,10 +172,6 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
         ...current,
         [family.familyKey]: current[family.familyKey] ?? String(result.access.liabilityAmount ?? FOS_BUYOUT_AMOUNT),
       }));
-      setInviteDrafts((current) => ({
-        ...current,
-        [family.familyKey]: current[family.familyKey] || result.access.contactEmails || [],
-      }));
       setStatus(`Secure family portal access is ready for ${family.familyName}.`);
       return result.access;
     } catch (error) {
@@ -191,30 +182,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     }
   }
 
-  async function sendInvite(family) {
-    try {
-      const recipients = inviteDrafts[family.familyKey] || [];
-      if (!recipients.length) {
-        setStatus("Select at least one parent email to invite and authorize.");
-        return;
-      }
-      setPortalLoadingKey(family.familyKey);
-      setStatus(`Sending family portal invite for ${family.familyName}...`);
-      const result = await sendFamilyPortalInvite(family, currentUserEmail, recipients);
-      setStatus(`Family portal invite sent to ${result.recipients.join(", ")}.`);
-      await loadData();
-    } catch (error) {
-      setStatus(`Unable to send family portal invite: ${error.message}`);
-    } finally {
-      setPortalLoadingKey("");
-    }
-  }
-
   async function sendReminder(family) {
     try {
-      const recipients = inviteDrafts[family.familyKey] || [];
+      const recipients = portalAccess[family.familyKey]?.contactEmails || [];
       if (!recipients.length) {
-        setStatus("Select at least one authorized parent email for the reminder.");
+        setStatus("This family does not have authorized portal emails yet. Manage family portal invites in Family Records.");
         return;
       }
       setPortalLoadingKey(family.familyKey);
@@ -273,24 +245,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     window.requestAnimationFrame(() => {
       selectedFamilyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-    setInviteDrafts((current) => {
-      if (current[family.familyKey]) return current;
-      const existingEmails = portalAccess[family.familyKey]?.contactEmails || [];
-      return { ...current, [family.familyKey]: existingEmails };
-    });
     if (!portalAccess[family.familyKey]) ensureAccessForFamily(family);
-  }
-
-  function toggleInviteRecipient(email) {
-    if (!selectedFamily || !email) return;
-    setInviteDrafts((current) => {
-      const selected = current[selectedFamily.familyKey] || [];
-      const exists = selected.includes(email);
-      return {
-        ...current,
-        [selectedFamily.familyKey]: exists ? selected.filter((item) => item !== email) : [...selected, email],
-      };
-    });
   }
 
   function toggleBulkFamily(familyKey) {
@@ -458,44 +413,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   />
                 </div>
               </div>
-              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Parent Portal Access</div>
-                <div className="mt-2 space-y-2">
-                  {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
-                    const email = parent.email.toLowerCase();
-                    const checked = (inviteDrafts[selectedFamily.familyKey] || []).includes(email);
-                    return (
-                      <label key={email} className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleInviteRecipient(email)}
-                          className="mt-1 h-4 w-4 accent-sky-500"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold text-white">{parent.name || "Parent / Guardian"}</span>
-                          <span className="block truncate text-xs text-slate-500">{email}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {!(selectedFamily.parents || []).some((parent) => parent.email) && (
-                    <div className="text-sm text-slate-500">No parent emails are attached to this family in the roster.</div>
-                  )}
-                </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  Only checked emails will be authorized for this family portal after the invite is sent.
-                </div>
-              </div>
               <div className="mt-3 grid gap-2">
-                <button
-                  type="button"
-                  onClick={() => sendInvite(selectedFamily)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
-                >
-                  <Mail size={16} />
-                  {portalLoadingKey === selectedFamily.familyKey ? "Working..." : "Send Invite to Selected"}
-                </button>
                 <button
                   type="button"
                   onClick={() => sendReminder(selectedFamily)}
@@ -512,6 +430,9 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   <ExternalLink size={16} />
                   View as Family
                 </button>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-400">
+                  Family portal invitations and authorized parent emails are managed in Office & Finance &gt; Family Records.
+                </div>
               </div>
             </div>
           )}

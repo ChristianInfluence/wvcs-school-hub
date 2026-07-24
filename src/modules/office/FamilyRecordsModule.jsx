@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, calculateFosBalance, FOS_SCHOOL_YEAR } from "../../lib/familyPortalData.js";
+import { fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, calculateFosBalance, FOS_SCHOOL_YEAR, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
@@ -41,11 +41,14 @@ function paymentTone(invoice) {
   return "rose";
 }
 
-function FamilyRecordsModule({ initialSavedView = "all" }) {
+function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
   const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
+  const [inviteDrafts, setInviteDrafts] = useState({});
+  const [portalLoadingKey, setPortalLoadingKey] = useState("");
+  const [actionStatus, setActionStatus] = useState("");
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -76,6 +79,11 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
         audit: auditResult.events || [],
         error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || "",
       });
+      const inviteMap = {};
+      (accessResult.access || []).forEach((access) => {
+        inviteMap[access.familyKey] = access.contactEmails || [];
+      });
+      setInviteDrafts((current) => ({ ...inviteMap, ...current }));
     } catch (error) {
       setData((current) => ({ ...current, loading: false, error: error.message }));
     }
@@ -129,6 +137,7 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
   const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey) || filteredFamilies[0] || null;
+  const selectedInviteRecipients = selectedFamily ? inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || [] : [];
   const timeline = selectedFamily
     ? [
         ...selectedFamily.incidentalInvoices.map((invoice) => ({
@@ -168,6 +177,41 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
         })),
       ].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0)).slice(0, 18)
     : [];
+
+  function toggleInviteRecipient(email) {
+    if (!selectedFamily || !email) return;
+    setInviteDrafts((current) => {
+      const selected = current[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || [];
+      const exists = selected.includes(email);
+      return {
+        ...current,
+        [selectedFamily.familyKey]: exists ? selected.filter((item) => item !== email) : [...selected, email],
+      };
+    });
+    setActionStatus("");
+  }
+
+  async function sendPortalInvite(family) {
+    const recipients = inviteDrafts[family.familyKey] || family.access?.contactEmails || [];
+    if (!recipients.length) {
+      setActionStatus("Select at least one parent or guardian email before sending a portal invite.");
+      return;
+    }
+    const confirmed = window.confirm(`Send a family portal invite to:\n\n${recipients.join("\n")}`);
+    if (!confirmed) return;
+
+    try {
+      setPortalLoadingKey(family.familyKey);
+      setActionStatus(`Sending family portal invite for ${family.familyName}...`);
+      const result = await sendFamilyPortalInvite(family, currentUserEmail, recipients);
+      setActionStatus(`Family portal invite sent to ${result.recipients.join(", ")}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to send family portal invite: ${error.message}`);
+    } finally {
+      setPortalLoadingKey("");
+    }
+  }
 
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5">
@@ -230,13 +274,43 @@ function FamilyRecordsModule({ initialSavedView = "all" }) {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 lg:w-[360px]">
                   <div className="font-bold text-slate-900">Portal Access</div>
                   <div className="mt-1">Last login: {formatDate(selectedFamily.access?.lastParentLoginAt)}</div>
                   {selectedFamily.access?.lastParentLoginEmail && <div>User: {selectedFamily.access.lastParentLoginEmail}</div>}
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    <div className="font-bold text-slate-900">Send Family Portal Invite</div>
+                    <div className="mt-2 grid gap-2">
+                      {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
+                        const email = parent.email.toLowerCase();
+                        const checked = selectedInviteRecipients.includes(email);
+                        return (
+                          <label key={email} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white px-2 py-2">
+                            <input type="checkbox" checked={checked} onChange={() => toggleInviteRecipient(email)} className="mt-0.5 h-4 w-4 accent-sky-600" />
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-slate-800">{parent.name || "Parent / Guardian"}</span>
+                              <span className="block truncate text-[11px] text-slate-500">{email}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {!(selectedFamily.parents || []).some((parent) => parent.email) && <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900">No parent emails are attached to this family.</div>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => sendPortalInvite(selectedFamily)}
+                      disabled={portalLoadingKey === selectedFamily.familyKey}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Mail size={15} />
+                      {portalLoadingKey === selectedFamily.familyKey ? "Sending..." : "Send Invite"}
+                    </button>
+                    <div className="mt-2 text-[11px] leading-4 text-slate-500">Only checked emails will be authorized for this family portal.</div>
+                  </div>
                 </div>
               </div>
             </div>
+            {actionStatus && <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">{actionStatus}</div>}
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>

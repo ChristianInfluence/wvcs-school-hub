@@ -1131,7 +1131,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           hideOfficeFinanceNavigation
         />
       )}
-      {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} />}
+      {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} currentUserEmail={currentUserEmail} />}
       {officeView === "office-settings" && <OfficeFinanceSettingsModule currentUserEmail={currentUserEmail} />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
