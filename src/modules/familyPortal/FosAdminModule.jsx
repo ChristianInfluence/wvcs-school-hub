@@ -78,8 +78,9 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   const [reminderTemplate, setReminderTemplate] = useState(DEFAULT_FOS_REMINDER_TEMPLATE);
   const [familyFilter, setFamilyFilter] = useState("all");
   const [auditEvents, setAuditEvents] = useState([]);
+  const [liabilitySaveState, setLiabilitySaveState] = useState("");
 
-  async function loadData() {
+  async function loadData({ quiet = false } = {}) {
     try {
       const [entryResult, familyResult, accessResult, templateResult, auditResult] = await Promise.all([
         fetchFosEntries(),
@@ -95,15 +96,15 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
         accessMap[access.familyKey] = access;
-        draftMap[access.familyKey] = String(access.liabilityAmount || FOS_BUYOUT_AMOUNT);
+        draftMap[access.familyKey] = String(access.liabilityAmount ?? FOS_BUYOUT_AMOUNT);
         inviteMap[access.familyKey] = access.contactEmails || [];
       });
       setPortalAccess(accessMap);
-      setLiabilityDrafts((current) => ({ ...draftMap, ...current }));
+      setLiabilityDrafts((current) => ({ ...current, ...draftMap }));
       setInviteDrafts((current) => ({ ...inviteMap, ...current }));
       setReminderTemplate(templateResult.template || DEFAULT_FOS_REMINDER_TEMPLATE);
       setAuditEvents(auditResult.events || []);
-      setStatus("FOS records loaded.");
+      if (!quiet) setStatus("FOS records loaded.");
     } catch (error) {
       setStatus(`Unable to load FOS records: ${error.message}`);
     }
@@ -120,9 +121,10 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
   function balanceForFamily(family) {
     const access = portalAccess[family.familyKey] || {};
     const familyEntries = entries.filter((entry) => entry.familyKey === family.familyKey);
+    const liabilityDraft = liabilityDrafts[family.familyKey];
     return calculateFosBalance(familyEntries, {
-      liabilityAmount: access.liabilityAmount || FOS_BUYOUT_AMOUNT,
-      hourValue: access.hourValue || FOS_HOUR_VALUE,
+      liabilityAmount: liabilityDraft !== undefined ? liabilityDraft : access.liabilityAmount ?? FOS_BUYOUT_AMOUNT,
+      hourValue: access.hourValue ?? FOS_HOUR_VALUE,
     });
   }
 
@@ -145,10 +147,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     [entries, selectedFamily]
   );
   const selectedAccess = selectedFamily ? portalAccess[selectedFamily.familyKey] : null;
-  const selectedLiabilityAmount = Number(liabilityDrafts[selectedFamily?.familyKey] || selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT);
+  const selectedLiabilityDraft = selectedFamily ? liabilityDrafts[selectedFamily.familyKey] : undefined;
+  const selectedLiabilityAmount = Number(selectedLiabilityDraft !== undefined ? selectedLiabilityDraft : selectedAccess?.liabilityAmount ?? FOS_BUYOUT_AMOUNT);
   const selectedBalance = calculateFosBalance(selectedFamilyEntries, {
     liabilityAmount: selectedLiabilityAmount,
-    hourValue: selectedAccess?.hourValue || FOS_HOUR_VALUE,
+    hourValue: selectedAccess?.hourValue ?? FOS_HOUR_VALUE,
   });
   const bulkSelectedFamilies = useMemo(
     () => families.filter((family) => bulkSelectedKeys.includes(family.familyKey)),
@@ -171,7 +174,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setPortalAccess((current) => ({ ...current, [family.familyKey]: result.access }));
       setLiabilityDrafts((current) => ({
         ...current,
-        [family.familyKey]: current[family.familyKey] || String(result.access.liabilityAmount || FOS_BUYOUT_AMOUNT),
+        [family.familyKey]: current[family.familyKey] ?? String(result.access.liabilityAmount ?? FOS_BUYOUT_AMOUNT),
       }));
       setInviteDrafts((current) => ({
         ...current,
@@ -265,6 +268,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
 
   function selectFamily(family) {
     setSelectedFamily(family);
+    setLiabilitySaveState("");
     setInviteDrafts((current) => {
       if (current[family.familyKey]) return current;
       const existingEmails = portalAccess[family.familyKey]?.contactEmails || [];
@@ -325,6 +329,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       return;
     }
     try {
+      setLiabilitySaveState("Saving...");
       setStatus(`Saving FOS liability for ${selectedFamily.familyName}...`);
       let access = portalAccess[selectedFamily.familyKey];
       if (!access) {
@@ -337,9 +342,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       });
       setPortalAccess((current) => ({ ...current, [selectedFamily.familyKey]: result.access }));
       setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: String(result.access.liabilityAmount) }));
+      setLiabilitySaveState(`Saved ${money(result.access.liabilityAmount)}.`);
       setStatus(`FOS liability saved for ${selectedFamily.familyName}.`);
-      await loadData();
+      await loadData({ quiet: true });
     } catch (error) {
+      setLiabilitySaveState("Unable to save.");
       setStatus(`Unable to save FOS liability: ${error.message}`);
     }
   }
@@ -381,7 +388,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       {status && <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">{status}</div>}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
-        <div className="space-y-4">
+        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           {selectedFamily && (
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <div className="text-sm font-bold text-white">{selectedFamily.familyName}</div>
@@ -404,7 +411,14 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
               </div>
               <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">FOS Settings</div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">FOS Settings</div>
+                    {liabilitySaveState && (
+                      <div className={`mt-1 text-xs ${liabilitySaveState.startsWith("Saved") ? "text-emerald-300" : "text-amber-300"}`}>
+                        {liabilitySaveState}
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={saveLiability}
@@ -431,8 +445,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
                   <span>Annual liability</span>
                   <Input
                     inputMode="decimal"
-                    value={liabilityDrafts[selectedFamily.familyKey] ?? String(selectedAccess?.liabilityAmount || FOS_BUYOUT_AMOUNT)}
-                    onChange={(event) => setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: event.target.value }))}
+                    value={liabilityDrafts[selectedFamily.familyKey] ?? String(selectedAccess?.liabilityAmount ?? FOS_BUYOUT_AMOUNT)}
+                    onChange={(event) => {
+                      setLiabilitySaveState("");
+                      setLiabilityDrafts((current) => ({ ...current, [selectedFamily.familyKey]: event.target.value }));
+                    }}
                     className="py-1.5 text-xs"
                   />
                 </div>
