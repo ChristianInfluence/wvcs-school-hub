@@ -1104,7 +1104,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
   const incidentalDraftTotal = useMemo(() => incidentalTotal(incidentalInvoice), [incidentalInvoice]);
   const familySearchResults = useMemo(
-    () => familyDirectory.filter((family) => familyMatchesSearch(family, familySearch)).slice(0, 10),
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, familySearch)),
     [familyDirectory, familySearch]
   );
   const filteredReceivables = useMemo(
@@ -1125,7 +1125,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
   const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
   const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
   const ledgerFamilyResults = useMemo(
-    () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)).slice(0, 8),
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)),
     [familyDirectory, ledgerFamilySearch]
   );
   const ledgerRecords = useMemo(
@@ -2545,19 +2545,19 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     />
                   </label>
                   {familySearchResults.length > 0 && (
-                    <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-slate-800 bg-slate-900">
+                    <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900">
                       {familySearchResults.map((family) => (
                         <button
                           key={family.familyKey}
                           type="button"
                           onClick={() => selectIncidentalFamily(family)}
-                          className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800"
+                          className="block w-full border-b border-slate-800 px-2.5 py-1.5 text-left last:border-b-0 hover:bg-slate-800"
                         >
-                          <div className="text-sm font-bold text-white">{family.familyName}</div>
-                          <div className="mt-1 text-xs text-slate-400">
+                          <div className="truncate text-xs font-bold text-white">{family.familyName}</div>
+                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
                             {(family.students || []).map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}
                           </div>
-                          <div className="mt-1 text-xs text-slate-500">
+                          <div className="mt-0.5 truncate text-[11px] text-slate-500">
                             {(family.parents || []).map((parent) => parent.email || parent.name).filter(Boolean).join(" | ")}
                           </div>
                         </button>
@@ -3143,7 +3143,7 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                     />
                   </label>
                   {ledgerFamilyResults.length > 0 && (
-                    <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950">
+                    <div className="mt-2 max-h-[520px] overflow-y-auto rounded-lg border border-slate-800 bg-slate-950">
                       {ledgerFamilyResults.map((family) => (
                         <button
                           key={family.familyKey}
@@ -3152,12 +3152,12 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
                             setLedgerFamilyKey(family.familyKey);
                             setLedgerFamilySearch(family.familyName);
                           }}
-                          className={`block w-full border-b border-slate-800 px-3 py-2 text-left text-sm font-semibold last:border-b-0 hover:bg-slate-800 ${
+                          className={`block w-full border-b border-slate-800 px-2.5 py-1.5 text-left font-semibold last:border-b-0 hover:bg-slate-800 ${
                             ledgerFamilyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
                           }`}
                         >
-                          <span className="block">{family.familyName}</span>
-                          <span className="mt-1 block truncate text-xs font-normal text-slate-500">
+                          <span className="block truncate text-xs">{family.familyName}</span>
+                          <span className="mt-0.5 block truncate text-[11px] font-normal text-slate-500">
                             {(family.students || []).map((student) => student.name).filter(Boolean).join(", ") || "No students listed"}
                           </span>
                         </button>
