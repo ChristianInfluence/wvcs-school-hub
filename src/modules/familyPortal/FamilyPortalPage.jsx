@@ -500,8 +500,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
             )}
 
             {activeTab === "lunch" && (
-              <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-                <div className="space-y-5">
+              <div className="space-y-5">
+                <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                     <div className="flex items-center gap-2 text-sm font-bold text-white">
                       <DollarSign size={16} className="text-emerald-300" />
@@ -525,9 +525,16 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                   </div>
 
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                    <div className="flex items-center gap-2 text-sm font-bold text-white">
-                      <Utensils size={16} className="text-sky-300" />
-                      Monthly Lunch Menu
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-white">
+                        <Utensils size={16} className="text-sky-300" />
+                        Monthly Lunch Menu
+                      </div>
+                      {activeLunchMenu && (
+                        <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-100">
+                          Published Menu
+                        </div>
+                      )}
                     </div>
                     <div className="mt-4 grid gap-3">
                       {(lunch.menus || []).length > 1 && (
@@ -564,8 +571,13 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         </div>
                         {activeLunchMenu?.notes && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-300">{activeLunchMenu.notes}</div>}
                       </div>
+                      {activeLunchMenu && !lunchItems.length && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
+                          This lunch menu is published, but it does not have any dated lunch items saved yet. Please contact the WVCS office.
+                        </div>
+                      )}
                       <div className="overflow-x-auto rounded-lg border border-slate-800">
-                        <div className="min-w-[760px]">
+                        <div className="min-w-[900px]">
                           <div className="grid grid-cols-5 border-b border-slate-800 bg-slate-900 text-center text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
                             {weekDays.map((day) => <div key={day} className="border-r border-slate-800 px-2 py-2 last:border-r-0">{day}</div>)}
                           </div>
@@ -621,12 +633,12 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         Submit Monthly Lunch Order
                       </button>
                     </div>
-                    {!lunchItems.length && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are open yet.</div>}
+                    {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet.</div>}
                     {lunchStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{lunchStatus}</div>}
                   </div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="grid gap-5 xl:grid-cols-2">
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
                     <div className="text-sm font-bold text-white">Lunch Orders</div>
                     <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">

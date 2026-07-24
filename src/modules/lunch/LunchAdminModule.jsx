@@ -134,6 +134,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   const [selectedItemId, setSelectedItemId] = useState("");
   const [menuDraft, setMenuDraft] = useState({ title: "WVCS Lunch Menu", weekStart: today.slice(0, 8) + "01", status: "Draft", notes: "A portion of lunch proceeds supports WVCS student trips. Please contact the office with food allergy questions.", items: createMonthlyTemplate(today) });
   const [deposit, setDeposit] = useState({ familyKey: "", amount: "", method: "cash", checkNumber: "", note: "" });
+  const [savingMenu, setSavingMenu] = useState(false);
 
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true }));
@@ -227,13 +228,17 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   }
 
   async function saveMenuDraft(nextStatus = menuDraft.status) {
+    setSavingMenu(true);
+    setStatus(nextStatus === "Open" ? "Publishing menu to the family portal..." : "Saving lunch menu...");
     try {
       const saved = await saveLunchMenu({ ...menuDraft, status: nextStatus }, currentUserEmail);
       setMenuDraft(saved);
-      setStatus(nextStatus === "Open" ? "Lunch menu saved and opened for family ordering." : "Lunch menu saved.");
+      setStatus(nextStatus === "Open" ? `${saved.title} is now published to the family portal with ${(saved.items || []).length} lunch choices.` : `${saved.title} saved as ${saved.status.toLowerCase()}.`);
       await loadData();
     } catch (error) {
       setStatus(`Unable to save menu: ${error.message}`);
+    } finally {
+      setSavingMenu(false);
     }
   }
 
@@ -367,17 +372,25 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
       )}
 
       {activeView === "menus" && (
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_380px]">
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
           <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
-              <Utensils size={16} className="text-sky-600" />
-              Monthly Digital Lunch Menu
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+                <Utensils size={16} className="text-sky-600" />
+                Monthly Digital Lunch Menu
+              </div>
+              <div className={`rounded-full px-3 py-1 text-xs font-bold ${menuDraft.status === "Open" ? "bg-emerald-100 text-emerald-800" : menuDraft.status === "Closed" ? "bg-slate-200 text-slate-700" : "bg-amber-100 text-amber-800"}`}>
+                {menuDraft.status === "Open" ? "Published to Family Portal" : menuDraft.status}
+              </div>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <Field label="Menu title"><Input value={menuDraft.title} onChange={(event) => setMenuDraft({ ...menuDraft, title: event.target.value })} /></Field>
               <Field label="Month"><Input type="month" value={(menuDraft.weekStart || today).slice(0, 7)} onChange={(event) => setMenuDraft({ ...menuDraft, weekStart: `${event.target.value}-01` })} /></Field>
-              <Field label="Status"><Select value={menuDraft.status} onChange={(event) => setMenuDraft({ ...menuDraft, status: event.target.value })}><option>Draft</option><option>Open</option><option>Closed</option></Select></Field>
+              <Field label="Availability"><Select value={menuDraft.status} onChange={(event) => setMenuDraft({ ...menuDraft, status: event.target.value })}><option value="Draft">Draft - office only</option><option value="Open">Published - visible to families</option><option value="Closed">Closed - no new orders</option></Select></Field>
               <div className="md:col-span-3"><Field label="Family note"><Input value={menuDraft.notes} onChange={(event) => setMenuDraft({ ...menuDraft, notes: event.target.value })} placeholder="Optional note about allergies, due dates, or proceeds" /></Field></div>
+            </div>
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm leading-6 text-sky-900">
+              Published means families can see this menu and submit lunch choices in the family portal. It does not open a preview window.
             </div>
 
             <div className="mt-4 rounded-lg border border-slate-300 bg-white">
@@ -421,8 +434,8 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={applyTemplate} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={16} />Use WVCS Template</button>
               <button type="button" onClick={() => setMenuDraft({ ...menuDraft, items: [...menuDraft.items, emptyItem(menuDraft.weekStart || today)] })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={16} />Add Item by Date</button>
-              <button type="button" onClick={() => saveMenuDraft(menuDraft.status)} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white"><Save size={16} />Save Menu</button>
-              <button type="button" onClick={() => saveMenuDraft("Open")} className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white"><CheckCircle2 size={16} />Save & Open</button>
+              <button type="button" onClick={() => saveMenuDraft(menuDraft.status)} disabled={savingMenu} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"><Save size={16} />{savingMenu ? "Saving..." : "Save Draft / Changes"}</button>
+              <button type="button" onClick={() => saveMenuDraft("Open")} disabled={savingMenu} className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"><CheckCircle2 size={16} />{savingMenu ? "Publishing..." : "Publish to Family Portal"}</button>
             </div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -431,7 +444,13 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
               {data.menus.map((menu) => (
                 <button key={menu.id} type="button" onClick={() => setMenuDraft(menu)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100">
                   <div className="font-bold text-slate-950">{menu.title}</div>
-                  <div className="text-xs text-slate-500">{menu.status} | {shortDate(menu.weekStart)} | {(menu.items || []).length} items</div>
+                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                    <span className={`rounded-full px-2 py-0.5 font-bold ${menu.status === "Open" ? "bg-emerald-100 text-emerald-800" : menu.status === "Closed" ? "bg-slate-200 text-slate-700" : "bg-amber-100 text-amber-800"}`}>
+                      {menu.status === "Open" ? "Published" : menu.status}
+                    </span>
+                    <span className="text-slate-500">{shortDate(menu.weekStart)}</span>
+                    <span className="text-slate-500">{(menu.items || []).length} items</span>
+                  </div>
                 </button>
               ))}
               {!data.menus.length && <div className="text-sm text-slate-500">No menus have been saved yet.</div>}
