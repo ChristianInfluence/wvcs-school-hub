@@ -280,6 +280,16 @@ export async function submitLunchOrders(orders) {
   return data || { submitted: false };
 }
 
+export async function updateLunchMenuOrder({ menuId, studentId, orders }) {
+  if (!isSupabaseConfigured) return { updated: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("update-family-lunch-order", {
+    body: { menuId, studentId, orders },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { updated: false };
+}
+
 export async function createLunchCheckout(amount) {
   if (!isSupabaseConfigured) return { created: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("create-lunch-checkout", {

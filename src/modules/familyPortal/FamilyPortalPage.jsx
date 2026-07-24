@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, CreditCard, DollarSign, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
-import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunchOrders } from "../../lib/familyPortalData.js";
+import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunchOrders, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -110,7 +110,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [showFosForm, setShowFosForm] = useState(false);
-  const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00" });
+  const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00", editing: false });
   const [lunchStatus, setLunchStatus] = useState("");
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
@@ -197,6 +197,28 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const selectedLunchItems = lunchItems.filter((item) => lunchDraft.selectedItems[item.itemKey]);
   const expectedLunchCost = selectedLunchItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
   const monthCells = buildSchoolMonthDays(activeLunchMenu?.weekStart || today);
+  const activeStudentOrders = (lunch.orders || []).filter((order) => order.menuId === activeLunchMenu?.id && String(order.studentId || "") === String(lunchDraft.studentId || "") && order.status !== "Cancelled");
+  const activeOrderKeys = new Set(activeStudentOrders.map((order) => `${order.orderDate}:${order.itemName}`));
+  const lunchMenuSummaries = useMemo(() => {
+    if (!activeLunchMenu) return [];
+    const studentsById = new Map((portal.data?.family?.students || []).map((student) => [String(student.id), student]));
+    const grouped = new Map();
+    (lunch.orders || [])
+      .filter((order) => order.menuId === activeLunchMenu.id && order.status !== "Cancelled")
+      .forEach((order) => {
+        const key = String(order.studentId || order.studentName || "");
+        const existing = grouped.get(key) || {
+          studentId: order.studentId || "",
+          studentName: studentsById.get(String(order.studentId || ""))?.name || order.studentName || "Student",
+          count: 0,
+          futureCount: 0,
+        };
+        existing.count += 1;
+        if (order.orderDate >= today && order.status === "Anticipated" && !order.chargedAt) existing.futureCount += 1;
+        grouped.set(key, existing);
+      });
+    return [...grouped.values()].sort((a, b) => a.studentName.localeCompare(b.studentName));
+  }, [activeLunchMenu?.id, lunch.orders, portal.data?.family?.students]);
 
   useEffect(() => {
     if (!lunchMenus.length) return;
@@ -282,15 +304,24 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   }
 
   async function submitLunchOrder() {
-    if (!lunchDraft.studentId || !selectedLunchItems.length) {
+    if (!lunchDraft.studentId || (!lunchDraft.editing && !selectedLunchItems.length)) {
       setLunchStatus("Choose a student and at least one lunch item before submitting.");
       return;
     }
-    setLunchStatus("Submitting lunch orders...");
+    setLunchStatus(lunchDraft.editing ? "Saving lunch menu edits..." : "Submitting lunch orders...");
     try {
-      await submitLunchOrders(selectedLunchItems.map((item) => ({ studentId: lunchDraft.studentId, menuId: item.menuId, itemId: item.id })));
-      setLunchDraft((current) => ({ ...current, selectedItems: {} }));
-      setLunchStatus(`Lunch menu submitted. Expected cost: ${money(expectedLunchCost)}. The office will charge the account only for lunches that are served.`);
+      if (lunchDraft.editing) {
+        const result = await updateLunchMenuOrder({
+          menuId: activeLunchMenu.id,
+          studentId: lunchDraft.studentId,
+          orders: selectedLunchItems.map((item) => ({ itemId: item.id })),
+        });
+        setLunchStatus(`Lunch menu updated. Added ${result.added || 0} and removed ${result.removed || 0} future item(s).`);
+      } else {
+        await submitLunchOrders(selectedLunchItems.map((item) => ({ studentId: lunchDraft.studentId, menuId: item.menuId, itemId: item.id })));
+        setLunchStatus(`Lunch menu submitted. Expected cost: ${money(expectedLunchCost)}. The office will charge the account only for lunches that are served.`);
+      }
+      setLunchDraft((current) => ({ ...current, selectedItems: {}, editing: false }));
       await loadPortal();
     } catch (error) {
       setLunchStatus(`Unable to submit lunch order: ${error.message}`);
@@ -307,6 +338,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   }
 
   function toggleLunchItem(item) {
+    if (item.date < today) {
+      setLunchStatus("Past lunch dates can no longer be edited.");
+      return;
+    }
     if (item.requiresMeal && !hasLunchMealForDate(item)) {
       setLunchStatus("Choose a regular meal for that date before adding this restricted item.");
       return;
@@ -319,6 +354,23 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       },
     }));
     setLunchStatus("");
+  }
+
+  function startLunchEdit(summary) {
+    const selectedItems = {};
+    lunchItems.forEach((item) => {
+      if (item.date >= today && (lunch.orders || []).some((order) =>
+        order.menuId === activeLunchMenu?.id &&
+        String(order.studentId || "") === String(summary.studentId || "") &&
+        order.status !== "Cancelled" &&
+        order.orderDate === item.date &&
+        order.itemName === item.name
+      )) {
+        selectedItems[item.itemKey] = true;
+      }
+    });
+    setLunchDraft((current) => ({ ...current, studentId: summary.studentId, selectedItems, editing: true }));
+    setLunchStatus(`Editing ${monthName(activeLunchMenu.weekStart)} lunch choices for ${summary.studentName}. Past dates are locked.`);
   }
 
   async function addLunchFunds() {
@@ -562,7 +614,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         <Field label="Menu">
                           <select
                             value={activeLunchMenu?.id || ""}
-                            onChange={(event) => setLunchDraft({ ...lunchDraft, menuId: event.target.value, selectedItems: {} })}
+                            onChange={(event) => setLunchDraft({ ...lunchDraft, menuId: event.target.value, selectedItems: {}, editing: false })}
                             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
                           >
                             {lunchMenus.map((menu) => <option key={menu.id} value={menu.id}>{menu.title}</option>)}
@@ -572,7 +624,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <Field label="Student">
                         <select
                           value={lunchDraft.studentId}
-                          onChange={(event) => setLunchDraft({ ...lunchDraft, studentId: event.target.value })}
+                          onChange={(event) => setLunchDraft({ ...lunchDraft, studentId: event.target.value, selectedItems: {}, editing: false })}
                           className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
                         >
                           <option value="">Select student</option>
@@ -592,6 +644,33 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         </div>
                         {activeLunchMenu?.notes && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-300">{activeLunchMenu.notes}</div>}
                       </div>
+                      {lunchMenuSummaries.length > 0 && (
+                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                          <div className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-200">Submitted Menus</div>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            {lunchMenuSummaries.map((summary) => (
+                              <div key={`${activeLunchMenu.id}-${summary.studentId || summary.studentName}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-slate-950/70 px-3 py-2 text-sm">
+                                <div>
+                                  <div className="font-semibold text-white">
+                                    {monthName(activeLunchMenu.weekStart)} Lunch Menu submitted for {summary.studentName}
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-slate-500">
+                                    {summary.count} item(s) selected{summary.futureCount ? ` | ${summary.futureCount} future item(s) editable` : " | past or processed items locked"}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => startLunchEdit(summary)}
+                                  disabled={!summary.futureCount}
+                                  className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {activeLunchMenu && !lunchItems.length && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
                           This lunch menu is published, but it does not have any dated lunch items saved yet. Please contact the WVCS office.
@@ -613,15 +692,17 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                                       <div className="text-sm font-bold text-slate-200">{cellDate.getDate()}</div>
                                       <div className="mt-2 space-y-2">
                                         {dayItems.map((item) => {
-                                          const checked = Boolean(lunchDraft.selectedItems[item.itemKey]);
+                                          const lockedPast = lunchDraft.editing && item.date < today && activeOrderKeys.has(`${item.date}:${item.name}`);
+                                          const checked = lockedPast || Boolean(lunchDraft.selectedItems[item.itemKey]);
                                           return (
                                             <button
                                               key={item.itemKey}
                                               type="button"
                                               onClick={() => toggleLunchItem(item)}
+                                              disabled={lockedPast}
                                               className={`flex w-full items-start gap-2 rounded-md border p-2 text-left text-xs transition ${
                                                 checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"
-                                              }`}
+                                              } ${lockedPast ? "cursor-not-allowed opacity-70" : ""}`}
                                             >
                                               <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-emerald-300 bg-emerald-400 text-slate-950" : "border-slate-600"}`}>
                                                 {checked ? "✓" : ""}
@@ -630,6 +711,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                                                 <span className="block font-semibold">{item.name}</span>
                                                 <span className="block text-slate-500">{money(item.price)}</span>
                                                 {item.requiresMeal && <span className="block text-amber-200">Requires meal</span>}
+                                                {lockedPast && <span className="block text-slate-500">Locked</span>}
                                               </span>
                                             </button>
                                           );
@@ -652,7 +734,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
                       >
                         <Send size={16} />
-                        Submit Monthly Lunch Order
+                        {lunchDraft.editing ? "Save Lunch Menu Edits" : "Submit Monthly Lunch Order"}
                       </button>
                     </div>
                     {!activeLunchMenu && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-500">No lunch menus are published yet. Use Refresh after the office publishes a menu. Menus received: {lunchMenus.length}.</div>}
