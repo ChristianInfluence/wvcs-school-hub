@@ -253,6 +253,16 @@ export async function submitStaffLunchOrders(orders, currentUserEmail = "") {
   return data || { submitted: false };
 }
 
+export async function updateStaffLunchOrders({ menuId, orders }, currentUserEmail = "") {
+  if (!isSupabaseConfigured) return { updated: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("update-staff-lunch-order", {
+    body: { menuId, orders, currentUserEmail },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { updated: false };
+}
+
 export async function recordLunchDeposit({ family, amount, method = "cash", checkNumber = "", note = "" }, currentUserEmail = "") {
   const cleanAmount = Math.abs(Number(amount || 0));
   if (!cleanAmount) throw new Error("Enter a deposit amount.");

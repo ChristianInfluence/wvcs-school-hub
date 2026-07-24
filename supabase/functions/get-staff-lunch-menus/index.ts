@@ -38,7 +38,15 @@ Deno.serve(async (request) => {
       .order("week_start", { ascending: true });
     if (error) throw error;
 
-    return new Response(JSON.stringify({ loaded: true, menus: menus || [] }), {
+    const { data: orders, error: orderError } = await supabase
+      .from("lunch_orders")
+      .select("*")
+      .eq("family_key", `staff:${email}`)
+      .order("order_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (orderError) throw orderError;
+
+    return new Response(JSON.stringify({ loaded: true, menus: menus || [], orders: orders || [], staffEmail: email }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

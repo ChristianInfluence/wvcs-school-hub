@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Send, Utensils } from "lucide-react";
-import { fetchPublishedLunchMenus, money, submitStaffLunchOrders } from "../../lib/lunchData.js";
+import { CheckCircle2, Pencil, Send, Utensils } from "lucide-react";
+import { fetchPublishedLunchMenus, money, submitStaffLunchOrders, updateStaffLunchOrders } from "../../lib/lunchData.js";
 
 const today = new Date().toISOString().slice(0, 10);
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -34,17 +34,17 @@ function buildSchoolMonthDays(value) {
 }
 
 export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }) {
-  const [data, setData] = useState({ loading: true, menus: [], error: "" });
-  const [draft, setDraft] = useState({ menuId: "", selectedItems: {} });
+  const [data, setData] = useState({ loading: true, menus: [], orders: [], error: "" });
+  const [draft, setDraft] = useState({ menuId: "", selectedItems: {}, editing: false });
   const [status, setStatus] = useState("");
 
   async function loadMenus() {
     setData((current) => ({ ...current, loading: true, error: "" }));
     try {
       const result = await fetchPublishedLunchMenus();
-      setData({ loading: false, menus: result.menus || [], error: "" });
+      setData({ loading: false, menus: result.menus || [], orders: result.orders || [], error: "" });
     } catch (error) {
-      setData({ loading: false, menus: [], error: error.message });
+      setData({ loading: false, menus: [], orders: [], error: error.message });
     }
   }
 
@@ -55,11 +55,21 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
   useEffect(() => {
     if (!data.menus.length) return;
     if (draft.menuId && data.menus.some((menu) => menu.id === draft.menuId)) return;
-    setDraft((current) => ({ ...current, menuId: data.menus[0].id, selectedItems: {} }));
+    setDraft((current) => ({ ...current, menuId: data.menus[0].id, selectedItems: {}, editing: false }));
   }, [data.menus.length, draft.menuId]);
 
   const activeMenu = data.menus.find((menu) => menu.id === draft.menuId) || data.menus[0] || null;
   const items = (activeMenu?.items || []).map((item) => ({ ...item, menuId: activeMenu.id, itemKey: `${activeMenu.id}:${item.id}` }));
+  const activeOrders = (data.orders || []).filter((order) =>
+    (order.menu_id || order.menuId) === activeMenu?.id &&
+    (order.status || "Anticipated") !== "Cancelled"
+  );
+  const activeOrderKeys = new Set(activeOrders.map((order) => `${order.order_date || order.orderDate}:${order.item_name || order.itemName}`));
+  const futureEditableOrders = activeOrders.filter((order) =>
+    String(order.order_date || order.orderDate || "") >= today &&
+    (order.status || "Anticipated") === "Anticipated" &&
+    !(order.charged_at || order.chargedAt)
+  );
   const itemsByDate = useMemo(() => {
     const map = new Map();
     items.forEach((item) => {
@@ -70,6 +80,7 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
   }, [items]);
   const selectedItems = items.filter((item) => draft.selectedItems[item.itemKey]);
   const monthCells = buildSchoolMonthDays(activeMenu?.week_start || activeMenu?.weekStart || today);
+  const submittedMonthLabel = activeMenu ? monthName(activeMenu.week_start || activeMenu.weekStart) : "";
 
   function hasMealForDate(item) {
     return items.some((candidate) =>
@@ -81,6 +92,10 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
   }
 
   function toggleItem(item) {
+    if (String(item.date || "") < today) {
+      setStatus("Past lunch dates can no longer be edited.");
+      return;
+    }
     if (item.requiresMeal && !hasMealForDate(item)) {
       setStatus("Choose a regular meal for that date before adding this restricted item.");
       return;
@@ -89,18 +104,40 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
     setStatus("");
   }
 
+  function startEdit() {
+    const selectedItemsByKey = {};
+    items.forEach((item) => {
+      if (String(item.date || "") >= today && activeOrderKeys.has(`${item.date}:${item.name}`)) {
+        selectedItemsByKey[item.itemKey] = true;
+      }
+    });
+    setDraft((current) => ({ ...current, selectedItems: selectedItemsByKey, editing: true }));
+    setStatus("Editing your staff lunch order. Past dates are locked.");
+  }
+
   async function submitOrder() {
-    if (!selectedItems.length) {
+    if (!draft.editing && !selectedItems.length) {
       setStatus("Choose at least one lunch item first.");
       return;
     }
-    setStatus("Submitting staff lunch order...");
+    setStatus(draft.editing ? "Saving staff lunch changes..." : "Submitting staff lunch order...");
     try {
-      const result = await submitStaffLunchOrders(selectedItems.map((item) => ({ menuId: item.menuId, itemId: item.id })), currentUserEmail);
-      setDraft((current) => ({ ...current, selectedItems: {} }));
-      setStatus(result.skippedDuplicates ? "Those lunch choices were already submitted." : `Staff lunch order submitted for ${result.count || selectedItems.length} item(s).`);
+      if (draft.editing) {
+        const result = await updateStaffLunchOrders({
+          menuId: activeMenu.id,
+          orders: selectedItems.map((item) => ({ itemId: item.id })),
+        }, currentUserEmail);
+        await loadMenus();
+        setDraft((current) => ({ ...current, selectedItems: {}, editing: false }));
+        setStatus(`Staff lunch order updated. Added ${result.added || 0} and removed ${result.removed || 0} future item(s).`);
+      } else {
+        const result = await submitStaffLunchOrders(selectedItems.map((item) => ({ menuId: item.menuId, itemId: item.id })), currentUserEmail);
+        await loadMenus();
+        setDraft((current) => ({ ...current, selectedItems: {}, editing: false }));
+        setStatus(result.skippedDuplicates ? "Those lunch choices were already submitted." : `Staff lunch order submitted for ${result.count || selectedItems.length} item(s).`);
+      }
     } catch (error) {
-      setStatus(`Unable to submit staff lunch order: ${error.message}`);
+      setStatus(`Unable to ${draft.editing ? "update" : "submit"} staff lunch order: ${error.message}`);
     }
   }
 
@@ -125,7 +162,7 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
       {!data.loading && !data.error && (
         <div className="mt-4 grid gap-3">
           {data.menus.length > 1 && (
-            <select value={activeMenu?.id || ""} onChange={(event) => setDraft({ menuId: event.target.value, selectedItems: {} })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
+            <select value={activeMenu?.id || ""} onChange={(event) => setDraft({ menuId: event.target.value, selectedItems: {}, editing: false })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
               {data.menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.title}</option>)}
             </select>
           )}
@@ -138,6 +175,28 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
               <div className="text-right text-xs font-bold text-emerald-200">{selectedItems.length} selected</div>
             </div>
           </div>
+          {activeMenu && activeOrders.length > 0 && (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-emerald-50">{submittedMonthLabel} Lunch Menu submitted</div>
+                  <div className="mt-1 text-xs text-emerald-100/80">
+                    {activeOrders.length} item(s) submitted for {currentUserEmail || "your staff account"}.
+                    {futureEditableOrders.length ? ` ${futureEditableOrders.length} future item(s) can still be edited.` : " No future editable items remain."}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  disabled={!futureEditableOrders.length}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Pencil size={14} />
+                  Edit Order
+                </button>
+              </div>
+            </div>
+          )}
           {activeMenu && (
             <div className="overflow-x-auto rounded-lg border border-slate-800">
               <div className="min-w-[900px]">
@@ -155,11 +214,18 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
                             <div className="text-sm font-bold text-slate-200">{cellDate.getDate()}</div>
                             <div className="mt-2 space-y-2">
                               {dayItems.map((item) => {
-                                const checked = Boolean(draft.selectedItems[item.itemKey]);
+                                const lockedPast = draft.editing && String(item.date || "") < today && activeOrderKeys.has(`${item.date}:${item.name}`);
+                                const checked = lockedPast || Boolean(draft.selectedItems[item.itemKey]);
                                 return (
-                                  <button key={item.itemKey} type="button" onClick={() => toggleItem(item)} className={`flex w-full items-start gap-2 rounded-md border p-2 text-left text-xs ${checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"}`}>
+                                  <button
+                                    key={item.itemKey}
+                                    type="button"
+                                    onClick={() => toggleItem(item)}
+                                    disabled={lockedPast}
+                                    className={`flex w-full items-start gap-2 rounded-md border p-2 text-left text-xs disabled:cursor-not-allowed ${checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"} ${lockedPast ? "opacity-75" : ""}`}
+                                  >
                                     <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-emerald-300 bg-emerald-400 text-slate-950" : "border-slate-600"}`}>{checked ? "✓" : ""}</span>
-                                    <span><span className="block font-semibold">{item.name}</span>{item.requiresMeal && <span className="block text-amber-200">Requires meal</span>}</span>
+                                    <span><span className="block font-semibold">{item.name}</span>{item.requiresMeal && <span className="block text-amber-200">Requires meal</span>}{lockedPast && <span className="block text-slate-400">Locked</span>}</span>
                                   </button>
                                 );
                               })}
@@ -176,7 +242,7 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
           )}
           <button type="button" onClick={submitOrder} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20">
             <Send size={16} />
-            Submit Staff Lunch Order
+            {draft.editing ? "Save Staff Lunch Edits" : "Submit Staff Lunch Order"}
           </button>
           {status && <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{status}</div>}
           {selectedItems.length > 0 && <div className="flex items-center gap-2 text-xs font-semibold text-emerald-200"><CheckCircle2 size={14} />Expected cost: {money(0)}</div>}
