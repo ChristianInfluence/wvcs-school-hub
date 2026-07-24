@@ -181,7 +181,7 @@ function StaffAccessManager() {
             onChange={(event) => setDraft({ ...draft, canUseOfficePayroll: event.target.checked })}
             className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
           />
-          Office & Payroll
+          Office & Finance
         </label>
         <label className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100">
           <input
@@ -218,7 +218,7 @@ function StaffAccessManager() {
               ["canUseAdmin", "Admin"],
               ["canUseScheduler", "Scheduler"],
               ["canUseDigitalSlips", "Digital Slips"],
-              ["canUseOfficePayroll", "Office & Payroll"],
+              ["canUseOfficePayroll", "Office & Finance"],
               ["canManageUsers", "Superuser"],
             ].map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm font-semibold text-slate-300">

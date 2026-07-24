@@ -725,7 +725,7 @@ function getRoleLabels(access) {
   if (access.canUseAdmin) roles.push("Administrator");
   if (access.canUseScheduler) roles.push("Scheduler");
   if (access.canUseDigitalSlips) roles.push("Digital Slips");
-  if (access.canUseOfficePayroll) roles.push("Office & Payroll");
+  if (access.canUseOfficePayroll) roles.push("Office & Finance");
   if (access.canManageUsers) roles.push("Superuser");
   if (access.canUseHub) roles.push("Hub User");
   return roles.length ? roles : ["No active role"];
@@ -792,10 +792,10 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
       </div>
       <div className="mx-auto flex max-w-[1500px] flex-wrap gap-2 px-5 pt-6">
         {[
-          ["student-directory", "Student Directory", GraduationCap],
           ["settings", "Settings", Settings],
+          ["student-directory", "Student Directory", GraduationCap],
           ["module-admin", "Module Admin", LayoutDashboard],
-          ...(access.canUseOfficePayroll ? [["office-payroll", "Office & Payroll", ReceiptText]] : []),
+          ...(access.canUseOfficePayroll ? [["office-payroll", "Office & Finance", ReceiptText]] : []),
         ].map(([id, label, Icon]) => (
           <button
             key={id}

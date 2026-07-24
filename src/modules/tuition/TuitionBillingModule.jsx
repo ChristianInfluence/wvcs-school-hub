@@ -1389,9 +1389,9 @@ export default function TuitionBillingModule({ currentUserEmail = "" }) {
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">
               <ReceiptText size={15} />
-              Office Manager and Payroll
+              Office Manager and Finance
             </div>
-            <h1 className="mt-2 text-2xl font-bold text-white">Office & Payroll</h1>
+            <h1 className="mt-2 text-2xl font-bold text-white">Office & Finance</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               Prepare tuition breakdowns for families and manage separate incidental charge invoices from one office workspace.
             </p>
