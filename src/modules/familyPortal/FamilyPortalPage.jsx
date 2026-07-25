@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
-import { createLunchCheckout, fetchFamilyPortalData, submitFosHours, submitLunchOrders, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
+import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
@@ -314,20 +314,14 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setLoginStatus("Enter the email address connected to your WVCS family record.");
       return;
     }
-    setLoginStatus("Sending secure sign-in link...");
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/#/family-login`,
-        shouldCreateUser: false,
-      },
-    });
-    if (error) {
+    setLoginStatus("Sending WVCS secure sign-in link...");
+    try {
+      const result = await sendFamilyLoginLink(email);
+      setLinkSent(Boolean(result.sent));
+      setLoginStatus(result.sent ? "Check your email for the WVCS Family Portal sign-in link." : result.reason || "Unable to send the sign-in link.");
+    } catch (error) {
       setLoginStatus(error.message);
-      return;
     }
-    setLinkSent(true);
-    setLoginStatus("Check your email and click the secure sign-in link to open your family portal.");
   }
 
   async function signOutFamilyPortal() {

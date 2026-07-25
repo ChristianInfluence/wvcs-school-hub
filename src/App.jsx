@@ -174,6 +174,21 @@ const moduleIds = new Set(modules.map((module) => module.id));
 const moduleHashPaths = Object.fromEntries(modules.map((module) => [module.id, `#/${module.id}`]));
 
 function getRouteFromHash(hash = window.location.hash) {
+  if (window.location.pathname === "/family-login") {
+    return {
+      incidentalPaymentToken: "",
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      familyPortalToken: "",
+      familyPortalLogin: true,
+      familyPortalPreviewKey: "",
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
   const incidentalPaymentMatch = hash.match(/^#\/incidental-pay\/(.+)$/);
   if (incidentalPaymentMatch) {
     return {
@@ -1484,7 +1499,7 @@ export default function App() {
       setStructuredRecessView(route.structuredRecessView);
     }
     window.addEventListener("hashchange", handleHashRoute);
-    if (!window.location.hash) setModuleHash("dashboard");
+    if (!window.location.hash && window.location.pathname !== "/family-login") setModuleHash("dashboard");
     else handleHashRoute();
     return () => window.removeEventListener("hashchange", handleHashRoute);
   }, []);

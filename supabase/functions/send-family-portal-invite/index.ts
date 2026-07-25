@@ -86,7 +86,7 @@ Deno.serve(async (request) => {
             body: [
               `Hello ${familyName},`,
               "WVCS has enabled your secure Family Portal account. This portal will show family invoices, FOS volunteer hours, and future family account tools.",
-              "Use the Family Portal login page below and enter this email address. The system will send a one-time login code to your email.",
+              "Use the Family Portal login page below and enter this email address. WVCS will send a secure sign-in link to your email.",
               loginUrl,
               "For your family's privacy, portal access is only available to parent/guardian emails already attached to your family record at WVCS.",
             ],
