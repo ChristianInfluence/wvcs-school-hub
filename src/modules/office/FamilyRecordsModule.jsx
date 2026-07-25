@@ -554,6 +554,7 @@ function ParentAccessAuditPanel() {
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
   const loggedInCount = state.access.filter((record) => record.lastParentLoginAt).length;
+  const missingPortalRecordCount = Math.max(state.families.length - state.access.length, 0);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -571,10 +572,11 @@ function ParentAccessAuditPanel() {
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Portal Records</div><div className="mt-1 text-xl font-black text-slate-950">{state.access.length}</div></div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Roster Families</div><div className="mt-1 text-xl font-black text-slate-950">{state.families.length}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Portal Records Created</div><div className="mt-1 text-xl font-black text-slate-950">{state.access.length}</div></div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Logged In</div><div className="mt-1 text-xl font-black text-slate-950">{loggedInCount}</div></div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">No Login Yet</div><div className="mt-1 text-xl font-black text-slate-950">{Math.max(state.access.length - loggedInCount, 0)}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Needs Portal Setup</div><div className="mt-1 text-xl font-black text-slate-950">{missingPortalRecordCount}</div></div>
       </div>
 
       <div className="mt-4 relative">
