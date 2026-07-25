@@ -234,7 +234,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         <aside className="rounded-lg border border-slate-200 bg-white p-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-500" placeholder="Search families, parents, students" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" placeholder="Search families, parents, students" />
           </div>
           {savedView !== "all" && (
             <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs font-semibold text-sky-900">
