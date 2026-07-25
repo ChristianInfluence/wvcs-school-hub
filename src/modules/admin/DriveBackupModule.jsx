@@ -56,7 +56,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
   const [runningSnapshot, setRunningSnapshot] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSetupHelp, setShowSetupHelp] = useState(false);
-  const [serverSecretConfigured, setServerSecretConfigured] = useState(false);
+  const [serverSecretConfigured, setServerSecretConfigured] = useState(true);
 
   const readyChecks = useMemo(
     () => [
