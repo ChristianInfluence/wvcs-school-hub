@@ -314,6 +314,29 @@ async function processJob({
   return { jobId: job.id, fileId: uploaded.id, webViewLink: uploaded.webViewLink };
 }
 
+async function requireSuperuser(supabase: ReturnType<typeof createClient>, request: Request) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!jwt) throw new Error("Sign in as a superuser to manage Drive backup.");
+
+  const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
+  if (userError) throw new Error("Sign in as a superuser to manage Drive backup.");
+  const email = String(userData?.user?.email || "").trim().toLowerCase();
+  if (!email) throw new Error("Sign in as a superuser to manage Drive backup.");
+
+  const { data: staffRows, error: staffError } = await supabase
+    .from("staff_access")
+    .select("email,can_use_hub,can_manage_users")
+    .eq("email", email)
+    .limit(1);
+  if (staffError) throw staffError;
+  const staff = staffRows?.[0];
+  if (email !== "mconniry@wvcs.org" && (!staff?.can_use_hub || !staff?.can_manage_users)) {
+    throw new Error("Only superusers can manage Drive backup.");
+  }
+  return email;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -321,6 +344,7 @@ Deno.serve(async (request) => {
     const payload = await request.json().catch(() => ({}));
     const action = payload.action || "test";
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
+    await requireSuperuser(supabase, request);
 
     const { data: storedSettings, error: settingsError } = await supabase
       .from("drive_backup_settings")

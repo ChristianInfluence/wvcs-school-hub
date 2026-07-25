@@ -328,10 +328,10 @@ function SystemStatusPanel() {
 }
 
 export default function AdminSettingsModule({ currentUserEmail = "", canManageUsers = false }) {
-  const [settingsView, setSettingsView] = useState(canManageUsers ? "users" : "drive");
+  const [settingsView, setSettingsView] = useState(canManageUsers ? "users" : "system");
   const settingOptions = [
     ...(canManageUsers ? [["users", "Users", Users]] : []),
-    ["drive", "Drive Backup", Cloud],
+    ...(canManageUsers ? [["drive", "Drive Backup", Cloud]] : []),
     ["system", "System Status", Settings],
   ];
 
@@ -368,7 +368,7 @@ export default function AdminSettingsModule({ currentUserEmail = "", canManageUs
         </div>
 
         {settingsView === "users" && canManageUsers && <StaffAccessManager />}
-        {settingsView === "drive" && <DriveBackupModule currentUserEmail={currentUserEmail} embedded />}
+        {settingsView === "drive" && canManageUsers && <DriveBackupModule currentUserEmail={currentUserEmail} embedded />}
         {settingsView === "system" && <SystemStatusPanel />}
       </div>
     </section>
