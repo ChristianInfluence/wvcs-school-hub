@@ -202,7 +202,7 @@ export async function testDriveBackupConnection(settings) {
   const { data, error } = await supabase.functions.invoke("google-drive-backup", {
     body: { action: "test", settings },
   });
-  if (error) throw error;
+  if (error) throw new Error(await readFunctionError(error));
   return data || { ok: false, reason: "No response from Drive backup function." };
 }
 
@@ -214,6 +214,15 @@ export async function runDriveBackupNow(limit = 10) {
   const { data, error } = await supabase.functions.invoke("google-drive-backup", {
     body: { action: "process-pending", limit },
   });
-  if (error) throw error;
+  if (error) throw new Error(await readFunctionError(error));
   return data || { ok: false, reason: "No response from Drive backup function." };
+}
+
+async function readFunctionError(error) {
+  try {
+    const payload = await error.context?.json?.();
+    return payload?.error || payload?.reason || payload?.message || error.message;
+  } catch {
+    return error.message;
+  }
 }

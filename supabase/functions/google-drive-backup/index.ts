@@ -339,10 +339,11 @@ async function requireSuperuser(supabase: ReturnType<typeof createClient>, reque
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let action = "test";
 
   try {
     const payload = await request.json().catch(() => ({}));
-    const action = payload.action || "test";
+    action = payload.action || "test";
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
     await requireSuperuser(supabase, request);
 
@@ -448,8 +449,10 @@ Deno.serve(async (request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
+    const message = error.message || "Drive backup request failed.";
+    const authorizationError = /superuser|not authorized|sign in/i.test(message);
     return new Response(JSON.stringify({ ok: false, error: error.message }), {
-      status: 500,
+      status: authorizationError ? 403 : action === "test" ? 200 : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
