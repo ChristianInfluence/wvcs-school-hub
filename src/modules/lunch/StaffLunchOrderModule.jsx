@@ -197,8 +197,63 @@ export default function StaffLunchOrderModule({ currentUserEmail = "", onClose }
               </div>
             </div>
           )}
+          {activeMenu && items.length > 0 && (
+            <div className="grid gap-2 md:hidden">
+              {monthCells.filter(Boolean).map((cellDate) => {
+                const cellIso = isoDate(cellDate);
+                const dayItems = itemsByDate.get(cellIso) || [];
+                const hasSelected = dayItems.some((item) => {
+                  const lockedPast = draft.editing && String(item.date || "") < today && activeOrderKeys.has(`${item.date}:${item.name}`);
+                  return lockedPast || Boolean(draft.selectedItems[item.itemKey]);
+                });
+                return (
+                  <div key={`mobile-${cellIso}`} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-white">
+                          {cellDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">{dayItems.length ? `${dayItems.length} option${dayItems.length === 1 ? "" : "s"}` : "No lunch offered"}</div>
+                      </div>
+                      {hasSelected && (
+                        <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-bold text-emerald-100">
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {dayItems.map((item) => {
+                        const lockedPast = draft.editing && String(item.date || "") < today && activeOrderKeys.has(`${item.date}:${item.name}`);
+                        const checked = lockedPast || Boolean(draft.selectedItems[item.itemKey]);
+                        return (
+                          <button
+                            key={item.itemKey}
+                            type="button"
+                            onClick={() => toggleItem(item)}
+                            disabled={lockedPast}
+                            className={`flex min-h-14 w-full items-center gap-3 rounded-lg border p-3 text-left text-sm disabled:cursor-not-allowed ${
+                              checked ? "border-emerald-400 bg-emerald-500/15 text-emerald-50" : "border-slate-800 bg-slate-900 text-slate-300 hover:border-sky-500/50"
+                            } ${lockedPast ? "opacity-75" : ""}`}
+                          >
+                            <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${checked ? "border-emerald-300 bg-emerald-400 text-slate-950" : "border-slate-600"}`}>
+                              {checked ? "✓" : ""}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-bold">{item.name}</span>
+                              <span className="block text-xs text-slate-500">{item.requiresMeal ? "Requires meal" : "Staff lunch"}{lockedPast ? " | Locked" : ""}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {!dayItems.length && <div className="rounded-lg border border-dashed border-slate-800 p-3 text-center text-sm text-slate-600">No lunch</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {activeMenu && (
-            <div className="overflow-x-auto rounded-lg border border-slate-800">
+            <div className="hidden overflow-x-auto rounded-lg border border-slate-800 md:block">
               <div className="min-w-[900px]">
                 <div className="grid grid-cols-5 border-b border-slate-800 bg-slate-950 text-center text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
                   {weekDays.map((day) => <div key={day} className="border-r border-slate-800 px-2 py-2 last:border-r-0">{day}</div>)}
