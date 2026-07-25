@@ -206,6 +206,19 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const expectedLunchCost = selectedLunchItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
   const monthCells = buildSchoolMonthDays(activeLunchMenu?.weekStart || today);
   const activeStudentOrders = (lunch.orders || []).filter((order) => order.menuId === activeLunchMenu?.id && String(order.studentId || "") === String(lunchDraft.studentId || "") && order.status !== "Cancelled");
+  const activeFamilyOrders = (lunch.orders || []).filter((order) => order.menuId === activeLunchMenu?.id && order.status !== "Cancelled");
+  const submittedStudentLunchCost = activeStudentOrders.reduce((sum, order) => sum + Number(order.price || 0), 0);
+  const submittedFamilyLunchCost = activeFamilyOrders.reduce((sum, order) => sum + Number(order.price || 0), 0);
+  const lunchCostLabel = lunchDraft.editing || selectedLunchItems.length
+    ? "Current Selection"
+    : lunchDraft.studentId
+      ? "Submitted Expected Cost"
+      : "Family Submitted Total";
+  const durableLunchCost = lunchDraft.editing || selectedLunchItems.length
+    ? expectedLunchCost
+    : lunchDraft.studentId
+      ? submittedStudentLunchCost
+      : submittedFamilyLunchCost;
   const activeOrderKeys = new Set(activeStudentOrders.map((order) => `${order.orderDate}:${order.itemName}`));
   const lunchMenuSummaries = useMemo(() => {
     if (!activeLunchMenu) return [];
@@ -220,8 +233,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
           studentName: studentsById.get(String(order.studentId || ""))?.name || order.studentName || "Student",
           count: 0,
           futureCount: 0,
+          expectedCost: 0,
         };
         existing.count += 1;
+        existing.expectedCost += Number(order.price || 0);
         if (order.orderDate >= today && order.status === "Anticipated" && !order.chargedAt) existing.futureCount += 1;
         grouped.set(key, existing);
       });
@@ -783,8 +798,11 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                             <div className="text-xs text-slate-500">{activeLunchMenu ? monthName(activeLunchMenu.weekStart) : `No published menu loaded (${lunchMenus.length} received)`}</div>
                           </div>
                           <div className="text-right">
-                            <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Expected Cost</div>
-                            <div className="text-xl font-bold text-emerald-200">{money(expectedLunchCost)}</div>
+                            <div className="text-xs uppercase tracking-[0.14em] text-slate-500">{lunchCostLabel}</div>
+                            <div className="text-xl font-bold text-emerald-200">{money(durableLunchCost)}</div>
+                            {!lunchDraft.editing && !selectedLunchItems.length && Boolean(activeFamilyOrders.length) && (
+                              <div className="mt-0.5 text-[11px] text-slate-500">Saved monthly lunch choices</div>
+                            )}
                           </div>
                         </div>
                         {activeLunchMenu?.notes && <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-300">{activeLunchMenu.notes}</div>}
@@ -802,6 +820,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                                   <div className="mt-0.5 text-xs text-slate-500">
                                     {summary.count} item(s) selected{summary.futureCount ? ` | ${summary.futureCount} future item(s) editable` : " | past or processed items locked"}
                                   </div>
+                                  <div className="mt-1 text-xs font-semibold text-emerald-200">Expected cost: {money(summary.expectedCost)}</div>
                                 </div>
                                 <button
                                   type="button"
