@@ -38,6 +38,15 @@ function jobTone(status) {
   return "slate";
 }
 
+function FolderPath({ title, children }) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</div>
+      <div className="mt-1 break-words font-mono text-[11px] leading-4 text-slate-200">{children}</div>
+    </div>
+  );
+}
+
 export default function DriveBackupModule({ currentUserEmail = "", embedded = false }) {
   const [settings, setSettings] = useState(DEFAULT_DRIVE_BACKUP_SETTINGS);
   const [jobs, setJobs] = useState([]);
@@ -381,6 +390,9 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 {saving ? "Saving..." : "Save Drive Settings"}
               </button>
             </div>
+            <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs leading-5 text-slate-400">
+              Data snapshots include invoice and receipt records, payment status, FOS, lunch, family records, settings, and audit tables.
+            </div>
           </div>
         </div>
 
@@ -421,25 +433,22 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
             <FolderTree size={16} className="text-sky-300" />
             Folder Organization
           </div>
-          <div className="space-y-3 text-sm text-slate-300">
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Permission Slips</div>
-              <div className="mt-2 break-words font-mono text-xs text-slate-200">
-                {settings.rootFolderName || "WVCS Hub Backups"} / Digital Permission Slips / School Year / Trip / Signed PDFs
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Forms</div>
-              <div className="mt-2 break-words font-mono text-xs text-slate-200">
-                {settings.rootFolderName || "WVCS Hub Backups"} / Forms / Form Name / School Year / Status
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Data Snapshots</div>
-              <div className="mt-2 break-words font-mono text-xs text-slate-200">
-                {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / School Year / Date / Area
-              </div>
-            </div>
+          <div className="grid gap-2 text-sm text-slate-300">
+            <FolderPath title="Signed Slips">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Digital Permission Slips / Year / Trip / Signed PDFs
+            </FolderPath>
+            <FolderPath title="Approved Forms">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Forms / Form Name / Year / Status
+            </FolderPath>
+            <FolderPath title="Invoices + Receipts">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Office and Finance
+            </FolderPath>
+            <FolderPath title="Family + FOS + Lunch">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Family Portal
+            </FolderPath>
+            <FolderPath title="System + Audit">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Area
+            </FolderPath>
           </div>
         </div>
 
