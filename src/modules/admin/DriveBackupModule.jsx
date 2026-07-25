@@ -4,6 +4,7 @@ import {
   DEFAULT_DRIVE_BACKUP_SETTINGS,
   fetchDriveBackupJobs,
   fetchDriveBackupSettings,
+  runDriveBackupNow,
   saveDriveBackupSettings,
   testDriveBackupConnection,
 } from "../../lib/driveBackupData.js";
@@ -41,8 +42,10 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
   const [jobs, setJobs] = useState([]);
   const [status, setStatus] = useState("Loading Drive backup settings...");
   const [testing, setTesting] = useState(false);
+  const [runningBackup, setRunningBackup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSetupHelp, setShowSetupHelp] = useState(false);
+  const [serverSecretConfigured, setServerSecretConfigured] = useState(false);
 
   const readyChecks = useMemo(
     () => [
@@ -60,11 +63,13 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
       },
       {
         label: "Server secret",
-        complete: false,
-        detail: "Add GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON in Supabase function secrets before live uploads.",
+        complete: serverSecretConfigured,
+        detail: serverSecretConfigured
+          ? "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON is configured in Supabase."
+          : "Add GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON in Supabase function secrets before live uploads.",
       },
     ],
-    [settings.rootFolderId, settings.rootFolderName, settings.serviceAccountEmail]
+    [serverSecretConfigured, settings.rootFolderId, settings.rootFolderName, settings.serviceAccountEmail]
   );
 
   async function loadDriveBackup() {
@@ -106,6 +111,10 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
     try {
       const result = await testDriveBackupConnection(settings);
       if (result.ok) {
+        setServerSecretConfigured(Boolean(result.serverSecretConfigured));
+        if (result.serviceAccountEmail && !settings.serviceAccountEmail) {
+          setSettings((current) => ({ ...current, serviceAccountEmail: result.serviceAccountEmail }));
+        }
         setStatus(result.ready ? "Drive backup function is ready." : result.message || "Drive backup function is reachable.");
       } else {
         setStatus(result.reason || result.error || "Drive backup function did not report ready.");
@@ -114,6 +123,30 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
       setStatus(`Drive backup test failed: ${error.message}`);
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function processPendingBackups() {
+    setRunningBackup(true);
+    setStatus("Running pending Drive backups...");
+    try {
+      const result = await runDriveBackupNow(15);
+      if (result.ok) {
+        const failedCount = result.failed?.length || 0;
+        setStatus(
+          failedCount
+            ? `Drive backup ran. Uploaded ${result.uploaded?.length || 0}; ${failedCount} need attention.`
+            : `Drive backup complete. Uploaded ${result.uploaded?.length || 0} file${(result.uploaded?.length || 0) === 1 ? "" : "s"}.`
+        );
+        const jobsResult = await fetchDriveBackupJobs(20);
+        setJobs(jobsResult.jobs || []);
+      } else {
+        setStatus(result.reason || result.error || "Drive backup did not run.");
+      }
+    } catch (error) {
+      setStatus(`Drive backup failed: ${error.message}`);
+    } finally {
+      setRunningBackup(false);
     }
   }
 
@@ -297,6 +330,15 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               </button>
               <button
                 type="button"
+                onClick={processPendingBackups}
+                disabled={runningBackup}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-60"
+              >
+                <Cloud size={16} />
+                {runningBackup ? "Backing Up..." : "Run Backup Now"}
+              </button>
+              <button
+                type="button"
                 onClick={saveSettings}
                 disabled={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60"
@@ -331,8 +373,8 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
             <div className="flex items-start gap-3">
               <TriangleAlert size={18} className="mt-0.5 text-amber-200" />
               <p className="text-xs leading-5 text-amber-100/90">
-                This is the backup framework. The final live upload step needs the Google service account JSON saved as a Supabase
-                function secret so PDFs can be copied server-to-server.
+                For best visibility, share a Google Drive folder with the service account and paste that folder ID here. Without a
+                folder ID, Google may place uploads in the service account Drive instead of a folder your office can browse.
               </p>
             </div>
           </div>
