@@ -1161,6 +1161,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingIncidentalEmail, setSendingIncidentalEmail] = useState(false);
   const [officePaymentOpen, setOfficePaymentOpen] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState({});
+  const actionFeedbackTimers = useRef({});
   const invoiceRef = useRef(null);
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
   const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
@@ -1203,6 +1205,40 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         : [],
     [ledgerFamilyKey, savedIncidentalInvoices]
   );
+
+  function setActionState(action, state, label = "") {
+    if (actionFeedbackTimers.current[action]) clearTimeout(actionFeedbackTimers.current[action]);
+    setActionFeedback((current) => ({ ...current, [action]: { state, label } }));
+    if (state === "done" || state === "error") {
+      actionFeedbackTimers.current[action] = setTimeout(() => {
+        setActionFeedback((current) => {
+          const next = { ...current };
+          delete next[action];
+          return next;
+        });
+      }, 2200);
+    }
+  }
+
+  function actionButtonClass(action, baseClass = "") {
+    const feedback = actionFeedback[action];
+    const tone = feedback?.state === "done"
+      ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100 shadow-[0_0_0_1px_rgba(52,211,153,0.18)]"
+      : feedback?.state === "error"
+        ? "border-rose-400/70 bg-rose-500/20 text-rose-100 shadow-[0_0_0_1px_rgba(251,113,133,0.18)]"
+        : "";
+    return `${baseClass} transform-gpu transition active:scale-[0.98] ${tone}`.trim();
+  }
+
+  function actionIcon(action, fallback) {
+    const feedback = actionFeedback[action];
+    if (feedback?.state === "done") return <CheckCircle2 size={16} className="text-emerald-200" />;
+    return fallback;
+  }
+
+  function actionLabel(action, fallback) {
+    return actionFeedback[action]?.label || fallback;
+  }
 
   async function loadSavedInvoices() {
     try {
@@ -1347,11 +1383,14 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   }
 
   async function handleSaveInvoice() {
+    setActionState("saveTuition", "working", "Saving...");
     try {
       const saved = await saveCurrentInvoice({ status: invoice.status || "Draft" });
       setStatus(`${saved.familyName || "Invoice"} saved for ${saved.schoolYear || "school year"}.`);
+      setActionState("saveTuition", "done", "Saved");
     } catch (error) {
       setStatus(`Unable to save invoice: ${error.message}`);
+      setActionState("saveTuition", "error", "Save Failed");
     }
   }
 
@@ -1576,13 +1615,18 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   async function saveIncidentalDraft() {
     if ((incidentalInvoice.status === "Voided" || incidentalInvoice.paymentStatus === "Voided") && !String(incidentalInvoice.voidNote || "").trim()) {
       setStatus("Enter a void note before saving a voided incidental invoice.");
+      setActionState("saveIncidental", "error", "Needs Void Note");
       return;
     }
+    setActionState("saveIncidental", "working", "Saving...");
     try {
       const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
-      setStatus(`${saved.familyName || "Incidental invoice"} saved.`);
+      const syncedLunch = getIncidentalPaymentStatus(saved.invoice || saved) === "Paid" && lunchPaymentTotal(saved.invoice || saved) > 0;
+      setStatus(`${saved.familyName || "Incidental invoice"} saved.${syncedLunch ? " Lunch account synced." : ""}`);
+      setActionState("saveIncidental", "done", "Saved");
     } catch (error) {
       setStatus(`Unable to save incidental invoice: ${error.message}`);
+      setActionState("saveIncidental", "error", "Save Failed");
     }
   }
 
@@ -1717,18 +1761,22 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   }
 
   async function copyIncidentalPortalLink() {
+    setActionState("copyIncidental", "working", "Copying...");
     try {
       const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
       const portalInvoice = saved.invoice?.invoice || saved.invoice || incidentalInvoice;
       const url = getIncidentalPortalUrl(portalInvoice);
       await navigator.clipboard.writeText(url);
       setStatus("Invoice saved and payment link copied.");
+      setActionState("copyIncidental", "done", "Copied");
     } catch (error) {
       setStatus(`Unable to copy payment portal link: ${error.message}`);
+      setActionState("copyIncidental", "error", "Copy Failed");
     }
   }
 
   async function openIncidentalPortal() {
+    setActionState("openIncidental", "working", "Opening...");
     const openedWindow = window.open("", "_blank");
     try {
       const saved = await saveCurrentIncidentalInvoice({ status: incidentalInvoice.status || "Draft" });
@@ -1740,9 +1788,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         window.open(url, "_blank", "noreferrer");
       }
       setStatus("Payment portal opened.");
+      setActionState("openIncidental", "done", "Opened");
     } catch (error) {
       if (openedWindow) openedWindow.close();
       setStatus(`Unable to open payment portal: ${error.message}`);
+      setActionState("openIncidental", "error", "Open Failed");
     }
   }
 
@@ -1750,8 +1800,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const recipients = getIncidentalRecipients(incidentalInvoice);
     if (!recipients.length) {
       setStatus("Select a family or enter at least one parent email before sending.");
+      setActionState("sendIncidental", "error", "Needs Recipient");
       return;
     }
+    setActionState("sendIncidental", "working", "Sending...");
     setSendingIncidentalEmail(true);
     setStatus("Saving and sending incidental invoice email...");
     try {
@@ -1773,8 +1825,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         recipients,
       });
       setStatus(result.sent ? `Incidental invoice sent to ${recipients.join(", ")}.` : result.reason || "Email was not sent.");
+      setActionState("sendIncidental", result.sent ? "done" : "error", result.sent ? "Sent" : "Not Sent");
     } catch (error) {
       setStatus(`Unable to send incidental invoice: ${error.message}`);
+      setActionState("sendIncidental", "error", "Send Failed");
     } finally {
       setSendingIncidentalEmail(false);
     }
@@ -1788,19 +1842,23 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const invoiceToPay = recordOrInvoice.invoice ? getRecordInvoice(recordOrInvoice) : recordOrInvoice;
     if (!invoiceToPay.paymentMethod) {
       setStatus("Select cash, card, or check before marking paid in office.");
+      setActionState("recordPayment", "error", "Choose Method");
       return;
     }
     if (invoiceToPay.paymentMethod === "check" && !String(invoiceToPay.checkNumber || "").trim()) {
       setStatus("Enter the check number before marking a check payment paid.");
+      setActionState("recordPayment", "error", "Needs Check #");
       return;
     }
     const paymentAmount = money(invoiceToPay.paymentAmount || incidentalBalance(invoiceToPay));
     if (paymentAmount <= 0) {
       setStatus("Enter a payment amount greater than zero.");
+      setActionState("recordPayment", "error", "Needs Amount");
       return;
     }
     const processingFee = money(invoiceToPay.processingFee);
 
+    setActionState("recordPayment", "working", "Recording...");
     try {
       const paidAt = invoiceToPay.paidAt || new Date().toISOString();
       const nextHistory = [
@@ -1822,7 +1880,6 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         ...invoiceToPay,
         paymentHistory: nextHistory,
       };
-      const recordedPayment = nextHistory[nextHistory.length - 1];
       const nextPaymentStatus = getIncidentalPaymentStatus(nextInvoice);
       const record = await saveCurrentIncidentalInvoiceFor(invoiceToPay, {
         status: invoiceToPay.status === "Draft" ? "Saved" : invoiceToPay.status,
@@ -1838,20 +1895,33 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         checkNumber: invoiceToPay.paymentMethod === "check" ? invoiceToPay.checkNumber : "",
       });
       const savedInvoice = getRecordInvoice(record);
-      const lunchAmount = Math.min(paymentAmount, lunchPaymentTotal(savedInvoice));
-      if (lunchAmount > 0) {
-        await recordLunchDepositFromIncidental({
-          invoice: savedInvoice,
-          payment: recordedPayment,
-          amount: lunchAmount,
-          currentUserEmail,
-        });
-      }
+      const lunchSynced = lunchPaymentTotal(savedInvoice) > 0 && getIncidentalPaymentStatus(savedInvoice) === "Paid";
       setOfficePaymentOpen(false);
-      setStatus(`${record.familyName || "Incidental invoice"} payment recorded.${lunchAmount > 0 ? " Lunch account credited." : ""}`);
+      setStatus(`${record.familyName || "Incidental invoice"} payment recorded.${lunchSynced ? " Lunch account synced." : ""}`);
+      setActionState("recordPayment", "done", "Payment Recorded");
     } catch (error) {
       setStatus(`Unable to mark paid in office: ${error.message}`);
+      setActionState("recordPayment", "error", "Payment Failed");
     }
+  }
+
+  async function syncPaidIncidentalLunchCredit(invoiceToSync, preferredPayment = null, preferredAmount = 0) {
+    const lunchAmount = lunchPaymentTotal(invoiceToSync);
+    if (lunchAmount <= 0 || getIncidentalPaymentStatus(invoiceToSync) !== "Paid") return { credited: false };
+    const paymentHistory = getPaymentHistory(invoiceToSync);
+    const payment = preferredPayment || paymentHistory[paymentHistory.length - 1] || {
+      id: `manual-paid-${invoiceToSync.id}`,
+      method: invoiceToSync.paymentMethod || "office",
+      checkNumber: invoiceToSync.checkNumber || "",
+    };
+    const paidAmount = Number(preferredAmount || money(payment.amount) || incidentalPaidTotal(invoiceToSync));
+    const result = await recordLunchDepositFromIncidental({
+      invoice: invoiceToSync,
+      payment,
+      amount: Math.min(paidAmount, lunchAmount),
+      currentUserEmail,
+    });
+    return { credited: Boolean(result.recorded && !result.skipped), result };
   }
 
   async function saveCurrentIncidentalInvoiceFor(baseInvoice, patch = {}) {
@@ -1904,10 +1974,14 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     };
     const result = await saveIncidentalInvoice(record, currentUserEmail);
     const savedInvoice = getRecordInvoice(result.invoice);
+    let lunchSync = { credited: false };
+    if (getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0) {
+      lunchSync = await syncPaidIncidentalLunchCredit(savedInvoice);
+    }
     setIncidentalInvoice(savedInvoice);
     setSelectedIncidentalInvoiceId(result.invoice.id);
     setSavedIncidentalInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
-    setIncidentalStatus(result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved.");
+    setIncidentalStatus(`${result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved."}${lunchSync.credited ? " Lunch account credited." : ""}`);
     return result.invoice;
   }
 
@@ -2471,10 +2545,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               <button
                 type="button"
                 onClick={saveDraft}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                className={actionButtonClass("saveTuition", "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20")}
               >
-                <Save size={16} />
-                Save Invoice
+                {actionIcon("saveTuition", <Save size={16} />)}
+                {actionLabel("saveTuition", "Save Invoice")}
               </button>
             </div>
 
@@ -2955,10 +3029,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       <button
                         type="button"
                         onClick={() => markIncidentalPaidInOffice()}
-                        className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                        className={actionButtonClass("recordPayment", "mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20")}
                       >
-                        <CheckCircle2 size={16} />
-                        Record Payment
+                        {actionIcon("recordPayment", <CheckCircle2 size={16} />)}
+                        {actionLabel("recordPayment", "Record Payment")}
                       </button>
                     </div>
                   )}
@@ -2996,35 +3070,35 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <button
                     type="button"
                     onClick={saveIncidentalDraft}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                    className={actionButtonClass("saveIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20")}
                   >
-                    <Save size={16} />
-                    Save Draft
+                    {actionIcon("saveIncidental", <Save size={16} />)}
+                    {actionLabel("saveIncidental", "Save Draft")}
                   </button>
                   <button
                     type="button"
                     onClick={sendIncidentalEmail}
                     disabled={sendingIncidentalEmail}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={actionButtonClass("sendIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60")}
                   >
-                    <Mail size={16} />
-                    {sendingIncidentalEmail ? "Sending..." : "Send Invoice"}
+                    {actionIcon("sendIncidental", <Mail size={16} />)}
+                    {actionLabel("sendIncidental", sendingIncidentalEmail ? "Sending..." : "Send Invoice")}
                   </button>
                   <button
                     type="button"
                     onClick={copyIncidentalPortalLink}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                    className={actionButtonClass("copyIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800")}
                   >
-                    <Copy size={16} />
-                    Save & Copy Link
+                    {actionIcon("copyIncidental", <Copy size={16} />)}
+                    {actionLabel("copyIncidental", "Save & Copy Link")}
                   </button>
                   <button
                     type="button"
                     onClick={openIncidentalPortal}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                    className={actionButtonClass("openIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800")}
                   >
-                    <ExternalLink size={16} />
-                    Open Portal
+                    {actionIcon("openIncidental", <ExternalLink size={16} />)}
+                    {actionLabel("openIncidental", "Open Portal")}
                   </button>
                 </div>
               </div>

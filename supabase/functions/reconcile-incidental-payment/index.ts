@@ -135,6 +135,7 @@ async function recordIncidentalLunchDeposit({
   const familyKey = invoice.family_key || invoiceJson.familyKey || "";
   const familyName = invoice.family_name || invoiceJson.familyName || "WVCS Family";
   const paymentId = `stripe-${session.id}`;
+  const amount = Math.min(paymentAmount, lunchChargeTotal);
   if (!familyKey || amount <= 0) return { recorded: false };
 
   const { data: existing, error: existingError } = await supabase
@@ -145,14 +146,14 @@ async function recordIncidentalLunchDeposit({
   if (existingError) throw existingError;
   if (existing?.some((transaction: Record<string, any>) => transaction.incidental_payment_id === paymentId)) return { recorded: true, skipped: true };
   const alreadyCredited = (existing || []).reduce((total: number, transaction: Record<string, any>) => total + Number(transaction.amount || 0), 0);
-  const amount = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
-  if (amount <= 0) return { recorded: false };
+  const amountToCredit = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
+  if (amountToCredit <= 0) return { recorded: false };
 
   const { error } = await supabase.from("lunch_transactions").insert({
     family_key: familyKey,
     family_name: familyName,
     type: "deposit",
-    amount,
+    amount: amountToCredit,
     description: "Incidental lunch payment",
     payment_method: "card",
     stripe_checkout_session_id: session.id,
@@ -164,7 +165,7 @@ async function recordIncidentalLunchDeposit({
     created_by_email: "Stripe",
   });
   if (error) throw error;
-  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amount });
+  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amountToCredit });
   return { recorded: true };
 }
 

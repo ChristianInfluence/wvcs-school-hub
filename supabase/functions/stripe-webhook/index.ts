@@ -134,6 +134,7 @@ async function recordIncidentalLunchDeposit({
   const familyKey = invoice.family_key || invoiceJson.familyKey || "";
   const familyName = invoice.family_name || invoiceJson.familyName || "WVCS Family";
   const paymentId = `stripe-${session.id}`;
+  const amount = Math.min(paymentAmount, lunchChargeTotal);
   if (!familyKey || amount <= 0) return { updated: false, reason: "No incidental lunch payment amount was found." };
 
   const existing = await supabase
@@ -144,15 +145,15 @@ async function recordIncidentalLunchDeposit({
   if (existing.error) throw existing.error;
   if (existing.data?.some((transaction: Record<string, any>) => transaction.incidental_payment_id === paymentId)) return { updated: true, reason: "Incidental lunch deposit was already recorded." };
   const alreadyCredited = (existing.data || []).reduce((total: number, transaction: Record<string, any>) => total + Number(transaction.amount || 0), 0);
-  const amount = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
-  if (amount <= 0) return { updated: false, reason: "The lunch portion of this incidental invoice has already been credited." };
+  const amountToCredit = Math.min(paymentAmount, Math.max(lunchChargeTotal - alreadyCredited, 0));
+  if (amountToCredit <= 0) return { updated: false, reason: "The lunch portion of this incidental invoice has already been credited." };
 
   const feeData = await retrieveProcessingFee(session.payment_intent || "");
   const { error } = await supabase.from("lunch_transactions").insert({
     family_key: familyKey,
     family_name: familyName,
     type: "deposit",
-    amount,
+    amount: amountToCredit,
     description: "Incidental lunch payment",
     payment_method: "card",
     stripe_checkout_session_id: session.id,
@@ -164,7 +165,7 @@ async function recordIncidentalLunchDeposit({
     created_by_email: "Stripe",
   });
   if (error) throw error;
-  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amount });
+  await upsertLunchAccountBalance({ supabase, familyKey, familyName, delta: amountToCredit });
   return { updated: true, familyKey };
 }
 
