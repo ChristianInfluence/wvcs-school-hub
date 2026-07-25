@@ -1,4 +1,64 @@
 @import "tailwindcss";
+
+@layer base {
+  button,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: translateY(1px) scale(0.985);
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid rgb(125 211 252);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.18);
+  }
+
+  button:disabled,
+  button[aria-disabled="true"],
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  button[aria-busy="true"] {
+    position: relative;
+    pointer-events: none;
+  }
+
+  button[aria-busy="true"]::after {
+    content: "";
+    width: 0.8em;
+    height: 0.8em;
+    margin-left: 0.45rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 9999px;
+    animation: wvcs-button-spin 700ms linear infinite;
+    opacity: 0.8;
+  }
+}
+
+@keyframes wvcs-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media print {
   @page {
     size: letter landscape;

@@ -2545,6 +2545,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               <button
                 type="button"
                 onClick={saveDraft}
+                aria-busy={actionFeedback.saveTuition?.state === "working"}
                 className={actionButtonClass("saveTuition", "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20")}
               >
                 {actionIcon("saveTuition", <Save size={16} />)}
@@ -3029,6 +3030,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       <button
                         type="button"
                         onClick={() => markIncidentalPaidInOffice()}
+                        aria-busy={actionFeedback.recordPayment?.state === "working"}
                         className={actionButtonClass("recordPayment", "mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20")}
                       >
                         {actionIcon("recordPayment", <CheckCircle2 size={16} />)}
@@ -3070,6 +3072,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <button
                     type="button"
                     onClick={saveIncidentalDraft}
+                    aria-busy={actionFeedback.saveIncidental?.state === "working"}
                     className={actionButtonClass("saveIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20")}
                   >
                     {actionIcon("saveIncidental", <Save size={16} />)}
@@ -3079,6 +3082,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     type="button"
                     onClick={sendIncidentalEmail}
                     disabled={sendingIncidentalEmail}
+                    aria-busy={actionFeedback.sendIncidental?.state === "working"}
                     className={actionButtonClass("sendIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60")}
                   >
                     {actionIcon("sendIncidental", <Mail size={16} />)}
@@ -3087,6 +3091,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <button
                     type="button"
                     onClick={copyIncidentalPortalLink}
+                    aria-busy={actionFeedback.copyIncidental?.state === "working"}
                     className={actionButtonClass("copyIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800")}
                   >
                     {actionIcon("copyIncidental", <Copy size={16} />)}
@@ -3095,6 +3100,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <button
                     type="button"
                     onClick={openIncidentalPortal}
+                    aria-busy={actionFeedback.openIncidental?.state === "working"}
                     className={actionButtonClass("openIncidental", "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800")}
                   >
                     {actionIcon("openIncidental", <ExternalLink size={16} />)}

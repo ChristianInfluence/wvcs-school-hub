@@ -1056,6 +1056,7 @@ export function FormApprovalActionPage({ token }) {
                     type="button"
                     onClick={resolveAction}
                     disabled={result.loading}
+                    aria-busy={result.loading}
                     className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
                       approving
                         ? "border-emerald-400 bg-emerald-500 hover:bg-emerald-400"
@@ -1460,6 +1461,7 @@ export function PublicSharedFormPage({ token }) {
                 <button
                   type="button"
                   disabled={!canSubmit || isSubmitting}
+                  aria-busy={isSubmitting}
                   onClick={submitSharedForm}
                   className="inline-flex items-center gap-2 rounded-lg border border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -3255,6 +3257,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 <button
                   type="button"
                   disabled={sendingId === selected.id || !["Approved", "Rejected", "Sent"].includes(selected.status)}
+                  aria-busy={sendingId === selected.id}
                   onClick={sendSelectedEmail}
                   className="col-span-2 inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 sm:col-span-1"
                 >

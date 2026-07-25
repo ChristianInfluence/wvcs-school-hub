@@ -1070,6 +1070,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                         type="button"
                         onClick={submitHours}
                         disabled={submitting}
+                        aria-busy={submitting}
                         className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
                       >
                         <Send size={16} />

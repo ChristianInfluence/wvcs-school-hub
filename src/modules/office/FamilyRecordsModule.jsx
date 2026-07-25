@@ -300,6 +300,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                       type="button"
                       onClick={() => sendPortalInvite(selectedFamily)}
                       disabled={portalLoadingKey === selectedFamily.familyKey}
+                      aria-busy={portalLoadingKey === selectedFamily.familyKey}
                       className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Mail size={15} />

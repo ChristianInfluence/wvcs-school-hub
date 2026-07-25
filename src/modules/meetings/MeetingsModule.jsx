@@ -557,6 +557,7 @@ export default function MeetingsModule() {
             <button
               type="button"
               disabled={!canRequest || isSubmitting}
+              aria-busy={isSubmitting}
               onClick={submitRequest}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-violet-400 bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -1236,6 +1237,7 @@ export function AdminMeetingsModule() {
                             <button
                               type="button"
                               disabled={confirmingId === request.id}
+                              aria-busy={confirmingId === request.id}
                               onClick={() => confirmAndSendInvite(request, admin, slot)}
                               className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -1315,6 +1317,7 @@ export function AdminMeetingsModule() {
                             <button
                               type="button"
                               disabled={confirmingId === request.id}
+                              aria-busy={confirmingId === request.id}
                               onClick={() => deleteRecentRequest(request)}
                               className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -1347,6 +1350,7 @@ export function AdminMeetingsModule() {
                             <button
                               type="button"
                               disabled={!declineNote.trim() || confirmingId === request.id}
+                              aria-busy={confirmingId === request.id}
                               onClick={() => declineRequest(request, admin, slot)}
                               className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                             >

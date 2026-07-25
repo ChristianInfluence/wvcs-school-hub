@@ -608,6 +608,7 @@ export function AdminSuggestionsModule() {
                         type="button"
                         onClick={() => emailSuggestion(suggestion)}
                         disabled={sendingId === suggestion.id || !parseEmailList(getEmailDraft(suggestion).recipients).length}
+                        aria-busy={sendingId === suggestion.id}
                         className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-lime-400 bg-lime-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {sendingId === suggestion.id ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -619,6 +620,7 @@ export function AdminSuggestionsModule() {
                         type="button"
                         onClick={() => saveAdminUpdate(suggestion)}
                         disabled={isSaving}
+                        aria-busy={isSaving}
                         className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${
                           isSaved
                             ? "border-emerald-400 bg-emerald-500 text-white"

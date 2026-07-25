@@ -2937,6 +2937,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                     type="button"
                     onClick={sendToCheckedStudents}
                     disabled={isSendingCheckedStudents || !selectedStudentIds.length}
+                    aria-busy={isSendingCheckedStudents}
                     className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Send size={16} className={isSendingCheckedStudents ? "animate-pulse" : ""} />
@@ -3148,6 +3149,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         type="button"
                         onClick={() => resendPermissionEmail(recipient)}
                         disabled={!recipient.parentEmail || sendingRecipientIds.includes(recipient.id)}
+                        aria-busy={sendingRecipientIds.includes(recipient.id)}
                         className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Send size={15} className={sendingRecipientIds.includes(recipient.id) ? "animate-pulse" : ""} />
@@ -3157,6 +3159,7 @@ export default function PermissionSlipsModule({ currentUserEmail = "" }) {
                         type="button"
                         onClick={() => sendPermissionSms(recipient)}
                         disabled={!recipient.parentPhone || sendingRecipientIds.includes(recipient.id)}
+                        aria-busy={sendingRecipientIds.includes(recipient.id)}
                         className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Send size={15} className={sendingRecipientIds.includes(recipient.id) ? "animate-pulse" : ""} />

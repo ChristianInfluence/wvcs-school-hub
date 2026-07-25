@@ -357,6 +357,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 type="button"
                 onClick={testConnection}
                 disabled={testing}
+                aria-busy={testing}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"
               >
                 <ShieldCheck size={16} />
@@ -366,6 +367,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 type="button"
                 onClick={processPendingBackups}
                 disabled={runningBackup}
+                aria-busy={runningBackup}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-400 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-60"
               >
                 <Cloud size={16} />
@@ -375,6 +377,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 type="button"
                 onClick={createDataSnapshot}
                 disabled={runningSnapshot}
+                aria-busy={runningSnapshot}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-400 bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-60"
               >
                 <Database size={16} />
@@ -384,6 +387,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 type="button"
                 onClick={saveSettings}
                 disabled={saving}
+                aria-busy={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60"
               >
                 <Save size={16} />

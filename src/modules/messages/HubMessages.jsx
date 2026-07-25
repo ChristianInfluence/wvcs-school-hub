@@ -472,6 +472,7 @@ export default function HubMessages({ currentUserEmail = "", currentUserName = "
                     type="button"
                     onClick={sendNewMessage}
                     disabled={sending}
+                    aria-busy={sending}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Send size={16} />
@@ -521,6 +522,7 @@ export default function HubMessages({ currentUserEmail = "", currentUserName = "
                     type="button"
                     onClick={sendReply}
                     disabled={sending || !replyBody.trim()}
+                    aria-busy={sending}
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Reply size={16} />

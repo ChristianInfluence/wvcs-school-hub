@@ -132,7 +132,7 @@ function StudentFormDialog({ mode, student, onClose, onSave }) {
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">
             Cancel
           </button>
-          <button type="submit" disabled={saving} className="rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60">
+          <button type="submit" disabled={saving} aria-busy={saving} className="rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60">
             {saving ? "Saving..." : "Save Student"}
           </button>
         </div>
@@ -187,7 +187,7 @@ function RemoveDialog({ student, onClose, onRemove }) {
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">
             Cancel
           </button>
-          <button type="button" onClick={confirmRemove} disabled={removing} className="inline-flex items-center gap-2 rounded-lg border border-rose-400 bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-400 disabled:opacity-60">
+          <button type="button" onClick={confirmRemove} disabled={removing} aria-busy={removing} className="inline-flex items-center gap-2 rounded-lg border border-rose-400 bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-400 disabled:opacity-60">
             <Trash2 size={16} />
             {removing ? "Removing..." : "Remove Student"}
           </button>
