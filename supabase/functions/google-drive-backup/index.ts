@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 let cachedAccessToken = "";
@@ -138,10 +138,24 @@ async function googleDriveFetch(path: string, accessToken: string, init: Request
 }
 
 async function verifyDriveFolder(folderId: string, accessToken: string) {
-  return googleDriveFetch(
-    `/files/${encodeURIComponent(folderId)}?fields=id,name,webViewLink&supportsAllDrives=true`,
-    accessToken
-  );
+  try {
+    return await googleDriveFetch(
+      `/files/${encodeURIComponent(folderId)}?fields=id,name,webViewLink&supportsAllDrives=true`,
+      accessToken
+    );
+  } catch (error) {
+    if (!/file not found|not found/i.test(error.message || "")) throw error;
+    const sharedDrive = await googleDriveFetch(
+      `/drives/${encodeURIComponent(folderId)}?fields=id,name&useDomainAdminAccess=false`,
+      accessToken
+    );
+    return {
+      id: sharedDrive.id,
+      name: sharedDrive.name,
+      webViewLink: `https://drive.google.com/drive/folders/${sharedDrive.id}`,
+      sharedDriveRoot: true,
+    };
+  }
 }
 
 async function findFolder(name: string, parentId: string, accessToken: string) {
