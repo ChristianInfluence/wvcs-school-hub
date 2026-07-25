@@ -41,12 +41,15 @@ Deno.serve(async (request) => {
 
     const { data: staffRows, error: staffError } = await supabase
       .from("staff_access")
-      .select("email, can_use_hub, can_use_admin, can_use_office_payroll")
+      .select("email, can_use_hub, can_manage_users, can_use_office_payroll")
       .eq("email", requesterEmail)
       .limit(1);
     if (staffError) throw staffError;
     const staff = staffRows?.[0];
-    if (!staff?.can_use_hub || (!staff.can_use_admin && !staff.can_use_office_payroll)) throw new Error("Not authorized.");
+    if (
+      requesterEmail !== "mconniry@wvcs.org" &&
+      (!staff?.can_use_hub || (!staff.can_use_office_payroll && !staff.can_manage_users))
+    ) throw new Error("Not authorized.");
 
     const { data: existing, error: existingError } = await supabase
       .from("family_portal_access")

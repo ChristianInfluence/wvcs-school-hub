@@ -5,22 +5,34 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    const authHeader = request.headers.get("Authorization") || "";
     const { token, entry } = await request.json();
-    if (!token) throw new Error("Missing family portal token.");
     if (!entry?.activityDate || !entry?.activity || !Number(entry?.hours)) throw new Error("Missing FOS hour details.");
 
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-    const { data: access, error: accessError } = await supabase
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: userData } = jwt ? await supabase.auth.getUser(jwt) : { data: { user: null } };
+    const requesterEmail = normalizeEmail(userData?.user?.email || "");
+
+    let accessQuery = supabase
       .from("family_portal_access")
       .select("*")
-      .eq("public_token", token)
-      .eq("active", true)
-      .maybeSingle();
+      .eq("active", true);
+
+    if (requesterEmail) {
+      accessQuery = accessQuery.contains("contact_emails", [requesterEmail]);
+    } else if (token) {
+      accessQuery = accessQuery.eq("public_token", token);
+    } else {
+      throw new Error("Please sign in before submitting FOS hours.");
+    }
+
+    const { data: access, error: accessError } = await accessQuery.maybeSingle();
 
     if (accessError) throw accessError;
     if (!access) throw new Error("Family portal link was not found.");
 
-    const parentEmail = normalizeEmail(entry.parentEmail || access.contact_emails?.[0] || "");
+    const parentEmail = normalizeEmail(requesterEmail || entry.parentEmail || access.contact_emails?.[0] || "");
     const row = {
       family_key: access.family_key,
       family_name: access.family_name,

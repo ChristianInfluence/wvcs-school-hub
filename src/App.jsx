@@ -1290,13 +1290,14 @@ function AuthGate({ children }) {
         return;
       }
 
+      const canManageUsers = email.toLowerCase() === "mconniry@wvcs.org" || Boolean(data?.can_manage_users);
       const access = {
         canUseHub: data?.can_use_hub ?? false,
         canUseAdmin: data?.can_use_admin ?? false,
         canUseScheduler: data?.can_use_scheduler ?? false,
         canUseDigitalSlips: data?.can_use_digital_slips ?? false,
-        canUseOfficePayroll: data?.can_use_office_payroll ?? data?.can_use_admin ?? false,
-        canManageUsers: email.toLowerCase() === "mconniry@wvcs.org" || Boolean(data?.can_manage_users),
+        canUseOfficePayroll: Boolean(data?.can_use_office_payroll || canManageUsers),
+        canManageUsers,
       };
 
       if (!access.canUseHub) {
