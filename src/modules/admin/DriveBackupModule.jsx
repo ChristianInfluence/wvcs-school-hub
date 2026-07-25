@@ -4,6 +4,7 @@ import {
   DEFAULT_DRIVE_BACKUP_SETTINGS,
   fetchDriveBackupJobs,
   fetchDriveBackupSettings,
+  runDriveDataSnapshot,
   runDriveBackupNow,
   saveDriveBackupSettings,
   testDriveBackupConnection,
@@ -43,6 +44,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
   const [status, setStatus] = useState("Loading Drive backup settings...");
   const [testing, setTesting] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
+  const [runningSnapshot, setRunningSnapshot] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSetupHelp, setShowSetupHelp] = useState(false);
   const [serverSecretConfigured, setServerSecretConfigured] = useState(false);
@@ -147,6 +149,29 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
       setStatus(`Drive backup failed: ${error.message}`);
     } finally {
       setRunningBackup(false);
+    }
+  }
+
+  async function createDataSnapshot() {
+    setRunningSnapshot(true);
+    setStatus("Creating Hub data snapshot in Google Drive...");
+    try {
+      const result = await runDriveDataSnapshot();
+      if (result.ok) {
+        const failedCount = result.failed?.length || 0;
+        const uploadedCount = result.uploaded?.length || 0;
+        setStatus(
+          failedCount
+            ? `Data snapshot ran. Created ${uploadedCount}; ${failedCount} section${failedCount === 1 ? "" : "s"} need attention.`
+            : `Data snapshot complete. Created ${uploadedCount} organized snapshot file${uploadedCount === 1 ? "" : "s"} for ${result.schoolYear}.`
+        );
+      } else {
+        setStatus(result.reason || result.error || "Data snapshot did not run.");
+      }
+    } catch (error) {
+      setStatus(`Data snapshot failed: ${error.message}`);
+    } finally {
+      setRunningSnapshot(false);
     }
   }
 
@@ -339,6 +364,15 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               </button>
               <button
                 type="button"
+                onClick={createDataSnapshot}
+                disabled={runningSnapshot}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-400 bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-60"
+              >
+                <Database size={16} />
+                {runningSnapshot ? "Snapshotting..." : "Run Data Snapshot"}
+              </button>
+              <button
+                type="button"
                 onClick={saveSettings}
                 disabled={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60"
@@ -398,6 +432,12 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Forms</div>
               <div className="mt-2 break-words font-mono text-xs text-slate-200">
                 {settings.rootFolderName || "WVCS Hub Backups"} / Forms / Form Name / School Year / Status
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Data Snapshots</div>
+              <div className="mt-2 break-words font-mono text-xs text-slate-200">
+                {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / School Year / Date / Area
               </div>
             </div>
           </div>

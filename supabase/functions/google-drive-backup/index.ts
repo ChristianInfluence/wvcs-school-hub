@@ -7,6 +7,58 @@ const corsHeaders = {
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const JSON_MIME = "application/json";
+
+const SNAPSHOT_DATASETS = [
+  {
+    key: "family-records",
+    label: "Family Records",
+    folder: ["Family Portal", "Family Records"],
+    tables: ["student_directory", "family_portal_access"],
+  },
+  {
+    key: "fos",
+    label: "Friends of School",
+    folder: ["Family Portal", "FOS"],
+    tables: ["fos_hour_entries", "fos_audit_events", "fos_email_templates"],
+  },
+  {
+    key: "lunch",
+    label: "Lunch",
+    folder: ["Family Portal", "Lunch"],
+    tables: ["lunch_accounts", "lunch_menus", "lunch_orders", "lunch_transactions"],
+  },
+  {
+    key: "office-finance",
+    label: "Office and Finance",
+    folder: ["Office and Finance"],
+    tables: ["incidental_invoices", "tuition_invoices", "office_finance_settings"],
+  },
+  {
+    key: "permission-slips",
+    label: "Permission Slip Records",
+    folder: ["Digital Permission Slips", "Records"],
+    tables: ["permission_events", "permission_recipients", "permission_submissions", "permission_audit_log"],
+  },
+  {
+    key: "forms",
+    label: "Forms and Approvals",
+    folder: ["Forms", "Records"],
+    tables: ["form_templates", "form_submissions", "form_approval_actions", "form_share_links"],
+  },
+  {
+    key: "communications",
+    label: "Communications",
+    folder: ["Communications"],
+    tables: ["hub_message_threads", "hub_message_participants", "hub_message_posts", "hub_message_email_imports", "staff_suggestions"],
+  },
+  {
+    key: "system",
+    label: "System Settings and Access",
+    folder: ["Settings Snapshots"],
+    tables: ["staff_access", "drive_backup_settings"],
+  },
+];
 
 let cachedAccessToken = "";
 let cachedAccessTokenExpiresAt = 0;
@@ -206,27 +258,29 @@ async function ensureTargetFolder(settings: Record<string, unknown>, job: Record
   return currentFolder;
 }
 
-async function uploadPdfToDrive({
+async function uploadBlobToDrive({
   accessToken,
   folderId,
   filename,
   blob,
+  mimeType = "application/pdf",
 }: {
   accessToken: string;
   folderId: string;
   filename: string;
   blob: Blob;
+  mimeType?: string;
 }) {
   const boundary = `wvcs_${crypto.randomUUID().replace(/-/g, "")}`;
   const encoder = new TextEncoder();
   const metadata = {
     name: filename || "WVCS Hub Backup.pdf",
-    mimeType: "application/pdf",
+    mimeType,
     parents: [folderId],
   };
   const body = concatUint8Arrays([
     encoder.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`),
-    encoder.encode(`--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`),
+    encoder.encode(`--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
     new Uint8Array(await blob.arrayBuffer()),
     encoder.encode(`\r\n--${boundary}--`),
   ]);
@@ -243,7 +297,7 @@ async function uploadPdfToDrive({
     }
   );
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error?.message || data.error || "Unable to upload PDF to Google Drive.");
+  if (!response.ok) throw new Error(data.error?.message || data.error || "Unable to upload file to Google Drive.");
   return data;
 }
 
@@ -304,11 +358,12 @@ async function processJob({
   if (!pdfBlob) throw new Error("The stored PDF could not be downloaded from Supabase Storage.");
 
   const folder = await ensureTargetFolder(settings, job, accessToken);
-  const uploaded = await uploadPdfToDrive({
+  const uploaded = await uploadBlobToDrive({
     accessToken,
     folderId: folder.id,
     filename: String(job.filename || storage.path.split("/").pop() || "WVCS Hub Backup.pdf"),
     blob: pdfBlob,
+    mimeType: "application/pdf",
   });
 
   await supabase
@@ -326,6 +381,96 @@ async function processJob({
     .eq("id", job.id);
 
   return { jobId: job.id, fileId: uploaded.id, webViewLink: uploaded.webViewLink };
+}
+
+function getSchoolYear(date = new Date()) {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  return month >= 7 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+
+function formatDatePart(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+async function fetchTableSnapshot(supabase: ReturnType<typeof createClient>, tableName: string) {
+  const { data, error } = await supabase
+    .from(tableName)
+    .select("*")
+    .limit(10000);
+  if (error) {
+    const message = String(error.message || "");
+    if (/does not exist|schema cache|relation/i.test(message)) {
+      return { table: tableName, skipped: true, reason: message, rows: [] };
+    }
+    throw error;
+  }
+  return { table: tableName, rowCount: data?.length || 0, rows: data || [] };
+}
+
+async function createDataSnapshot({
+  supabase,
+  settings,
+  accessToken,
+  requestedByEmail,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  settings: Record<string, unknown>;
+  accessToken: string;
+  requestedByEmail: string;
+}) {
+  const createdAt = new Date();
+  const schoolYear = getSchoolYear(createdAt);
+  const datePart = formatDatePart(createdAt);
+  const uploaded = [];
+  const failed = [];
+
+  for (const dataset of SNAPSHOT_DATASETS) {
+    try {
+      const tables = [];
+      for (const tableName of dataset.tables) {
+        tables.push(await fetchTableSnapshot(supabase, tableName));
+      }
+
+      const folder = await ensureTargetFolder(
+        settings,
+        {
+          target_folder_path: ["Data Snapshots", schoolYear, datePart, ...dataset.folder],
+        },
+        accessToken,
+      );
+      const payload = {
+        backupType: "wvcs_hub_data_snapshot",
+        dataset: dataset.key,
+        label: dataset.label,
+        createdAt: createdAt.toISOString(),
+        requestedByEmail,
+        schoolYear,
+        tables,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: JSON_MIME });
+      const file = await uploadBlobToDrive({
+        accessToken,
+        folderId: folder.id,
+        filename: `${datePart}-${dataset.key}.json`,
+        blob,
+        mimeType: JSON_MIME,
+      });
+      uploaded.push({
+        dataset: dataset.key,
+        label: dataset.label,
+        fileId: file.id,
+        webViewLink: file.webViewLink,
+        tableCount: tables.length,
+        rowCount: tables.reduce((sum, table) => sum + Number(table.rowCount || 0), 0),
+        skippedTables: tables.filter((table) => table.skipped).map((table) => table.table),
+      });
+    } catch (error) {
+      failed.push({ dataset: dataset.key, label: dataset.label, error: error.message });
+    }
+  }
+
+  return { uploaded, failed, schoolYear, datePart };
 }
 
 async function requireSuperuser(supabase: ReturnType<typeof createClient>, request: Request) {
@@ -359,7 +504,7 @@ Deno.serve(async (request) => {
     const payload = await request.json().catch(() => ({}));
     action = payload.action || "test";
     const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-    await requireSuperuser(supabase, request);
+    const requesterEmail = await requireSuperuser(supabase, request);
 
     const { data: storedSettings, error: settingsError } = await supabase
       .from("drive_backup_settings")
@@ -453,6 +598,28 @@ Deno.serve(async (request) => {
           uploaded,
           failed,
           message: `Processed ${(jobs || []).length} backup record${(jobs || []).length === 1 ? "" : "s"}.`,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (action === "snapshot-data") {
+      if (!settings.enabled) throw new Error("Drive backup is not enabled in settings.");
+      if (!serviceAccountJson) throw new Error("Missing required secret: GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON");
+
+      const accessToken = await getGoogleAccessToken(serviceAccountJson);
+      const snapshot = await createDataSnapshot({
+        supabase,
+        settings,
+        accessToken,
+        requestedByEmail: requesterEmail,
+      });
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          ...snapshot,
+          message: `Created ${snapshot.uploaded.length} data snapshot file${snapshot.uploaded.length === 1 ? "" : "s"}.`,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );

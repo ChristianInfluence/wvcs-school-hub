@@ -218,6 +218,18 @@ export async function runDriveBackupNow(limit = 10) {
   return data || { ok: false, reason: "No response from Drive backup function." };
 }
 
+export async function runDriveDataSnapshot() {
+  if (!isSupabaseConfigured) {
+    return { ok: false, reason: "Supabase is not configured." };
+  }
+
+  const { data, error } = await supabase.functions.invoke("google-drive-backup", {
+    body: { action: "snapshot-data" },
+  });
+  if (error) throw new Error(await readFunctionError(error));
+  return data || { ok: false, reason: "No response from Drive backup function." };
+}
+
 async function readFunctionError(error) {
   try {
     const payload = await error.context?.json?.();
