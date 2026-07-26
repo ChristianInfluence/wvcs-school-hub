@@ -234,8 +234,22 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         <aside className="rounded-lg border border-slate-200 bg-white p-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" placeholder="Search families, parents, students" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-16 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" placeholder="Search families, parents, students" />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Clear
+              </button>
+            )}
           </div>
+          {selectedFamily && (
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+              Viewing <span className="font-bold">{selectedFamily.familyName}</span>
+            </div>
+          )}
           {savedView !== "all" && (
             <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs font-semibold text-sky-900">
               Showing {savedViewLabels[savedView] || "filtered families"}.
@@ -246,7 +260,15 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           )}
           <div className="mt-3 max-h-[640px] overflow-auto pr-1">
             {filteredFamilies.map((family) => (
-              <button key={family.familyKey} type="button" onClick={() => setSelectedFamilyKey(family.familyKey)} className={`mb-2 w-full rounded-lg border p-3 text-left transition ${selectedFamily?.familyKey === family.familyKey ? "border-sky-500 bg-sky-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+              <button
+                key={family.familyKey}
+                type="button"
+                onClick={() => {
+                  setSelectedFamilyKey(family.familyKey);
+                  setSearch("");
+                }}
+                className={`mb-2 w-full rounded-lg border p-3 text-left transition ${selectedFamily?.familyKey === family.familyKey ? "border-sky-500 bg-sky-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+              >
                 <div className="truncate text-sm font-bold text-slate-950">{family.familyName}</div>
                 <div className="mt-1 truncate text-xs text-slate-500">{family.students.map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}</div>
                 <div className="mt-2 flex flex-wrap gap-1">
