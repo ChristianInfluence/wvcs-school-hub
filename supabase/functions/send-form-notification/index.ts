@@ -31,6 +31,61 @@ function escapeHtml(value: any) {
     .replaceAll("'", "&#39;");
 }
 
+function formatDateOnly(value: string) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return String(value || "");
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatTime(value: string) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return String(value || "");
+  const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]));
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function normalizeRepeatableDateAnswer(value: any) {
+  if (value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.entries)) {
+    return value.entries.map((entry: Record<string, any>) => ({
+      date: entry?.date || "",
+      startTime: entry?.startTime || "",
+      endTime: entry?.endTime || "",
+    }));
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => (typeof entry === "object" ? entry : { date: entry || "", startTime: "", endTime: "" }));
+  }
+  return [{ date: value || "", startTime: "", endTime: "" }];
+}
+
+function formatRepeatableDateAnswer(value: any) {
+  const rows = normalizeRepeatableDateAnswer(value).filter((entry) => entry.date || entry.startTime || entry.endTime);
+  if (!rows.length) return "No answer";
+  return rows
+    .map((entry) => {
+      const date = entry.date ? formatDateOnly(entry.date) : "";
+      const times = [entry.startTime ? formatTime(entry.startTime) : "", entry.endTime ? formatTime(entry.endTime) : ""]
+        .filter(Boolean)
+        .join(" - ");
+      return [date, times].filter(Boolean).join(", ");
+    })
+    .join("; ");
+}
+
+function isRepeatableDateAnswer(field: Record<string, any>, value: any) {
+  if (field?.type === "dateTime" || field?.allowMultiple || field?.includeTimes) return true;
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.entries));
+}
+
 function formatAnswerValue(field: Record<string, any>, value: any) {
   if (field?.type === "checkbox") return value ? "Yes" : "No";
   if (field?.type === "file") {
@@ -39,6 +94,7 @@ function formatAnswerValue(field: Record<string, any>, value: any) {
       .filter(Boolean)
       .join(" | ");
   }
+  if (isRepeatableDateAnswer(field, value)) return formatRepeatableDateAnswer(value);
   if (Array.isArray(value)) return value.length ? value.join(", ") : "No answer";
   if (value && typeof value === "object") return JSON.stringify(value);
   return value === undefined || value === null || value === "" ? "No answer" : String(value);
