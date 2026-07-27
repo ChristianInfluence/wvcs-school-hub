@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,6 +9,7 @@ const corsHeaders = {
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const JSON_MIME = "application/json";
+const FINANCE_SOURCE_TYPES = new Set(["tuition_invoice", "incidental_invoice", "incidental_receipt"]);
 
 const SNAPSHOT_DATASETS = [
   {
@@ -123,6 +125,34 @@ function sanitizeFolderPart(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120) || "Untitled";
+}
+
+function sanitizeFilePart(value: string) {
+  return sanitizeFolderPart(value).replace(/\s+/g, "-");
+}
+
+function money(value: unknown) {
+  const amount = Number.parseFloat(String(value || "0"));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function currency(value: unknown) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(money(value));
+}
+
+function shortDate(value: unknown) {
+  if (!value) return "";
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function financeBackupFilename(kind: string, row: Record<string, any>) {
+  const invoice = row.invoice_json || {};
+  const familyName = sanitizeFilePart(row.family_name || invoice.familyName || "WVCS-Family");
+  const datePart = shortDate(row.paid_at || row.sent_at || invoice.invoiceDate || row.updated_at || row.created_at || new Date());
+  const status = sanitizeFilePart(row.payment_status || row.status || invoice.paymentStatus || invoice.status || "Saved");
+  return `${familyName}_${kind}_${datePart}_${status}.pdf`;
 }
 
 function concatUint8Arrays(parts: Uint8Array[]) {
@@ -333,6 +363,173 @@ async function getJobStorage(supabase: ReturnType<typeof createClient>, job: Rec
   return { bucket: "", path: "" };
 }
 
+function wrapText(text: string, maxChars = 88) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
+function chargeTotal(invoice: Record<string, any>) {
+  return Array.isArray(invoice.charges)
+    ? invoice.charges.reduce((total: number, charge: Record<string, any>) => total + money(charge.amount), 0)
+    : money(invoice.total || invoice.amount || invoice.balanceDue);
+}
+
+function paymentHistoryTotal(invoice: Record<string, any>) {
+  return Array.isArray(invoice.paymentHistory)
+    ? invoice.paymentHistory
+        .filter((payment: Record<string, any>) => String(payment.type || "payment") !== "refund")
+        .reduce((total: number, payment: Record<string, any>) => total + money(payment.amount), 0)
+    : 0;
+}
+
+function tuitionStudentTotal(student: Record<string, any>) {
+  const discountTotal = Array.isArray(student.discounts)
+    ? student.discounts.reduce((sum: number, discount: Record<string, any>) => sum + money(discount.amount), 0)
+    : 0;
+  const discountedTuition = Math.max(money(student.tuition) - discountTotal, 0);
+  return Math.max(discountedTuition - discountedTuition * 0.05, 0) + money(student.comprehensiveFee);
+}
+
+function tuitionTotal(invoice: Record<string, any>) {
+  if (money(invoice.total)) return money(invoice.total);
+  const students = Array.isArray(invoice.students) ? invoice.students : [];
+  const studentTotal = students.reduce((sum: number, student: Record<string, any>) => sum + tuitionStudentTotal(student), 0);
+  return studentTotal + (invoice.registrationFeePaid ? 0 : money(invoice.registrationFee));
+}
+
+async function createFinancePdfBlob(row: Record<string, any>, sourceType: string) {
+  const invoice = row.invoice_json || {};
+  const isTuition = sourceType === "tuition_invoice";
+  const isReceipt = sourceType === "incidental_receipt";
+  const title = isTuition ? "Tuition Breakdown Invoice" : isReceipt ? "Payment Receipt" : "Incidental Invoice";
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage([612, 792]);
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const margin = 48;
+  let y = 744;
+
+  function draw(text: string, x = margin, size = 10, font = regular, color = rgb(0.15, 0.18, 0.23)) {
+    if (y < 70) {
+      page = pdfDoc.addPage([612, 792]);
+      y = 744;
+    }
+    page.drawText(String(text || ""), { x, y, size, font, color });
+    y -= size + 7;
+  }
+
+  function drawPair(label: string, value: string) {
+    page.drawText(label, { x: margin, y, size: 9, font: bold, color: rgb(0.35, 0.39, 0.46) });
+    page.drawText(value || "-", { x: 170, y, size: 9, font: regular, color: rgb(0.12, 0.14, 0.18) });
+    y -= 17;
+  }
+
+  function rule() {
+    page.drawLine({ start: { x: margin, y }, end: { x: 564, y }, thickness: 1, color: rgb(0.82, 0.85, 0.9) });
+    y -= 16;
+  }
+
+  page.drawRectangle({ x: 0, y: 720, width: 612, height: 72, color: rgb(0.95, 0.98, 1) });
+  page.drawText("Willamette Valley Christian School", { x: margin, y: 760, size: 16, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  page.drawText("9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236", { x: margin, y: 740, size: 9, font: regular, color: rgb(0.28, 0.33, 0.4) });
+  page.drawText(title, { x: 390, y: 760, size: 13, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  y = 700;
+
+  drawPair("Family", row.family_name || invoice.familyName || "WVCS Family");
+  drawPair("Invoice Date", shortDate(invoice.invoiceDate || row.created_at));
+  drawPair("Sent Date", shortDate(row.sent_at));
+  drawPair("Status", row.payment_status || row.status || invoice.paymentStatus || invoice.status || "Saved");
+  if (row.receipt_number || invoice.receiptNumber) drawPair("Receipt #", row.receipt_number || invoice.receiptNumber);
+  if (row.paid_at || invoice.paidAt) drawPair("Paid Date", shortDate(row.paid_at || invoice.paidAt));
+  rule();
+
+  if (isTuition) {
+    draw("Students", margin, 12, bold, rgb(0.04, 0.22, 0.36));
+    (invoice.students || []).forEach((student: Record<string, any>) => {
+      draw(`${student.name || "Student"}${student.grade ? ` - Grade ${student.grade}` : ""}`, margin, 10, bold);
+      drawPair("Tuition", currency(student.tuition));
+      const discounts = Array.isArray(student.discounts) ? student.discounts : [];
+      discounts.forEach((discount: Record<string, any>) => drawPair(`Discount: ${discount.label === "Manual" ? discount.customLabel || "Custom" : discount.label || "Discount"}`, `-${currency(discount.amount)}`));
+      const discountedTuition = Math.max(money(student.tuition) - discounts.reduce((sum: number, discount: Record<string, any>) => sum + money(discount.amount), 0), 0);
+      drawPair("Early Pay Discount", `-${currency(discountedTuition * 0.05)}`);
+      drawPair("Comprehensive Fee", currency(student.comprehensiveFee));
+      drawPair("Student Total", currency(tuitionStudentTotal(student)));
+      y -= 4;
+    });
+    drawPair(invoice.registrationFeePaid ? "Registration Fee Paid" : "Registration Fee", invoice.registrationFeePaid ? "$0.00" : currency(invoice.registrationFee));
+    rule();
+    draw(`Total Due: ${currency(tuitionTotal(invoice))}`, margin, 14, bold, rgb(0.04, 0.22, 0.36));
+  } else {
+    draw(isReceipt ? "Payment Summary" : "Charges", margin, 12, bold, rgb(0.04, 0.22, 0.36));
+    (invoice.charges || []).forEach((charge: Record<string, any>) => {
+      const label = charge.description || charge.category || "Charge";
+      wrapText(label, 70).forEach((line, index) => {
+        page.drawText(line, { x: margin, y, size: 10, font: index === 0 ? bold : regular, color: rgb(0.12, 0.14, 0.18) });
+        if (index === 0) page.drawText(currency(charge.amount), { x: 486, y, size: 10, font: bold, color: rgb(0.12, 0.14, 0.18) });
+        y -= 17;
+      });
+    });
+    rule();
+    const total = chargeTotal(invoice);
+    const paid = paymentHistoryTotal(invoice) || (String(row.payment_status || "").toLowerCase() === "paid" ? total : 0);
+    drawPair("Invoice Total", currency(total));
+    drawPair("Paid", currency(paid));
+    drawPair("Balance", currency(Math.max(total - paid, 0)));
+    if (isReceipt && Array.isArray(invoice.paymentHistory) && invoice.paymentHistory.length) {
+      y -= 8;
+      draw("Payments", margin, 12, bold, rgb(0.04, 0.22, 0.36));
+      invoice.paymentHistory.forEach((payment: Record<string, any>) => {
+        draw(`${shortDate(payment.date)} | ${payment.method || row.payment_method || "payment"} | ${currency(payment.amount)}${payment.checkNumber ? ` | Check ${payment.checkNumber}` : ""}`, margin, 10);
+      });
+    }
+  }
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+async function getJobBlob(supabase: ReturnType<typeof createClient>, job: Record<string, unknown>) {
+  if (FINANCE_SOURCE_TYPES.has(String(job.source_type))) {
+    const table = job.source_type === "tuition_invoice" ? "tuition_invoices" : "incidental_invoices";
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("id", job.source_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The finance record could not be found.");
+    const defaultName = financeBackupFilename(String(job.source_type === "tuition_invoice" ? "Tuition-Breakdown" : job.source_type === "incidental_receipt" ? "Receipt" : "Incidental-Invoice"), data);
+    return {
+      blob: await createFinancePdfBlob(data, String(job.source_type)),
+      filename: String(job.filename || defaultName),
+      mimeType: "application/pdf",
+    };
+  }
+
+  const storage = await getJobStorage(supabase, job);
+  if (!storage.bucket || !storage.path) throw new Error("The queued record does not have a stored PDF path yet.");
+  const { data: pdfBlob, error: downloadError } = await supabase.storage.from(storage.bucket).download(storage.path);
+  if (downloadError) throw downloadError;
+  if (!pdfBlob) throw new Error("The stored PDF could not be downloaded from Supabase Storage.");
+  return {
+    blob: pdfBlob,
+    filename: String(job.filename || storage.path.split("/").pop() || "WVCS Hub Backup.pdf"),
+    mimeType: "application/pdf",
+  };
+}
+
 async function processJob({
   supabase,
   settings,
@@ -350,20 +547,15 @@ async function processJob({
     .update({ attempts, last_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", job.id);
 
-  const storage = await getJobStorage(supabase, job);
-  if (!storage.bucket || !storage.path) throw new Error("The queued record does not have a stored PDF path yet.");
-
-  const { data: pdfBlob, error: downloadError } = await supabase.storage.from(storage.bucket).download(storage.path);
-  if (downloadError) throw downloadError;
-  if (!pdfBlob) throw new Error("The stored PDF could not be downloaded from Supabase Storage.");
+  const file = await getJobBlob(supabase, job);
 
   const folder = await ensureTargetFolder(settings, job, accessToken);
   const uploaded = await uploadBlobToDrive({
     accessToken,
     folderId: folder.id,
-    filename: String(job.filename || storage.path.split("/").pop() || "WVCS Hub Backup.pdf"),
-    blob: pdfBlob,
-    mimeType: "application/pdf",
+    filename: file.filename,
+    blob: file.blob,
+    mimeType: file.mimeType,
   });
 
   await supabase

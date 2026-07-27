@@ -30,6 +30,7 @@ import {
   sendTuitionInvoiceEmail,
 } from "../../lib/tuitionBillingData.js";
 import { recordLunchDepositFromIncidental } from "../../lib/lunchData.js";
+import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -570,6 +571,32 @@ function MoneyInput(props) {
 
 function getInvoiceFileName(invoice) {
   return `${invoiceTitle(invoice).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.pdf`;
+}
+
+function safeFilePart(value, fallback = "WVCS-Family") {
+  return String(value || fallback)
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || fallback;
+}
+
+function isoDatePart(value = today) {
+  if (!value) return today;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return String(value).slice(0, 10) || today;
+}
+
+function getSchoolYearFromDate(value = today) {
+  const parsed = value ? new Date(value) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  return month >= 7 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+
+function financeBackupFilename(invoice, kind, status = "") {
+  return `${safeFilePart(invoice.familyName)}_${kind}_${isoDatePart(invoice.paidAt || invoice.sentAt || invoice.invoiceDate || today)}_${safeFilePart(status || invoice.paymentStatus || invoice.status || "Saved")}.pdf`;
 }
 
 async function blobToBase64(blob) {
@@ -1306,6 +1333,31 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     return actionFeedback[action]?.label || fallback;
   }
 
+  function queueFinanceDriveBackup({ sourceType, sourceId, invoice: invoiceForBackup, kind, status = "" }) {
+    if (!sourceId || !invoiceForBackup?.familyName) return;
+    const schoolYear = invoiceForBackup.schoolYear || getSchoolYearFromDate(invoiceForBackup.invoiceDate || today);
+    queueDriveBackupJob({
+      sourceType,
+      sourceId,
+      filename: financeBackupFilename(invoiceForBackup, kind, status),
+      targetFolderPath: [
+        "Office and Finance",
+        "Invoices and Receipts",
+        schoolYear,
+        invoiceForBackup.familyName || "WVCS Family",
+      ],
+      metadata: {
+        familyName: invoiceForBackup.familyName || "",
+        familyKey: invoiceForBackup.familyKey || "",
+        schoolYear,
+        invoiceDate: invoiceForBackup.invoiceDate || "",
+        status: status || invoiceForBackup.paymentStatus || invoiceForBackup.status || "",
+      },
+    }).catch((error) => {
+      setStatus((current) => `${current || "Saved."} Drive backup queue failed: ${error.message}`);
+    });
+  }
+
   async function loadSavedInvoices() {
     try {
       const result = await fetchTuitionInvoices();
@@ -1437,8 +1489,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       sentTo: patch.sentTo || invoice.sentTo || [],
     };
     const result = await saveTuitionInvoice(record, currentUserEmail);
+    const savedTuitionInvoice = {
+      ...nextInvoice,
+      ...(result.invoice.invoice || {}),
+      id: result.invoice.id,
+      familyKey: result.invoice.familyKey || nextInvoice.familyKey || "",
+      studentIds: result.invoice.studentIds || nextInvoice.studentIds || [],
+      status: result.invoice.status || nextInvoice.status,
+      sentAt: result.invoice.sentAt || nextInvoice.sentAt || "",
+    };
     setInvoice({
-      ...result.invoice.invoice,
+      ...savedTuitionInvoice,
       id: result.invoice.id,
       status: result.invoice.status || "Draft",
       sentAt: result.invoice.sentAt || "",
@@ -1447,6 +1508,15 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     setSelectedInvoiceId(result.invoice.id);
     setSavedInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
     setSavedStatus(result.local ? "Invoice saved on this device." : "Invoice saved.");
+    if (!result.local) {
+      queueFinanceDriveBackup({
+        sourceType: "tuition_invoice",
+        sourceId: result.invoice.id,
+        invoice: savedTuitionInvoice,
+        kind: "Tuition-Breakdown",
+        status: result.invoice.status || savedTuitionInvoice.status || "Saved",
+      });
+    }
     return result.invoice;
   }
 
@@ -2195,6 +2265,24 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     setSelectedIncidentalInvoiceId(result.invoice.id);
     setSavedIncidentalInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
     setIncidentalStatus(`${result.local ? "Incidental invoice saved on this device." : "Incidental invoice saved."}${lunchSync.credited ? " Lunch account credited." : ""}`);
+    if (!result.local) {
+      queueFinanceDriveBackup({
+        sourceType: "incidental_invoice",
+        sourceId: result.invoice.id,
+        invoice: savedInvoice,
+        kind: "Incidental-Invoice",
+        status: getIncidentalPaymentStatus(savedInvoice),
+      });
+      if (getIncidentalPaymentStatus(savedInvoice) === "Paid") {
+        queueFinanceDriveBackup({
+          sourceType: "incidental_receipt",
+          sourceId: result.invoice.id,
+          invoice: savedInvoice,
+          kind: "Receipt",
+          status: "Paid",
+        });
+      }
+    }
     return result.invoice;
   }
 

@@ -378,10 +378,10 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 onClick={createDataSnapshot}
                 disabled={runningSnapshot}
                 aria-busy={runningSnapshot}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-400 bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60"
               >
                 <Database size={16} />
-                {runningSnapshot ? "Snapshotting..." : "Run Data Snapshot"}
+                {runningSnapshot ? "Snapshotting..." : "Recovery Snapshot (JSON)"}
               </button>
               <button
                 type="button"
@@ -395,7 +395,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               </button>
             </div>
             <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs leading-5 text-slate-400">
-              Data snapshots include invoice and receipt records, payment status, FOS, lunch, family records, settings, and audit tables.
+              PDF backups are for day-to-day opening and printing. Data snapshots are optional recovery files for full table history.
             </div>
           </div>
         </div>
@@ -445,7 +445,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               {settings.rootFolderName || "WVCS Hub Backups"} / Forms / Form Name / Year / Status
             </FolderPath>
             <FolderPath title="Invoices + Receipts">
-              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Office and Finance
+              {settings.rootFolderName || "WVCS Hub Backups"} / Office and Finance / Invoices and Receipts / School Year / Family Name
             </FolderPath>
             <FolderPath title="Family + FOS + Lunch">
               {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Family Portal
@@ -463,7 +463,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 <Database size={16} className="text-sky-300" />
                 Recent Backup Queue
               </div>
-              <div className="mt-1 text-xs text-slate-500">Signed slips and approved form PDFs will appear here before upload.</div>
+              <div className="mt-1 text-xs text-slate-500">Signed slips, approved form PDFs, finance invoices, and receipts appear here before upload.</div>
             </div>
             <StatusPill>{jobs.length} records</StatusPill>
           </div>
@@ -472,7 +472,15 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               jobs.map((job) => (
                 <div key={job.id} className="grid gap-3 border-b border-slate-800 px-4 py-3 last:border-b-0 lg:grid-cols-[160px_1fr_120px_130px] lg:items-center">
                   <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    {job.sourceType === "permission_submission" ? "Permission Slip" : "Form"}
+                    {job.sourceType === "permission_submission"
+                      ? "Permission Slip"
+                      : job.sourceType === "form_submission"
+                        ? "Form"
+                        : job.sourceType === "tuition_invoice"
+                          ? "Tuition"
+                          : job.sourceType === "incidental_receipt"
+                            ? "Receipt"
+                            : "Invoice"}
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-white">{job.filename || job.sourceId}</div>
