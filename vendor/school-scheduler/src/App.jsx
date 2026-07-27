@@ -2077,10 +2077,6 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
           </div>
 
           <div className="flex flex-wrap items-center gap-2 bg-slate-950/70 p-1 rounded-xl border border-slate-700">
-            <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">
-              Two-semester grid
-            </div>
-
             <Button variant="outline" onClick={undo} disabled={!undoStack.length}>
               <Undo2 size={16} className="mr-1 inline" /> Undo
             </Button>
