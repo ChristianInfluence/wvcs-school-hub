@@ -123,6 +123,69 @@ export async function fetchLunchAdminData() {
   };
 }
 
+function mapLunchFamilyDirectoryRows(rows = []) {
+  const families = new Map();
+
+  rows.forEach((row) => {
+    const familyKey = row.family_key || row.family_name || row.student_last_name || "Family";
+    const family = families.get(familyKey) || {
+      familyKey,
+      familyName: row.family_name || `${row.student_last_name || "Family"} Family`,
+      parents: [],
+      students: [],
+    };
+    family.students.push({
+      studentId: row.student_id,
+      name: [row.student_first_name, row.student_last_name].filter(Boolean).join(" "),
+      grade: row.grade || "",
+    });
+    families.set(familyKey, family);
+  });
+
+  return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+}
+
+export async function fetchLunchDailyData() {
+  if (!isSupabaseConfigured) {
+    return { loaded: false, families: [], menus: [], orders: [], accounts: [], transactions: [], reason: "Supabase is not configured." };
+  }
+
+  const { data: functionData, error: functionError } = await supabase.functions.invoke("daily-lunch-log", {
+    body: { action: "load" },
+  });
+  if (!functionError && functionData?.loaded) {
+    return {
+      loaded: true,
+      families: functionData.families || [],
+      menus: (functionData.menus || []).map(mapMenu),
+      orders: (functionData.orders || []).map(mapOrder),
+      accounts: [],
+      transactions: [],
+    };
+  }
+  if (functionError && !/failed to send|not found|404/i.test(functionError.message || "")) throw functionError;
+
+  const [{ data: directory, error: directoryError }, { data: menus, error: menuError }, { data: orders, error: orderError }] =
+    await Promise.all([
+      supabase.rpc("get_lunch_family_directory"),
+      supabase.from("lunch_menus").select("*").in("status", ["Open", "Published"]).order("week_start", { ascending: false }).order("updated_at", { ascending: false }),
+      supabase.from("lunch_orders").select("*").order("order_date", { ascending: false }).order("created_at", { ascending: false }).limit(500),
+    ]);
+
+  if (directoryError) throw directoryError;
+  if (menuError) throw menuError;
+  if (orderError) throw orderError;
+
+  return {
+    loaded: true,
+    families: mapLunchFamilyDirectoryRows(directory || []),
+    menus: (menus || []).map(mapMenu),
+    orders: (orders || []).map(mapOrder),
+    accounts: [],
+    transactions: [],
+  };
+}
+
 export async function saveLunchMenu(menu, currentUserEmail = "") {
   const row = normalizeMenu(menu, currentUserEmail);
   if (!row.items.length) throw new Error("Add at least one lunch item before saving the menu.");
@@ -160,6 +223,12 @@ async function upsertAccountBalance({ familyKey, familyName, delta, currentUserE
 }
 
 export async function createLunchOrder({ family, student, item, menuId = "", source = "Office" }, currentUserEmail = "") {
+  const { data: functionData, error: functionError } = await supabase.functions.invoke("daily-lunch-log", {
+    body: { action: "create", family, student, item, menuId, source },
+  });
+  if (!functionError && functionData?.order) return mapOrder(functionData.order);
+  if (functionError && !/failed to send|not found|404/i.test(functionError.message || "")) throw functionError;
+
   const { data, error } = await supabase
     .from("lunch_orders")
     .insert({
@@ -185,6 +254,19 @@ export async function createLunchOrder({ family, student, item, menuId = "", sou
 }
 
 export async function updateLunchOrderStatus(order, status, currentUserEmail = "") {
+  const { data: functionData, error: functionError } = await supabase.functions.invoke("daily-lunch-log", {
+    body: { action: "updateStatus", orderId: order.id, status },
+  });
+  if (!functionError && functionData?.order) return mapOrder(functionData.order);
+  if (functionError && !/failed to send|not found|404/i.test(functionError.message || "")) throw functionError;
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("update_lunch_order_status_for_hub", {
+    p_order_id: order.id,
+    p_status: status,
+  });
+  if (!rpcError && rpcData) return mapOrder(Array.isArray(rpcData) ? rpcData[0] : rpcData);
+  if (rpcError && !/function .*update_lunch_order_status_for_hub/i.test(rpcError.message || "")) throw rpcError;
+
   const updates = { status, updated_by_email: currentUserEmail || null, updated_at: new Date().toISOString() };
   if (status === "Served") updates.served_at = new Date().toISOString();
 
@@ -216,6 +298,18 @@ export async function updateLunchOrderStatus(order, status, currentUserEmail = "
 }
 
 export async function deleteLunchOrder(order, currentUserEmail = "") {
+  const { data: functionData, error: functionError } = await supabase.functions.invoke("daily-lunch-log", {
+    body: { action: "delete", orderId: order.id },
+  });
+  if (!functionError && functionData?.deleted !== undefined) return { deleted: Boolean(functionData.deleted) };
+  if (functionError && !/failed to send|not found|404/i.test(functionError.message || "")) throw functionError;
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("delete_lunch_order_for_hub", {
+    p_order_id: order.id,
+  });
+  if (!rpcError && rpcData) return { deleted: true };
+  if (rpcError && !/function .*delete_lunch_order_for_hub/i.test(rpcError.message || "")) throw rpcError;
+
   if (order.status === "Served" && order.chargedAt && Number(order.price || 0) > 0) {
     const { error: reversalError } = await supabase.from("lunch_transactions").insert({
       family_key: order.familyKey,

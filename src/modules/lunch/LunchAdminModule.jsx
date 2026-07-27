@@ -4,6 +4,7 @@ import {
   createLunchOrder,
   deleteLunchOrder,
   fetchLunchAdminData,
+  fetchLunchDailyData,
   money,
   recordLunchBeginningBalance,
   recordLunchDeposit,
@@ -140,7 +141,7 @@ function officeQuickItemsForDate(value) {
   }));
 }
 
-export default function LunchAdminModule({ currentUserEmail = "" }) {
+export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = false, onClose = null }) {
   const [activeView, setActiveView] = useState("daily");
   const [data, setData] = useState({ loading: true, families: [], menus: [], orders: [], accounts: [], transactions: [] });
   const [status, setStatus] = useState("");
@@ -157,7 +158,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true }));
     try {
-      const result = await fetchLunchAdminData();
+      const result = dailyOnly ? await fetchLunchDailyData() : await fetchLunchAdminData();
       setData({ loading: false, ...result });
       if (message) setStatus(message);
     } catch (error) {
@@ -168,7 +169,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [dailyOnly]);
 
   const selectedFamily = data.families.find((family) => family.familyKey === selectedFamilyKey) || null;
   const selectedStudent = selectedFamily?.students.find((student) => student.studentId === selectedStudentId) || null;
@@ -324,22 +325,31 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   }
 
   return (
-    <section className="mx-auto max-w-[1500px] px-5 py-5">
-      <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+    <section className={`mx-auto max-w-[1500px] ${dailyOnly ? "px-2 py-3" : "px-5 py-5"}`}>
+      <div className={`flex flex-col gap-3 border-b ${dailyOnly ? "border-slate-800 pb-3 text-white" : "border-slate-200 pb-4"} lg:flex-row lg:items-end lg:justify-between`}>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Office & Finance</div>
-          <h2 className="mt-1 text-2xl font-bold text-slate-950">Lunch Accounts</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Create digital lunch menus, track anticipated lunches, charge only served lunches, and manage family lunch balances.
+          <div className={`text-xs font-bold uppercase tracking-[0.16em] ${dailyOnly ? "text-emerald-200" : "text-sky-700"}`}>{dailyOnly ? "Aide Lunch View" : "Office & Finance"}</div>
+          <h2 className={`mt-1 text-2xl font-bold ${dailyOnly ? "text-white" : "text-slate-950"}`}>{dailyOnly ? "Daily Lunch Log" : "Lunch Accounts"}</h2>
+          <p className={`mt-1 max-w-3xl text-sm ${dailyOnly ? "text-slate-400" : "text-slate-600"}`}>
+            {dailyOnly
+              ? "Mark lunches served or absent, and add students who get lunch at the office."
+              : "Create digital lunch menus, track anticipated lunches, charge only served lunches, and manage family lunch balances."}
           </p>
         </div>
-        <button type="button" onClick={() => loadData("Lunch area refreshed.")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => loadData("Lunch area refreshed.")} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${dailyOnly ? "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+          {onClose && (
+            <button type="button" onClick={onClose} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">
+              Close
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2">
+      {!dailyOnly && <div className="mt-4 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2">
         {[
           ["daily", "Daily Lunch", ClipboardList],
           ["menus", "Menus", Utensils],
@@ -355,10 +365,10 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
             {label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {status && <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">{status}</div>}
-      {data.loading && <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Loading lunch records...</div>}
+      {status && <div className={`mt-4 rounded-lg border px-3 py-2 text-sm font-semibold ${dailyOnly ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100" : "border-sky-200 bg-sky-50 text-sky-900"}`}>{status}</div>}
+      {data.loading && <div className={`mt-4 rounded-lg border p-4 text-sm ${dailyOnly ? "border-slate-800 bg-slate-950 text-slate-400" : "border-slate-200 bg-white text-slate-600"}`}>Loading lunch records...</div>}
 
       {activeView === "daily" && (
         <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">

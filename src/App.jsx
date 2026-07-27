@@ -707,6 +707,7 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
   const featured = launchModules.find((module) => module.id === "structured-recess");
   const [activity, setActivity] = useState({ loading: true, submissions: [], messages: [], error: "" });
   const [showStaffLunch, setShowStaffLunch] = useState(false);
+  const [showDailyLunch, setShowDailyLunch] = useState(false);
 
   function isLocked(module) {
     if (module.id === "admin") return !access.canUseAdmin;
@@ -752,17 +753,35 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
               Jump into scheduling, recess support, forms, approvals, and future staff workflows from one clean launch point.
             </p>
           </div>
-          {featured && (
-            <button
-              type="button"
-              onClick={onOpenAideView}
-              className="rounded-lg border border-amber-400/50 bg-amber-500/15 px-4 py-3 text-left transition hover:bg-amber-500/25"
-            >
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">Aide&apos;s View</div>
-              <div className="mt-1 text-sm font-semibold text-white">Open Structured Recess Board</div>
-            </button>
-          )}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {featured && (
+              <button
+                type="button"
+                onClick={onOpenAideView}
+                className="rounded-lg border border-amber-400/50 bg-amber-500/15 px-4 py-3 text-left transition hover:bg-amber-500/25"
+              >
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200">Aide&apos;s View</div>
+                <div className="mt-1 text-sm font-semibold text-white">Open Structured Recess Board</div>
+              </button>
+            )}
+            {access.canUseHub && (
+              <button
+                type="button"
+                onClick={() => setShowDailyLunch((current) => !current)}
+                className="rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-4 py-3 text-left transition hover:bg-emerald-500/25"
+              >
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Lunch</div>
+                <div className="mt-1 text-sm font-semibold text-white">{showDailyLunch ? "Close Daily Lunch Log" : "Open Daily Lunch Log"}</div>
+              </button>
+            )}
+          </div>
         </div>
+
+        {showDailyLunch && (
+          <div className="mb-4 rounded-lg border border-emerald-400/20 bg-slate-900 p-2">
+            <LunchAdminModule currentUserEmail={currentUserEmail} dailyOnly onClose={() => setShowDailyLunch(false)} />
+          </div>
+        )}
 
         {showStaffLunch && (
           <div className="mb-4">
