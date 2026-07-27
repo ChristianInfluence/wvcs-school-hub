@@ -204,13 +204,15 @@ function normalizeEvent(event, rosterStudents = sampleStudents) {
     selectedGrades: event.selectedGrades || [],
     selectedStudentIds: event.selectedStudentIds || [],
     recipients: (event.recipients || []).map((recipient) => {
-      const rosterStudent = recipient.studentId ? rosterStudents.find((student) => student.id === recipient.studentId) : findRosterStudentByName(rosterStudents, recipient.studentName);
+      const rosterStudent =
+        rosterStudents.find((student) => student.id === recipient.studentId) ||
+        findRosterStudentByName(rosterStudents, recipient.studentName);
       const rosterParent = rosterStudent?.parents.find(
         (parent) => parent.parentEmail === recipient.parentEmail || parent.parentName === recipient.parentName
       );
       return {
         ...recipient,
-        studentId: recipient.studentId || rosterStudent?.id || "",
+        studentId: rosterStudent?.id || recipient.studentId || "",
         grade: recipient.grade || rosterStudent?.grade || "",
         parentContactId: recipient.parentContactId || rosterParent?.id || "",
         emailedAt: recipient.emailedAt || "",

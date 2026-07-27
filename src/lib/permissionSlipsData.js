@@ -69,6 +69,73 @@ function mapRosterParentToDatabase(student, parent, index) {
   };
 }
 
+function parentOrderFromId(parentContactId) {
+  const match = String(parentContactId || "").match(/parent-(\d+)$/i);
+  return match ? Number(match[1]) || 1 : 1;
+}
+
+async function ensurePermissionRosterForRecipients(recipients) {
+  const studentsById = new Map();
+  const parentsById = new Map();
+
+  recipients.forEach((recipient) => {
+    const studentId = String(recipient.studentId || "").trim();
+    if (!studentId) return;
+
+    const { firstName: studentFirstName, lastName: studentLastName } = splitName(recipient.studentName);
+    studentsById.set(studentId, {
+      id: studentId,
+      grade: recipient.grade || "",
+      student_first_name: studentFirstName || null,
+      student_last_name: studentLastName || null,
+      student_name: recipient.studentName || "Student",
+      student: {
+        id: studentId,
+        grade: recipient.grade || "",
+        studentName: recipient.studentName || "Student",
+      },
+      updated_at: new Date().toISOString(),
+    });
+
+    const parentContactId = String(recipient.parentContactId || "").trim();
+    if (!parentContactId) return;
+    const { firstName: parentFirstName, lastName: parentLastName } = splitName(recipient.parentName);
+    parentsById.set(parentContactId, {
+      id: parentContactId,
+      student_id: studentId,
+      parent_order: parentOrderFromId(parentContactId),
+      parent_first_name: parentFirstName || null,
+      parent_last_name: parentLastName || null,
+      parent_name: recipient.parentName || null,
+      parent_email: recipient.parentEmail || null,
+      parent_phone: recipient.parentPhone || null,
+      parent: {
+        id: parentContactId,
+        parentName: recipient.parentName || "",
+        parentEmail: recipient.parentEmail || "",
+        parentPhone: recipient.parentPhone || "",
+      },
+      updated_at: new Date().toISOString(),
+    });
+  });
+
+  const students = [...studentsById.values()];
+  if (students.length) {
+    const { error } = await supabase
+      .from("permission_roster_students")
+      .upsert(students, { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  const parents = [...parentsById.values()];
+  if (parents.length) {
+    const { error } = await supabase
+      .from("permission_roster_parents")
+      .upsert(parents, { onConflict: "id" });
+    if (error) throw error;
+  }
+}
+
 function fullName(firstName, lastName) {
   return [firstName, lastName].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
 }
@@ -408,6 +475,8 @@ export async function fetchPermissionRecipients(eventId) {
 export async function savePermissionRecipients(eventId, recipients) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
   if (!recipients.length) return { saved: true };
+
+  await ensurePermissionRosterForRecipients(recipients);
 
   const { error } = await supabase
     .from("permission_recipients")
