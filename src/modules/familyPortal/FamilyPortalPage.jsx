@@ -1,11 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
-import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
+import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
 const today = new Date().toISOString().slice(0, 10);
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const driverApplicationDefaults = {
+  schoolYear: "2026-2027",
+  parentName: "",
+  driverLicenseNumber: "",
+  licenseExpiration: "",
+  phoneHome: "",
+  phoneWork: "",
+  address: "",
+  car1ModelYear: "",
+  car1Seatbelts: "",
+  car1LicensePlate: "",
+  car2ModelYear: "",
+  car2Seatbelts: "",
+  car2LicensePlate: "",
+  car1InsuranceCompany: "",
+  car1PolicyNumber: "",
+  car1UninsuredCoverage: "",
+  liabilityPerPerson: "",
+  liabilityPerAccident: "",
+  propertyDamage: "",
+  car2InsuranceCompany: "",
+  car2PolicyNumber: "",
+  car2UninsuredCoverage: "",
+  car2LiabilityPerPerson: "",
+  car2LiabilityPerAccident: "",
+  car2PropertyDamage: "",
+  requirementsAcknowledged: false,
+  truthAcknowledged: false,
+};
 
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -99,6 +128,27 @@ function isOpenInvoice(invoice) {
   return !status.includes("paid") && !status.includes("void") && !status.includes("cancel");
 }
 
+function isVerifiedDriver(application) {
+  return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
+}
+
+async function fileToAttachment(file, kind, label) {
+  const contentBase64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  return {
+    kind,
+    label,
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    contentBase64,
+  };
+}
+
 export default function FamilyPortalPage({ token = "", secureLogin = false, previewFamilyKey = "" }) {
   const [portal, setPortal] = useState({ loading: true, error: "", data: null });
   const [familySession, setFamilySession] = useState({ loading: Boolean(secureLogin || previewFamilyKey), user: null });
@@ -114,6 +164,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00", editing: false });
   const [lunchStatus, setLunchStatus] = useState("");
   const [permissionStatus, setPermissionStatus] = useState("");
+  const [driverDraft, setDriverDraft] = useState(driverApplicationDefaults);
+  const [driverFiles, setDriverFiles] = useState({ license: null, insurance: null });
+  const [driverStatus, setDriverStatus] = useState("");
+  const [submittingDriver, setSubmittingDriver] = useState(false);
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
 
@@ -135,6 +189,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setDraft((current) => ({
         ...current,
         parentEmail: current.parentEmail || result.family?.contactEmails?.[0] || "",
+      }));
+      setDriverDraft((current) => ({
+        ...current,
+        parentName: current.parentName || familySession.user?.user_metadata?.full_name || "",
       }));
     } catch (error) {
       setPortal({ loading: false, error: error.message, data: null });
@@ -190,6 +248,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const permissionSlips = portal.data?.permissionSlips || [];
   const permissionNeedsSignature = permissionSlips.filter((slip) => slip.status === "Needs Signature");
   const completedPermissionSlips = permissionSlips.filter((slip) => slip.status === "Completed");
+  const driverApplications = portal.data?.volunteerDrivers?.applications || [];
+  const verifiedDriverApplication = driverApplications.find(isVerifiedDriver);
+  const latestDriverApplication = driverApplications[0] || null;
   const portalSettings = portal.data?.familyPortalSettings || {};
   const announcement = portalSettings.announcement || {};
   const help = portalSettings.help || {};
@@ -415,6 +476,30 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
     setLunchStatus("");
   }
 
+  async function submitDriverApplication() {
+    if (!driverFiles.license || !driverFiles.insurance) {
+      setDriverStatus("Attach a picture of your driver's license and insurance card before submitting.");
+      return;
+    }
+    setSubmittingDriver(true);
+    setDriverStatus("Submitting volunteer driver application...");
+    try {
+      const attachments = [
+        await fileToAttachment(driverFiles.license, "driver_license", "Driver's License"),
+        await fileToAttachment(driverFiles.insurance, "insurance_card", "Insurance Card"),
+      ];
+      await submitVolunteerDriverApplication(driverDraft, attachments);
+      setDriverStatus("Application submitted. It is pending office verification.");
+      setDriverFiles({ license: null, insurance: null });
+      setDriverDraft(driverApplicationDefaults);
+      await loadPortal();
+    } catch (error) {
+      setDriverStatus(`Unable to submit driver application: ${error.message}`);
+    } finally {
+      setSubmittingDriver(false);
+    }
+  }
+
   function startLunchEdit(summary) {
     const selectedItems = {};
     lunchItems.forEach((item) => {
@@ -541,6 +626,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                 ["invoices", "Invoices", ReceiptText],
                 ["permissions", "Permission Slips", FileSignature],
                 ["lunch", "Lunch", Utensils],
+                ["driver", "Volunteer Driver", CheckCircle2],
                 ["fos", "FOS Hours", Clock],
               ].map(([id, label, Icon]) => (
                 <button
@@ -1085,6 +1171,114 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === "driver" && (
+              <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CheckCircle2 size={16} className={verifiedDriverApplication ? "text-emerald-300" : "text-slate-500"} />
+                      Volunteer Driver Status
+                    </div>
+                    <div className={`mt-3 rounded-lg border p-3 ${verifiedDriverApplication ? "border-emerald-500/30 bg-emerald-500/10" : "border-slate-800 bg-slate-950"}`}>
+                      <div className={`text-lg font-bold ${verifiedDriverApplication ? "text-emerald-200" : "text-white"}`}>
+                        {verifiedDriverApplication ? "Verified Driver" : latestDriverApplication?.status || "Not Verified"}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-slate-500">
+                        {verifiedDriverApplication
+                          ? `Verified through ${shortDate(verifiedDriverApplication.expiresAt)}.`
+                          : latestDriverApplication
+                            ? `Latest application submitted ${shortDate(latestDriverApplication.submittedAt)}.`
+                            : "Submit the application and required documents for office review."}
+                      </div>
+                      {latestDriverApplication?.officeNote && <div className="mt-2 text-xs text-slate-300">Office note: {latestDriverApplication.officeNote}</div>}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-sm font-bold text-white">Minimum Requirements</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-400">
+                      WVCS requires minimum liability coverage of $100,000 per person, $300,000 per accident, and $50,000 property damage.
+                    </div>
+                    <div className="mt-3 text-xs leading-5 text-slate-500">
+                      A new volunteer driver application is required each school year. Verification lasts one year from office approval.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-white">
+                    <FileText size={16} className="text-sky-300" />
+                    Volunteer Driver Application
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <Field label="School Year"><Input value={driverDraft.schoolYear} onChange={(event) => setDriverDraft({ ...driverDraft, schoolYear: event.target.value })} /></Field>
+                    <Field label="Driver Name"><Input value={driverDraft.parentName} onChange={(event) => setDriverDraft({ ...driverDraft, parentName: event.target.value })} placeholder="Parent/guardian name" /></Field>
+                    <Field label="Driver's License #"><Input value={driverDraft.driverLicenseNumber} onChange={(event) => setDriverDraft({ ...driverDraft, driverLicenseNumber: event.target.value })} /></Field>
+                    <Field label="License Expiration"><Input type="date" value={driverDraft.licenseExpiration} onChange={(event) => setDriverDraft({ ...driverDraft, licenseExpiration: event.target.value })} /></Field>
+                    <Field label="Phone"><Input value={driverDraft.phoneHome} onChange={(event) => setDriverDraft({ ...driverDraft, phoneHome: event.target.value })} /></Field>
+                    <Field label="Work Phone"><Input value={driverDraft.phoneWork} onChange={(event) => setDriverDraft({ ...driverDraft, phoneWork: event.target.value })} /></Field>
+                    <div className="md:col-span-2"><Field label="Address"><Input value={driverDraft.address} onChange={(event) => setDriverDraft({ ...driverDraft, address: event.target.value })} /></Field></div>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    {[1, 2].map((carNumber) => (
+                      <div key={carNumber} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <div className="text-sm font-bold text-white">Vehicle {carNumber}{carNumber === 2 ? " (optional)" : ""}</div>
+                        <div className="mt-3 grid gap-3">
+                          <Field label="Car Model / Year"><Input value={driverDraft[`car${carNumber}ModelYear`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}ModelYear`]: event.target.value })} /></Field>
+                          <Field label="Working Seatbelts"><Input inputMode="numeric" value={driverDraft[`car${carNumber}Seatbelts`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}Seatbelts`]: event.target.value })} /></Field>
+                          <Field label="License Plate"><Input value={driverDraft[`car${carNumber}LicensePlate`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}LicensePlate`]: event.target.value })} /></Field>
+                          <Field label="Insurance Company"><Input value={driverDraft[`car${carNumber}InsuranceCompany`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}InsuranceCompany`]: event.target.value })} /></Field>
+                          <Field label="Policy #"><Input value={driverDraft[`car${carNumber}PolicyNumber`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}PolicyNumber`]: event.target.value })} /></Field>
+                          <Field label="Uninsured / Underinsured Coverage">
+                            <select value={driverDraft[`car${carNumber}UninsuredCoverage`]} onChange={(event) => setDriverDraft({ ...driverDraft, [`car${carNumber}UninsuredCoverage`]: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                              <option value="">Select</option>
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          </Field>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="text-sm font-bold text-white">Insurance Coverage for Primary Vehicle</div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <Field label="Per Person"><Input inputMode="decimal" value={driverDraft.liabilityPerPerson} onChange={(event) => setDriverDraft({ ...driverDraft, liabilityPerPerson: event.target.value })} placeholder="100000" /></Field>
+                      <Field label="Per Accident"><Input inputMode="decimal" value={driverDraft.liabilityPerAccident} onChange={(event) => setDriverDraft({ ...driverDraft, liabilityPerAccident: event.target.value })} placeholder="300000" /></Field>
+                      <Field label="Property Damage"><Input inputMode="decimal" value={driverDraft.propertyDamage} onChange={(event) => setDriverDraft({ ...driverDraft, propertyDamage: event.target.value })} placeholder="50000" /></Field>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    <Field label="Driver's License Image">
+                      <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                    </Field>
+                    <Field label="Insurance Card Image">
+                      <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                    </Field>
+                  </div>
+
+                  <div className="mt-5 space-y-2">
+                    <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+                      <input type="checkbox" checked={driverDraft.requirementsAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, requirementsAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                      <span>I understand and meet the WVCS minimum insurance requirements for volunteer drivers.</span>
+                    </label>
+                    <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+                      <input type="checkbox" checked={driverDraft.truthAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, truthAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                      <span>I certify that the information submitted is accurate and that I have attached current license and insurance documentation.</span>
+                    </label>
+                  </div>
+
+                  <button type="button" onClick={submitDriverApplication} disabled={submittingDriver} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60">
+                    <Send size={16} />
+                    {submittingDriver ? "Submitting..." : "Submit for Office Verification"}
+                  </button>
+                  {driverStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{driverStatus}</div>}
+                </div>
               </div>
             )}
 

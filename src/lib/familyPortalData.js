@@ -97,6 +97,26 @@ function mapFosAuditEvent(row) {
   };
 }
 
+function mapDriverApplication(row) {
+  return {
+    id: row.id,
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    schoolYear: row.school_year || "",
+    parentName: row.parent_name || "",
+    parentEmail: row.parent_email || "",
+    status: row.status || "Pending",
+    application: row.application || {},
+    attachments: row.attachments || [],
+    submittedAt: row.submitted_at || "",
+    reviewedAt: row.reviewed_at || "",
+    reviewedByEmail: row.reviewed_by_email || "",
+    expiresAt: row.expires_at || "",
+    officeNote: row.office_note || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function mapFosReminderTemplate(row) {
   if (!row) return DEFAULT_FOS_REMINDER_TEMPLATE;
   return {
@@ -193,6 +213,26 @@ export async function fetchFosAuditEvents(limit = 80) {
   return { loaded: true, events: (data || []).map(mapFosAuditEvent) };
 }
 
+export async function fetchVolunteerDriverApplications() {
+  if (!isSupabaseConfigured) return { loaded: false, applications: [], reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("volunteer_driver_applications")
+    .select("*")
+    .order("submitted_at", { ascending: false });
+  if (error) return { loaded: false, applications: [], reason: "Volunteer driver applications table is not installed yet." };
+  return { loaded: true, applications: (data || []).map(mapDriverApplication) };
+}
+
+export async function createDriverAttachmentUrl(attachment) {
+  if (!isSupabaseConfigured || !attachment?.path) return "";
+  const { data, error } = await supabase.storage
+    .from(attachment.bucket || "volunteer-driver-documents")
+    .createSignedUrl(attachment.path, 60 * 10);
+  if (error) throw error;
+  return data?.signedUrl || "";
+}
+
 export async function fetchFosReminderTemplate() {
   if (!isSupabaseConfigured) return { loaded: false, template: DEFAULT_FOS_REMINDER_TEMPLATE, reason: "Supabase is not configured." };
 
@@ -268,6 +308,26 @@ export async function submitFosHours(token, entry) {
   });
   if (error) throw error;
   return data || { submitted: false };
+}
+
+export async function submitVolunteerDriverApplication(application, attachments = []) {
+  if (!isSupabaseConfigured) return { submitted: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("submit-volunteer-driver-application", {
+    body: { application, attachments },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { submitted: false };
+}
+
+export async function reviewVolunteerDriverApplication(applicationId, review) {
+  if (!isSupabaseConfigured) return { reviewed: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("review-volunteer-driver-application", {
+    body: { applicationId, review },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { reviewed: false };
 }
 
 export async function submitLunchOrders(orders) {

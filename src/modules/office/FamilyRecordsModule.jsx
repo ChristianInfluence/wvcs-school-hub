@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, ClipboardCheck, Clock, DollarSign, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, calculateFosBalance, FOS_SCHOOL_YEAR, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
+import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
+import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
@@ -51,14 +51,28 @@ function familyNamesMatch(a, b) {
   return Boolean(first && second && first === second);
 }
 
+function isVerifiedDriver(application) {
+  return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
+}
+
+function driverTone(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "verified") return "emerald";
+  if (value === "denied" || value === "expired") return "rose";
+  if (value === "pending") return "amber";
+  return "slate";
+}
+
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
-  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], error: "" });
+  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
   const [inviteDrafts, setInviteDrafts] = useState({});
   const [portalLoadingKey, setPortalLoadingKey] = useState("");
   const [actionStatus, setActionStatus] = useState("");
+  const [driverReviewDrafts, setDriverReviewDrafts] = useState({});
+  const [driverReviewingId, setDriverReviewingId] = useState("");
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -69,7 +83,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
@@ -77,6 +91,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fetchFosEntries(),
         fetchFamilyPortalAccessRecords(),
         fetchFosAuditEvents(120),
+        fetchVolunteerDriverApplications(),
       ]);
       setData({
         loading: false,
@@ -87,7 +102,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fosEntries: fosResult.entries || [],
         access: accessResult.access || [],
         audit: auditResult.events || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || "",
+        driverApplications: driverResult.applications || [],
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
@@ -120,6 +136,9 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       const fos = calculateFosBalance(fosEntries, access || {});
       const unpaidIncidentals = incidentalInvoices.filter((invoice) => !String(invoice.paymentStatus || "").toLowerCase().includes("paid"));
       const pendingFos = fosEntries.filter((entry) => entry.status === "Pending");
+      const driverApplications = data.driverApplications.filter((application) => application.familyKey === family.familyKey || familyNamesMatch(application.familyName, family.familyName));
+      const verifiedDrivers = driverApplications.filter(isVerifiedDriver);
+      const pendingDrivers = driverApplications.filter((application) => application.status === "Pending");
       return {
         ...family,
         access,
@@ -131,6 +150,9 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fos,
         unpaidIncidentals,
         pendingFos,
+        driverApplications,
+        verifiedDrivers,
+        pendingDrivers,
         searchText: `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
       };
     });
@@ -223,6 +245,37 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
   }
 
+  async function openDriverAttachment(attachment) {
+    try {
+      setActionStatus("Opening driver document...");
+      const url = await createDriverAttachmentUrl(attachment);
+      if (!url) throw new Error("Document link could not be created.");
+      window.open(url, "_blank", "noopener,noreferrer");
+      setActionStatus("");
+    } catch (error) {
+      setActionStatus(`Unable to open driver document: ${error.message}`);
+    }
+  }
+
+  async function reviewDriverApplication(application, action) {
+    const confirmed = window.confirm(`${action === "verify" ? "Verify" : "Deny"} volunteer driver application for ${application.parentName || application.parentEmail}?`);
+    if (!confirmed) return;
+    try {
+      setDriverReviewingId(application.id);
+      setActionStatus(`${action === "verify" ? "Verifying" : "Denying"} volunteer driver application...`);
+      const result = await reviewVolunteerDriverApplication(application.id, {
+        action,
+        officeNote: driverReviewDrafts[application.id] || "",
+      });
+      setActionStatus(`Volunteer driver application marked ${result.application?.status || "reviewed"}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to review driver application: ${error.message}`);
+    } finally {
+      setDriverReviewingId("");
+    }
+  }
+
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
@@ -285,6 +338,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                   {family.unpaidIncidentals.length > 0 && <StatusPill tone="rose">{family.unpaidIncidentals.length} unpaid</StatusPill>}
                   {family.pendingFos.length > 0 && <StatusPill tone="amber">{family.pendingFos.length} FOS pending</StatusPill>}
                   {Number(family.lunchAccount.balance || 0) < 0 && <StatusPill tone="amber">Lunch {money(family.lunchAccount.balance)}</StatusPill>}
+                  {family.pendingDrivers.length > 0 && <StatusPill tone="amber">{family.pendingDrivers.length} driver pending</StatusPill>}
+                  {family.verifiedDrivers.length > 0 && <StatusPill tone="emerald">Driver verified</StatusPill>}
                 </div>
               </button>
             ))}
@@ -298,12 +353,22 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                 <div>
                   <h3 className="text-xl font-bold text-slate-950">{selectedFamily.familyName}</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedFamily.parents.map((parent) => (
-                      <span key={`${parent.email}-${parent.name}`} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                        <Mail size={12} />
-                        {parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}
-                      </span>
-                    ))}
+                    {selectedFamily.parents.map((parent) => {
+                      const parentEmail = String(parent.email || "").toLowerCase();
+                      const verified = selectedFamily.verifiedDrivers.find((application) => String(application.parentEmail || "").toLowerCase() === parentEmail);
+                      return (
+                        <span key={`${parent.email}-${parent.name}`} className="inline-flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                          <Mail size={12} />
+                          {parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}
+                          {verified && (
+                            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
+                              <ShieldCheck size={11} />
+                              Verified Driver
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 lg:w-[360px]">
@@ -365,6 +430,68 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><ShieldCheck size={16} className="text-emerald-600" />Volunteer Drivers</div>
+                <div className="mt-3 grid gap-2">
+                  {selectedFamily.driverApplications.map((application) => (
+                    <div key={application.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-bold text-slate-900">{application.parentName || application.parentEmail || "Driver"}</div>
+                            <StatusPill tone={driverTone(application.status)}>{application.status}</StatusPill>
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            Submitted {formatDate(application.submittedAt)}{application.expiresAt ? ` · Expires ${formatDate(application.expiresAt)}` : ""}
+                          </div>
+                          {application.officeNote && <div className="mt-1 text-xs text-slate-600">Office note: {application.officeNote}</div>}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(application.attachments || []).map((attachment) => (
+                            <button
+                              key={attachment.path || attachment.name}
+                              type="button"
+                              onClick={() => openDriverAttachment(attachment)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-50"
+                            >
+                              <ExternalLink size={13} />
+                              {attachment.label || "Document"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {application.status === "Pending" && (
+                        <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 lg:grid-cols-[1fr_auto_auto]">
+                          <input
+                            value={driverReviewDrafts[application.id] || ""}
+                            onChange={(event) => setDriverReviewDrafts((current) => ({ ...current, [application.id]: event.target.value }))}
+                            placeholder="Optional office note"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => reviewDriverApplication(application, "verify")}
+                            disabled={driverReviewingId === application.id}
+                            className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+                          >
+                            Verify
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reviewDriverApplication(application, "deny")}
+                            disabled={driverReviewingId === application.id}
+                            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!selectedFamily.driverApplications.length && <div className="text-sm text-slate-500">No volunteer driver applications yet.</div>}
+                </div>
+              </div>
+
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><FileText size={16} className="text-sky-600" />Invoices</div>
                 <div className="mt-3 grid gap-2">

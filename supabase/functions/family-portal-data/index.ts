@@ -104,6 +104,26 @@ function mapLunchTransaction(row: Record<string, any>) {
   };
 }
 
+function mapDriverApplication(row: Record<string, any>) {
+  return {
+    id: row.id,
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    schoolYear: row.school_year || "",
+    parentName: row.parent_name || "",
+    parentEmail: row.parent_email || "",
+    status: row.status || "Pending",
+    application: row.application || {},
+    attachments: row.attachments || [],
+    submittedAt: row.submitted_at || "",
+    reviewedAt: row.reviewed_at || "",
+    reviewedByEmail: row.reviewed_by_email || "",
+    expiresAt: row.expires_at || "",
+    officeNote: row.office_note || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function mapPermissionEvent(row: Record<string, any>) {
   return {
     id: row.id,
@@ -209,7 +229,7 @@ Deno.serve(async (request) => {
     const nameTerms = familyNameTerms(access.family_name);
     const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
 
-    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: tuitionNameRows, error: tuitionNameError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: portalSettingsRow }] =
+    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: tuitionNameRows, error: tuitionNameError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: driverRows, error: driverError }, { data: portalSettingsRow }] =
       await Promise.all([
         supabase.from("student_directory").select("*").eq("active", true),
         supabase.from("fos_hour_entries").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }),
@@ -225,6 +245,7 @@ Deno.serve(async (request) => {
         supabase.from("lunch_menus").select("*").in("status", ["Open", "Published"]).order("week_start", { ascending: true }),
         supabase.from("lunch_orders").select("*").eq("family_key", access.family_key).order("order_date", { ascending: false }).order("created_at", { ascending: false }).limit(120),
         supabase.from("lunch_transactions").select("*").eq("family_key", access.family_key).order("created_at", { ascending: false }).limit(120),
+        supabase.from("volunteer_driver_applications").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }).limit(20),
         supabase.from("office_finance_settings").select("settings").eq("id", "family_portal").maybeSingle(),
       ]);
 
@@ -238,6 +259,10 @@ Deno.serve(async (request) => {
     if (lunchMenusError) throw lunchMenusError;
     if (lunchOrdersError) throw lunchOrdersError;
     if (lunchTransactionsError) throw lunchTransactionsError;
+    if (driverError) {
+      const message = String(driverError.message || "");
+      if (!/does not exist|schema cache|relation/i.test(message)) throw driverError;
+    }
 
     const students = (directoryRows || []).filter((row) => familyKeyFor(row) === access.family_key).map(mapStudent);
     const studentIds = students.map((student) => String(student.id || "")).filter(Boolean);
@@ -364,6 +389,9 @@ Deno.serve(async (request) => {
           menus: (lunchMenus || []).map(mapLunchMenu),
           orders: (lunchOrders || []).map(mapLunchOrder),
           transactions: (lunchTransactions || []).map(mapLunchTransaction),
+        },
+        volunteerDrivers: {
+          applications: (driverRows || []).map(mapDriverApplication),
         },
         familyPortalSettings: normalizeFamilyPortalSettings(portalSettingsRow?.settings),
         permissionSlips,
