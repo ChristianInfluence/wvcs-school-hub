@@ -94,7 +94,25 @@ function addYears(value, years) {
 }
 
 function isCurrentBackgroundCheck(record) {
-  return record?.status === "Verified" && record.expiresAt && record.expiresAt.slice(0, 10) >= today;
+  return record?.status === "Approved" && record.expiresAt && record.expiresAt.slice(0, 10) >= today;
+}
+
+function isExpiredBackgroundCheck(record) {
+  return record?.status === "Approved" && record.expiresAt && record.expiresAt.slice(0, 10) < today;
+}
+
+function backgroundCheckTone(record) {
+  if (!record) return "slate";
+  if (isExpiredBackgroundCheck(record)) return "rose";
+  if (record.status === "Approved") return "emerald";
+  if (record.status === "Pending") return "amber";
+  return "rose";
+}
+
+function backgroundCheckLabel(record) {
+  if (!record) return "Not Recorded";
+  if (isExpiredBackgroundCheck(record)) return "Expired";
+  return record.status || "Pending";
 }
 
 function driverTone(status) {
@@ -117,6 +135,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [driverReviewingId, setDriverReviewingId] = useState("");
   const [backgroundDrafts, setBackgroundDrafts] = useState({});
   const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
+  const [backgroundEditor, setBackgroundEditor] = useState(null);
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -326,6 +345,23 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
   }
 
+  function openBackgroundCheckEditor(parent, existingRecord) {
+    if (!selectedFamily || !parent?.email) return;
+    const email = String(parent.email).toLowerCase();
+    const draftKey = `${selectedFamily.familyKey}:${email}`;
+    setBackgroundDrafts((current) => ({
+      ...current,
+      [draftKey]: current[draftKey] || {
+        verifiedAt: existingRecord?.verifiedAt || today,
+        expiresAt: existingRecord?.expiresAt || addYears(existingRecord?.verifiedAt || today, 2),
+        status: existingRecord?.status || "Pending",
+        officeNote: existingRecord?.officeNote || "",
+      },
+    }));
+    setBackgroundEditor({ familyKey: selectedFamily.familyKey, parentEmail: email, parentName: parent.name || "Parent / Guardian" });
+    setActionStatus("");
+  }
+
   async function saveBackgroundCheckForParent(parent, existingRecord) {
     if (!selectedFamily || !parent?.email) return;
     const email = String(parent.email).toLowerCase();
@@ -348,12 +384,13 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           parentEmail: email,
           verifiedAt,
           expiresAt,
-          status: draft.status || existingRecord?.status || "Verified",
+          status: draft.status || existingRecord?.status || "Pending",
           officeNote: draft.officeNote ?? existingRecord?.officeNote ?? "",
         },
         currentUserEmail
       );
       setActionStatus(`Background check saved for ${parent.name || email}.`);
+      setBackgroundEditor(null);
       await loadData();
     } catch (error) {
       setActionStatus(`Unable to save background check: ${error.message}`);
@@ -444,22 +481,26 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                       const verified = selectedFamily.verifiedDrivers.find((application) => String(application.parentEmail || "").toLowerCase() === parentEmail);
                       const backgroundCheck = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === parentEmail);
                       return (
-                        <span key={`${parent.email}-${parent.name}`} className="inline-flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                          <Mail size={12} />
-                          {parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}
-                          {isCurrentBackgroundCheck(backgroundCheck) && (
-                            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-800">
-                              <ShieldCheck size={11} />
-                              Background Check
-                            </span>
+                        <div key={`${parent.email}-${parent.name}`} className="flex min-w-[230px] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-700">
+                          <Mail size={12} className="shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}</span>
+                          {backgroundCheck && <StatusPill tone={backgroundCheckTone(backgroundCheck)}>{backgroundCheckLabel(backgroundCheck)}</StatusPill>}
+                          {parent.email && (
+                            <button
+                              type="button"
+                              onClick={() => openBackgroundCheckEditor(parent, backgroundCheck)}
+                              className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-black text-sky-700 hover:bg-sky-50"
+                            >
+                              Background
+                            </button>
                           )}
                           {verified && (
-                            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
                               <ShieldCheck size={11} />
-                              Verified Driver
+                              Driver
                             </span>
                           )}
-                        </span>
+                        </div>
                       );
                     })}
                   </div>
@@ -503,79 +544,84 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
             </div>
             {actionStatus && <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">{actionStatus}</div>}
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><ShieldCheck size={16} className="text-sky-600" />Background Checks</div>
-              <div className="mt-1 text-xs leading-5 text-slate-500">Background checks expire every two years. Save a current verification for each parent or guardian who needs one.</div>
-              <div className="mt-3 grid gap-2">
-                {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
-                  const email = String(parent.email || "").toLowerCase();
-                  const draftKey = `${selectedFamily.familyKey}:${email}`;
-                  const existingRecord = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === email);
-                  const draft = backgroundDrafts[draftKey] || {};
-                  const verifiedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
-                  const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(verifiedAt, 2);
-                  const status = draft.status || existingRecord?.status || "Verified";
-                  const current = isCurrentBackgroundCheck({ ...existingRecord, status, expiresAt });
-                  return (
-                    <div key={draftKey} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[1.1fr_120px_120px_120px_1fr_auto] lg:items-end">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-slate-900">{parent.name || "Parent / Guardian"}</div>
-                        <div className="truncate text-xs text-slate-500">{email}</div>
-                        <div className="mt-1"><StatusPill tone={current ? "emerald" : existingRecord ? "amber" : "slate"}>{current ? "Current" : existingRecord ? "Needs Review" : "Not Recorded"}</StatusPill></div>
+            {backgroundEditor && selectedFamily && (() => {
+              const parent = (selectedFamily.parents || []).find((item) => String(item.email || "").toLowerCase() === backgroundEditor.parentEmail);
+              const existingRecord = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === backgroundEditor.parentEmail);
+              const draftKey = `${selectedFamily.familyKey}:${backgroundEditor.parentEmail}`;
+              const draft = backgroundDrafts[draftKey] || {};
+              const completedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
+              const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(completedAt, 2);
+              const status = draft.status || existingRecord?.status || "Pending";
+              const previewRecord = { ...existingRecord, status, expiresAt };
+              return (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-sm font-black text-slate-950">Background Check</div>
+                        <StatusPill tone={backgroundCheckTone(previewRecord)}>{backgroundCheckLabel(previewRecord)}</StatusPill>
                       </div>
-                      <label className="grid gap-1 text-xs font-bold text-slate-600">
-                        Verified
-                        <input
-                          type="date"
-                          value={verifiedAt}
-                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, verifiedAt: event.target.value, expiresAt: draft.expiresAt || addYears(event.target.value, 2) } }))}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
-                        />
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-slate-600">
-                        Expires
-                        <input
-                          type="date"
-                          value={expiresAt}
-                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, expiresAt: event.target.value } }))}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
-                        />
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-slate-600">
-                        Status
-                        <select
-                          value={status}
-                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, status: event.target.value } }))}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
-                        >
-                          <option>Verified</option>
-                          <option>Expired</option>
-                          <option>Revoked</option>
-                        </select>
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-slate-600">
-                        Office note
-                        <input
-                          value={draft.officeNote ?? existingRecord?.officeNote ?? ""}
-                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, officeNote: event.target.value } }))}
-                          placeholder="Optional"
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => saveBackgroundCheckForParent(parent, existingRecord)}
-                        disabled={backgroundSavingKey === draftKey}
-                        className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"
-                      >
-                        {backgroundSavingKey === draftKey ? "Saving..." : "Save"}
-                      </button>
+                      <div className="mt-1 text-xs text-slate-600">{backgroundEditor.parentName} · {backgroundEditor.parentEmail}</div>
+                      {isExpiredBackgroundCheck(previewRecord) && <div className="mt-2 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-bold text-rose-800">This background check is expired.</div>}
                     </div>
-                  );
-                })}
-                {!(selectedFamily.parents || []).some((parent) => parent.email) && <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">No parent emails are attached to this family.</div>}
-              </div>
-            </div>
+                    <button type="button" onClick={() => setBackgroundEditor(null)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                      Close
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[150px_150px_150px_1fr_auto] md:items-end">
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">
+                      Status
+                      <select
+                        value={status}
+                        onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, status: event.target.value } }))}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                      >
+                        <option>Approved</option>
+                        <option>Denied</option>
+                        <option>Pending</option>
+                        <option>Revoked</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">
+                      Filled out
+                      <input
+                        type="date"
+                        value={completedAt}
+                        onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, verifiedAt: event.target.value, expiresAt: addYears(event.target.value, 2) } }))}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">
+                      Expires
+                      <input
+                        type="date"
+                        value={expiresAt}
+                        onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, expiresAt: event.target.value } }))}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">
+                      Office note
+                      <input
+                        value={draft.officeNote ?? existingRecord?.officeNote ?? ""}
+                        onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, officeNote: event.target.value } }))}
+                        placeholder="Optional"
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => saveBackgroundCheckForParent(parent, existingRecord)}
+                      disabled={backgroundSavingKey === draftKey}
+                      className="rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"
+                    >
+                      {backgroundSavingKey === draftKey ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] leading-4 text-slate-500">Expiration auto-fills to two years after the filled-out date, but can be adjusted if needed.</div>
+                </div>
+              );
+            })()}
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>
