@@ -29,8 +29,40 @@ function StatusPill({ children, tone = "slate" }) {
 }
 
 function invoiceBalance(invoice) {
-  const total = Number(invoice.invoice?.total || invoice.invoice?.amount || invoice.invoice?.balanceDue || 0);
-  return Number.isFinite(total) ? total : 0;
+  const directTotal = Number(invoice.total || invoice.invoice?.total || invoice.invoice?.amount || invoice.invoice?.balanceDue || 0);
+  if (Number.isFinite(directTotal) && directTotal) return directTotal;
+  if (Array.isArray(invoice.invoice?.charges)) {
+    return invoice.invoice.charges.reduce((total, charge) => {
+      const amount = Number(charge.amount || 0);
+      return total + (Number.isFinite(amount) ? amount : 0);
+    }, 0);
+  }
+  if (Array.isArray(invoice.invoice?.students)) {
+    const studentTotal = invoice.invoice.students.reduce((total, student) => {
+      const discounts = Array.isArray(student.discounts)
+        ? student.discounts.reduce((sum, discount) => sum + Number(discount.amount || 0), 0)
+        : 0;
+      const discountedTuition = Math.max(Number(student.tuition || 0) - discounts, 0);
+      const earlyPayDiscount = discountedTuition * 0.05;
+      return total + Math.max(discountedTuition - earlyPayDiscount, 0) + Number(student.comprehensiveFee || 0);
+    }, 0);
+    return studentTotal + (invoice.invoice.registrationFeePaid ? 0 : Number(invoice.invoice.registrationFee || 0));
+  }
+  return 0;
+}
+
+function invoiceCategory(invoice) {
+  const charges = Array.isArray(invoice.invoice?.charges) ? invoice.invoice.charges : [];
+  if (charges.length) {
+    const labels = charges
+      .map((charge) => (charge.category === "Other" ? charge.description : charge.category) || charge.description || "Other")
+      .filter(Boolean);
+    const unique = [...new Set(labels)];
+    if (unique.length <= 2) return unique.join(", ");
+    return `${unique[0]} + ${unique.length - 1} more`;
+  }
+  if (Array.isArray(invoice.invoice?.students)) return "Tuition Breakdown";
+  return invoice.invoice?.category || invoice.category || "Invoice";
 }
 
 function paymentTone(invoice) {
@@ -523,6 +555,10 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                         <div>
                           <div className="text-sm font-bold text-slate-900">{invoice.invoice?.title || invoice.schoolYear || invoice.familyName}</div>
                           <div className="mt-1 text-xs text-slate-500">{formatDate(invoice.sentAt || invoice.updatedAt || invoice.createdAt)}</div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 font-bold text-slate-700">{invoiceCategory(invoice)}</span>
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-bold text-emerald-800">{money(invoiceBalance(invoice))}</span>
+                          </div>
                         </div>
                         <StatusPill tone={paymentTone(invoice)}>{invoice.paymentStatus || invoice.status || "Draft"}</StatusPill>
                       </div>
