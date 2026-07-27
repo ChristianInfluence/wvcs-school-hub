@@ -5,6 +5,7 @@ import {
   deleteLunchOrder,
   fetchLunchAdminData,
   money,
+  recordLunchBeginningBalance,
   recordLunchDeposit,
   saveLunchMenu,
   updateLunchOrderStatus,
@@ -150,6 +151,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
   const [selectedItemId, setSelectedItemId] = useState("");
   const [menuDraft, setMenuDraft] = useState({ title: "WVCS Lunch Menu", weekStart: today.slice(0, 8) + "01", status: "Draft", notes: "A portion of lunch proceeds supports WVCS student trips. Please contact the office with food allergy questions.", items: createMonthlyTemplate(today) });
   const [deposit, setDeposit] = useState({ familyKey: "", amount: "", method: "cash", checkNumber: "", note: "" });
+  const [carryover, setCarryover] = useState({ familyKey: "", amount: "", schoolYear: "2025-2026", note: "" });
   const [savingMenu, setSavingMenu] = useState(false);
 
   async function loadData(message = "") {
@@ -287,6 +289,37 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
       await loadData();
     } catch (error) {
       setStatus(`Unable to record payment: ${error.message}`);
+    }
+  }
+
+  async function saveCarryover() {
+    const family = data.families.find((item) => item.familyKey === carryover.familyKey);
+    if (!family) {
+      setStatus("Choose a family before recording the carryover balance.");
+      return;
+    }
+    const amount = Number(carryover.amount || 0);
+    if (!Number.isFinite(amount) || amount === 0) {
+      setStatus("Enter the carryover as a positive credit or a negative amount owed.");
+      return;
+    }
+    const confirmed = window.confirm(
+      [
+        "Record lunch carryover balance?",
+        "",
+        `Family: ${family.familyName}`,
+        `Amount: ${money(amount)}`,
+        amount < 0 ? "This will increase the amount owed by the family." : "This will add credit to the family lunch account.",
+      ].join("\n")
+    );
+    if (!confirmed) return;
+    try {
+      await recordLunchBeginningBalance({ family, ...carryover }, currentUserEmail);
+      setCarryover({ familyKey: "", amount: "", schoolYear: carryover.schoolYear || "2025-2026", note: "" });
+      setStatus(`Lunch carryover recorded for ${family.familyName}.`);
+      await loadData();
+    } catch (error) {
+      setStatus(`Unable to record carryover: ${error.message}`);
     }
   }
 
@@ -502,15 +535,34 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
 
       {activeView === "accounts" && (
         <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="text-sm font-bold text-slate-950">Record Lunch Payment</div>
-            <div className="mt-4 grid gap-3">
-              <Field label="Family"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}</Select></Field>
-              <Field label="Amount"><Input inputMode="decimal" value={deposit.amount} onChange={(event) => setDeposit({ ...deposit, amount: event.target.value })} placeholder="25.00" /></Field>
-              <Field label="Method"><Select value={deposit.method} onChange={(event) => setDeposit({ ...deposit, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option><option value="adjustment">Adjustment</option></Select></Field>
-              {deposit.method === "check" && <Field label="Check number"><Input value={deposit.checkNumber} onChange={(event) => setDeposit({ ...deposit, checkNumber: event.target.value })} /></Field>}
-              <Field label="Note"><Input value={deposit.note} onChange={(event) => setDeposit({ ...deposit, note: event.target.value })} placeholder="Optional" /></Field>
-              <button type="button" onClick={saveDeposit} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white">Record Payment</button>
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="text-sm font-bold text-slate-950">Beginning Balance / Carryover</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">
+                Enter a positive amount for credit. Enter a negative amount for money owed from last year.
+              </div>
+              <div className="mt-4 grid gap-3">
+                <Field label="Family"><Select value={carryover.familyKey} onChange={(event) => setCarryover({ ...carryover, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}</Select></Field>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <Field label="Carryover amount"><Input inputMode="decimal" value={carryover.amount} onChange={(event) => setCarryover({ ...carryover, amount: event.target.value })} placeholder="-18.75 or 32.50" /></Field>
+                  <Field label="From school year"><Input value={carryover.schoolYear} onChange={(event) => setCarryover({ ...carryover, schoolYear: event.target.value })} placeholder="2025-2026" /></Field>
+                </div>
+                <Field label="Note"><Input value={carryover.note} onChange={(event) => setCarryover({ ...carryover, note: event.target.value })} placeholder="Balance carried over from 2025-2026" /></Field>
+                <button type="button" onClick={saveCarryover} className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700">
+                  Record Carryover Balance
+                </button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="text-sm font-bold text-slate-950">Record Lunch Payment</div>
+              <div className="mt-4 grid gap-3">
+                <Field label="Family"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}</Select></Field>
+                <Field label="Amount"><Input inputMode="decimal" value={deposit.amount} onChange={(event) => setDeposit({ ...deposit, amount: event.target.value })} placeholder="25.00" /></Field>
+                <Field label="Method"><Select value={deposit.method} onChange={(event) => setDeposit({ ...deposit, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option><option value="adjustment">Adjustment</option></Select></Field>
+                {deposit.method === "check" && <Field label="Check number"><Input value={deposit.checkNumber} onChange={(event) => setDeposit({ ...deposit, checkNumber: event.target.value })} /></Field>}
+                <Field label="Note"><Input value={deposit.note} onChange={(event) => setDeposit({ ...deposit, note: event.target.value })} placeholder="Optional" /></Field>
+                <button type="button" onClick={saveDeposit} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700">Record Payment</button>
+              </div>
             </div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4">

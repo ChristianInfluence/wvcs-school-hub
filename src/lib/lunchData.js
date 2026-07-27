@@ -327,3 +327,20 @@ export async function recordLunchDeposit({ family, amount, method = "cash", chec
   if (error) throw error;
   return upsertAccountBalance({ familyKey: family.familyKey, familyName: family.familyName, delta: cleanAmount, currentUserEmail });
 }
+
+export async function recordLunchBeginningBalance({ family, amount, schoolYear = "", note = "" }, currentUserEmail = "") {
+  const cleanAmount = Number(amount || 0);
+  if (!Number.isFinite(cleanAmount) || cleanAmount === 0) throw new Error("Enter a positive credit or a negative owed balance.");
+  const label = schoolYear ? `Lunch carryover from ${schoolYear}` : "Lunch beginning balance carryover";
+  const { error } = await supabase.from("lunch_transactions").insert({
+    family_key: family.familyKey,
+    family_name: family.familyName,
+    type: "beginning_balance",
+    amount: cleanAmount,
+    description: note || label,
+    payment_method: "carryover",
+    created_by_email: currentUserEmail || null,
+  });
+  if (error) throw error;
+  return upsertAccountBalance({ familyKey: family.familyKey, familyName: family.familyName, delta: cleanAmount, currentUserEmail });
+}
