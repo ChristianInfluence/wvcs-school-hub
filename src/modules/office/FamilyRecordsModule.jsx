@@ -106,13 +106,14 @@ function backgroundCheckTone(record) {
   if (isExpiredBackgroundCheck(record)) return "rose";
   if (record.status === "Approved") return "emerald";
   if (record.status === "Pending") return "amber";
+  if (record.status === "No Application") return "slate";
   return "rose";
 }
 
 function backgroundCheckLabel(record) {
-  if (!record) return "Not Recorded";
+  if (!record) return "No Application";
   if (isExpiredBackgroundCheck(record)) return "Expired";
-  return record.status || "Pending";
+  return record.status || "No Application";
 }
 
 function driverTone(status) {
@@ -354,7 +355,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       [draftKey]: current[draftKey] || {
         verifiedAt: existingRecord?.verifiedAt || today,
         expiresAt: existingRecord?.expiresAt || addYears(existingRecord?.verifiedAt || today, 2),
-        status: existingRecord?.status || "Pending",
+        status: existingRecord?.status || "No Application",
         officeNote: existingRecord?.officeNote || "",
       },
     }));
@@ -384,7 +385,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           parentEmail: email,
           verifiedAt,
           expiresAt,
-          status: draft.status || existingRecord?.status || "Pending",
+          status: draft.status || existingRecord?.status || "No Application",
           officeNote: draft.officeNote ?? existingRecord?.officeNote ?? "",
         },
         currentUserEmail
@@ -551,7 +552,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
               const draft = backgroundDrafts[draftKey] || {};
               const completedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
               const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(completedAt, 2);
-              const status = draft.status || existingRecord?.status || "Pending";
+              const status = draft.status || existingRecord?.status || "No Application";
               const previewRecord = { ...existingRecord, status, expiresAt };
               return (
                 <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
@@ -576,6 +577,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                         onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, status: event.target.value } }))}
                         className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
                       >
+                        <option>No Application</option>
                         <option>Approved</option>
                         <option>Denied</option>
                         <option>Pending</option>
