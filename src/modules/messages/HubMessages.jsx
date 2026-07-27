@@ -247,15 +247,15 @@ export default function HubMessages({ currentUserEmail = "", currentUserName = "
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`relative inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-lg border transition ${
           unreadCount > 0
             ? "border-sky-300 bg-sky-500/20 text-white shadow-lg shadow-sky-950/30 hover:bg-sky-500/30"
             : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
         }`}
         title="Messages"
+        aria-label="Hub messages"
       >
         <MessageCircle size={16} />
-        Messages
         {unreadCount > 0 && (
           <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full border border-slate-950 bg-sky-400 px-1 text-[11px] font-black text-slate-950">
             {unreadCount}

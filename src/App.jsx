@@ -18,6 +18,7 @@ import {
   ReceiptText,
   Search,
   ShieldAlert,
+  ShieldCheck,
   Settings,
   Sparkles,
   Utensils,
@@ -45,7 +46,7 @@ import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
-import { calculateFosBalance, fetchFamilyPortalAccessRecords, fetchFosEntries } from "./lib/familyPortalData.js";
+import { calculateFosBalance, fetchFamilyPortalAccessRecords, fetchFosEntries, fetchVolunteerDriverApplications } from "./lib/familyPortalData.js";
 import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
 import { fetchLunchAdminData } from "./lib/lunchData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
@@ -76,6 +77,7 @@ const modules = [
     description: "Build and manage the master school schedule.",
     color: "sky",
     callout: "Master schedule builder",
+    topLevelOnly: true,
   },
   {
     id: "meetings",
@@ -125,6 +127,14 @@ const modules = [
     description: "Evaluate new students during the 6 week probation window.",
     color: "cyan",
     callout: "Probation reviews",
+  },
+  {
+    id: "driver-volunteers",
+    label: "Driver Volunteers",
+    icon: ShieldCheck,
+    description: "View parent volunteers who are currently verified to drive.",
+    color: "emerald",
+    callout: "Verified drivers",
   },
   {
     id: "suggestions",
@@ -434,6 +444,110 @@ function formatActivityDate(value) {
   });
 }
 
+function formatDriverDate(value) {
+  if (!value) return "Not listed";
+  return new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function isVerifiedDriverApplication(application) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  return application?.status === "Verified" && (!application.expiresAt || String(application.expiresAt).slice(0, 10) >= todayIso);
+}
+
+function DriverVolunteersModule() {
+  const [state, setState] = useState({ loading: true, drivers: [], error: "" });
+
+  async function loadDrivers() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const result = await fetchVolunteerDriverApplications();
+      const drivers = (result.applications || [])
+        .filter(isVerifiedDriverApplication)
+        .sort((a, b) =>
+          String(a.parentName || a.parentEmail || "").localeCompare(String(b.parentName || b.parentEmail || ""), undefined, { sensitivity: "base" })
+        );
+      setState({ loading: false, drivers, error: result.reason || "" });
+    } catch (error) {
+      setState({ loading: false, drivers: [], error: error.message });
+    }
+  }
+
+  useEffect(() => {
+    loadDrivers();
+  }, []);
+
+  return (
+    <section className="min-h-[560px] bg-slate-950 text-slate-100">
+      <div className="mx-auto max-w-[1500px] px-5 py-6">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Driver Volunteers</div>
+            <h1 className="mt-2 text-3xl font-bold text-white">Verified Parent Drivers</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+              Current parent volunteers approved by the office to drive for WVCS activities.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadDrivers}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-100 transition hover:bg-slate-800"
+          >
+            <CalendarClock size={16} />
+            Refresh
+          </button>
+        </div>
+
+        {state.error && (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            {state.error}
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+          <div className="grid gap-2 border-b border-slate-800 bg-slate-950 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 md:grid-cols-[1.1fr_1fr_1fr_1.2fr_0.8fr]">
+            <div>Driver</div>
+            <div>Family</div>
+            <div>Email</div>
+            <div>Vehicle</div>
+            <div>Verified Until</div>
+          </div>
+          {state.loading ? (
+            <div className="p-5 text-sm text-slate-400">Loading verified drivers...</div>
+          ) : state.drivers.length ? (
+            state.drivers.map((driver) => {
+              const vehicle = [
+                driver.application?.car1MakeModelYear || driver.application?.car1ModelYear,
+                driver.application?.car1LicensePlate,
+              ].filter(Boolean).join(" · ");
+              return (
+                <div key={driver.id} className="grid gap-2 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr_0.8fr]">
+                  <div>
+                    <div className="font-bold text-white">{driver.parentName || "Verified Driver"}</div>
+                    <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold text-emerald-100">
+                      <ShieldCheck size={12} />
+                      Verified
+                    </div>
+                  </div>
+                  <div className="text-slate-300">{driver.familyName || "Family not listed"}</div>
+                  <div className="break-words text-slate-300">{driver.parentEmail || "No email listed"}</div>
+                  <div className="text-slate-300">{vehicle || "Vehicle not listed"}</div>
+                  <div className="font-semibold text-emerald-100">{formatDriverDate(driver.expiresAt)}</div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="p-5 text-sm text-slate-400">No verified parent drivers are listed yet.</div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OfficeTodayPanel({ access, onOpenOfficeFinance }) {
   const [summary, setSummary] = useState({ loading: true, pendingFos: 0, fosBalanceFamilies: 0, unpaidIncidentals: 0, todayLunch: 0, lowLunchAccounts: 0, noPortalLogin: 0, error: "" });
 
@@ -510,7 +624,18 @@ function OfficeTodayPanel({ access, onOpenOfficeFinance }) {
 }
 
 function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpenAideView, onOpenOfficeFinance }) {
-  const launchModules = modules.filter((module) => module.id !== "dashboard" && module.id !== "admin" && !module.topLevelOnly);
+  const staffLunchModule = {
+    id: "staff-lunch",
+    label: "Staff Lunch Order",
+    icon: Utensils,
+    description: "Open the published lunch menu and submit staff lunch choices at no charge.",
+    color: "emerald",
+    callout: "Staff meals",
+  };
+  const launchModules = [
+    staffLunchModule,
+    ...modules.filter((module) => module.id !== "dashboard" && module.id !== "admin" && !module.topLevelOnly),
+  ];
   const featured = launchModules.find((module) => module.id === "structured-recess");
   const [activity, setActivity] = useState({ loading: true, submissions: [], messages: [], error: "" });
   const [showStaffLunch, setShowStaffLunch] = useState(false);
@@ -580,28 +705,6 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
         <OfficeTodayPanel access={access} onOpenOfficeFinance={onOpenOfficeFinance} />
 
         <div className="grid gap-4 lg:grid-cols-5">
-          <button
-            type="button"
-            onClick={() => setShowStaffLunch((current) => !current)}
-            className="group relative flex min-h-64 flex-col overflow-hidden rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-left transition hover:-translate-y-1 hover:bg-emerald-500/15 hover:shadow-2xl"
-          >
-            <div className="absolute left-0 top-0 h-1.5 w-full bg-emerald-400" />
-            <div className="relative h-14">
-              <div className="absolute left-0 top-0 flex h-12 w-12 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/15 text-emerald-100">
-                <Utensils size={24} />
-              </div>
-            </div>
-            <div className="flex flex-1 flex-col">
-              <div className="mt-4 min-h-4 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Staff meals</div>
-              <h2 className="mt-2 min-h-14 text-xl font-bold leading-7 text-white">Staff Lunch Order</h2>
-              <p className="text-sm leading-6 text-slate-300">Open the published lunch menu and submit staff lunch choices at no charge.</p>
-              <div className="mt-auto pt-5">
-                <div className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
-                  Open menu
-                </div>
-              </div>
-            </div>
-          </button>
           {launchModules.map((module, index) => {
             const Icon = module.icon;
             const styles = moduleStyles[module.color];
@@ -611,7 +714,13 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
                 key={module.id}
                 type="button"
                 disabled={module.comingSoon || locked}
-                onClick={() => onSelectModule(module.id)}
+                onClick={() => {
+                  if (module.id === "staff-lunch") {
+                    setShowStaffLunch((current) => !current);
+                    return;
+                  }
+                  onSelectModule(module.id);
+                }}
                 className={`group relative flex min-h-64 flex-col overflow-hidden rounded-lg border p-4 text-left transition ${
                   module.comingSoon || locked
                     ? `${styles.card} cursor-default opacity-85`
@@ -643,6 +752,11 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
                     {module.comingSoon && (
                       <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-slate-200">
                         Planned feature
+                      </div>
+                    )}
+                    {module.id === "staff-lunch" && (
+                      <div className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                        {showStaffLunch ? "Close menu" : "Open menu"}
                       </div>
                     )}
                   </div>
@@ -987,10 +1101,11 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 transition hover:bg-slate-800"
+        title="Search"
+        aria-label="Search Hub"
       >
         <Search size={16} />
-        Search
       </button>
       {open && (
         <div className="fixed inset-x-4 top-20 z-50 rounded-lg border border-slate-700 bg-slate-950 shadow-2xl shadow-slate-950/60 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[420px]">
@@ -1585,6 +1700,7 @@ export default function App() {
             {modules
               .filter((module) =>
                 module.id === "dashboard" ||
+                (module.id === "scheduler" && access.canUseScheduler) ||
                 (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
                 (module.id === "office-finance" && access.canUseOfficePayroll) ||
                 (module.id === "admin" && access.canUseAdmin)
@@ -1640,6 +1756,8 @@ export default function App() {
       )}
 
       {activeModule === "scheduler" && access.canUseScheduler && <SchedulerModule currentUserEmail={user.email} />}
+
+      {activeModule === "driver-volunteers" && <DriverVolunteersModule />}
 
       {activeModule === "meetings" && (
         <MeetingsModule />
