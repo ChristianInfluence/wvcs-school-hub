@@ -12,6 +12,10 @@ import {
 
 const today = new Date().toISOString().slice(0, 10);
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const OFFICE_QUICK_LUNCH_ITEMS = [
+  { id: "office-cup-of-noodle", name: "Cup of Noodle", price: 0.75, description: "Office quick-add lunch item" },
+  { id: "office-corndog-leftovers", name: "Corndog/Leftovers", price: 1.5, description: "Office quick-add lunch item" },
+];
 
 function Field({ label, children }) {
   return (
@@ -124,6 +128,17 @@ function createMonthlyTemplate(value) {
   return cells.flatMap((date) => templateItemsForDate(date, Math.floor((date.getDate() - 1) / 7)));
 }
 
+function officeQuickItemsForDate(value) {
+  return OFFICE_QUICK_LUNCH_ITEMS.map((item) => ({
+    ...item,
+    id: `${item.id}-${value}`,
+    date: value,
+    menuId: "",
+    menuTitle: "Office Quick Add",
+    officeOnly: true,
+  }));
+}
+
 export default function LunchAdminModule({ currentUserEmail = "" }) {
   const [activeView, setActiveView] = useState("daily");
   const [data, setData] = useState({ loading: true, families: [], menus: [], orders: [], accounts: [], transactions: [] });
@@ -160,7 +175,9 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
     .filter((menu) => menu.status !== "Closed")
     .flatMap((menu) => (menu.items || []).map((item) => ({ ...item, menuId: menu.id, menuTitle: menu.title })))
     .filter((item) => item.date === date);
-  const selectedItem = menuItemsForDate.find((item) => item.id === selectedItemId) || null;
+  const officeQuickItems = useMemo(() => officeQuickItemsForDate(date), [date]);
+  const lunchItemsForDate = useMemo(() => [...menuItemsForDate, ...officeQuickItems], [menuItemsForDate, officeQuickItems]);
+  const selectedItem = lunchItemsForDate.find((item) => item.id === selectedItemId) || null;
   const dailyOrders = data.orders.filter((order) => order.orderDate === date);
   const filteredFamilies = data.families.filter((family) =>
     `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`
@@ -343,6 +360,8 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
                 <Select value={selectedItemId} onChange={(event) => setSelectedItemId(event.target.value)}>
                   <option value="">Select item</option>
                   {menuItemsForDate.map((item) => <option key={`${item.menuId}-${item.id}`} value={item.id}>{item.name} - {money(item.price)}</option>)}
+                  <option value="" disabled>Office quick add</option>
+                  {officeQuickItems.map((item) => <option key={item.id} value={item.id}>{item.name} - {money(item.price)}</option>)}
                 </Select>
               </Field>
               <button type="button" onClick={addOrder} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700">
@@ -350,7 +369,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
                 Add Lunch
               </button>
             </div>
-            {!menuItemsForDate.length && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">No open menu items exist for this date yet.</div>}
+            {!menuItemsForDate.length && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">No open menu items exist for this date yet. Office quick-add items are still available.</div>}
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-4">
