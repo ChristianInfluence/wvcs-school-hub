@@ -13,6 +13,33 @@ function mapStudent(row: Record<string, any>) {
   };
 }
 
+function money(value: any) {
+  const amount = Number.parseFloat(String(value || "0"));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function tuitionInvoiceTotal(invoice: Record<string, any>) {
+  if (money(invoice?.total)) return money(invoice.total);
+  if (money(invoice?.balanceDue)) return money(invoice.balanceDue);
+  const students = Array.isArray(invoice?.students) ? invoice.students : [];
+  const studentTotals = students.reduce((sum: number, student: Record<string, any>) => {
+    const discounts = Array.isArray(student.discounts)
+      ? student.discounts.reduce((discountTotal: number, discount: Record<string, any>) => discountTotal + money(discount.amount), 0)
+      : 0;
+    const discountedTuition = Math.max(money(student.tuition) - discounts, 0);
+    const earlyPayDiscount = discountedTuition * 0.05;
+    return sum + Math.max(discountedTuition - earlyPayDiscount, 0) + money(student.comprehensiveFee);
+  }, 0);
+  const registrationFee = invoice?.registrationFeePaid ? 0 : money(invoice?.registrationFee);
+  return studentTotals + registrationFee;
+}
+
+function invoiceTotal(row: Record<string, any>, type = "incidental") {
+  const invoice = row.invoice_json || {};
+  if (type === "tuition") return tuitionInvoiceTotal(invoice);
+  return money(invoice.total) || (Array.isArray(invoice.charges) ? invoice.charges.reduce((sum: number, charge: Record<string, any>) => sum + money(charge.amount), 0) : 0);
+}
+
 function mapInvoice(row: Record<string, any>, type = "incidental") {
   return {
     id: row.id,
@@ -22,11 +49,13 @@ function mapInvoice(row: Record<string, any>, type = "incidental") {
     schoolYear: row.school_year || row.invoice_json?.schoolYear || "",
     status: row.status || "",
     paymentStatus: row.payment_status || "",
-    total: row.invoice_json?.total || row.invoice_json?.charges?.reduce((sum: number, charge: Record<string, any>) => sum + Number(charge.amount || 0), 0) || 0,
+    total: invoiceTotal(row, type),
     invoice: row.invoice_json || {},
     sentAt: row.sent_at || "",
     paidAt: row.paid_at || "",
     receiptNumber: row.receipt_number || "",
+    updatedAt: row.updated_at || "",
+    createdAt: row.created_at || "",
   };
 }
 

@@ -176,7 +176,11 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const balance = portal.data?.fos?.balance || {};
   const entries = portal.data?.fos?.entries || [];
   const invoices = useMemo(
-    () => [...(portal.data?.invoices?.incidentals || []), ...(portal.data?.invoices?.tuition || [])],
+    () => [...(portal.data?.invoices?.incidentals || []), ...(portal.data?.invoices?.tuition || [])].sort((a, b) => {
+      const aDate = a.sentAt || a.paidAt || a.updatedAt || a.createdAt || a.invoice?.invoiceDate || "";
+      const bDate = b.sentAt || b.paidAt || b.updatedAt || b.createdAt || b.invoice?.invoiceDate || "";
+      return String(bDate).localeCompare(String(aDate));
+    }),
     [portal.data]
   );
   const visibleInvoice = selectedInvoice && invoices.find((invoice) => invoice.id === selectedInvoice.id && invoice.type === selectedInvoice.type);
@@ -258,7 +262,21 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
 
   function invoiceTotal(invoice) {
     if (!invoice) return 0;
-    return Number(invoice.total || invoice.invoice?.total || invoice.invoice?.balanceDue || 0);
+    if (Number(invoice.total)) return Number(invoice.total);
+    if (Number(invoice.invoice?.total)) return Number(invoice.invoice.total);
+    if (Number(invoice.invoice?.balanceDue)) return Number(invoice.invoice.balanceDue);
+    if (invoice.type === "tuition" && Array.isArray(invoice.invoice?.students)) {
+      const studentTotal = invoice.invoice.students.reduce((sum, student) => {
+        const discounts = Array.isArray(student.discounts)
+          ? student.discounts.reduce((discountSum, discount) => discountSum + Number(discount.amount || 0), 0)
+          : 0;
+        const discountedTuition = Math.max(Number(student.tuition || 0) - discounts, 0);
+        const earlyPayDiscount = discountedTuition * 0.05;
+        return sum + Math.max(discountedTuition - earlyPayDiscount, 0) + Number(student.comprehensiveFee || 0);
+      }, 0);
+      return studentTotal + (invoice.invoice.registrationFeePaid ? 0 : Number(invoice.invoice.registrationFee || 0));
+    }
+    return 0;
   }
 
   function chargeRows(invoice) {
@@ -474,7 +492,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
               {previewFamilyKey ? "Office preview of the family portal." : "View FOS progress, invoice history, and family account tools."}
             </p>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-              Tuition payments are processed through FACTS and are not recorded in the WVCS School Hub. Please use FACTS for tuition payment records and balances.
+              Regular tuition account balances are handled through FACTS. Full-pay tuition breakdown invoices requested through the WVCS office may appear here and are paid directly through the office.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1001,7 +1019,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                   Invoice History
                 </div>
                 <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-100">
-                  Tuition payment activity is not tracked in the WVCS School Hub. Tuition payments and tuition account balances are handled through FACTS.
+                  Regular tuition balances are handled through FACTS. Full-pay tuition breakdown invoices listed here are paid directly through the WVCS office and are not paid through FACTS.
                 </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {invoices.map((invoice) => (
@@ -1020,7 +1038,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       }`}
                     >
                       <div className="font-semibold text-white">{invoiceTitle(invoice)}</div>
-                      <div className="mt-1 text-xs text-slate-500">{invoice.paymentStatus || invoice.status} {invoice.total ? `| ${money(invoice.total)}` : ""}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {invoice.type === "tuition" ? "Tuition breakdown | Pay through WVCS office" : invoice.paymentStatus || invoice.status}
+                        {invoiceTotal(invoice) ? ` | ${money(invoiceTotal(invoice))}` : ""}
+                      </div>
                     </button>
                   ))}
                   {!invoices.length && <div className="text-sm text-slate-500">No invoice history is available yet.</div>}
