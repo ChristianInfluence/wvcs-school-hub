@@ -701,7 +701,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       Account Summary
                     </div>
                     <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                      Tuition payments are processed through FACTS and are not recorded in the Hub.
+                      Regular tuition accounts are processed through FACTS. Full-pay tuition breakdown payments recorded by the WVCS office may appear here.
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
@@ -1172,7 +1172,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     >
                       <div className="font-semibold text-white">{invoiceTitle(invoice)}</div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {invoice.type === "tuition" ? "Tuition breakdown | Pay through WVCS office" : invoice.paymentStatus || invoice.status}
+                        {invoice.type === "tuition" ? `Tuition breakdown | ${invoice.paymentStatus || "Pay through WVCS office"}` : invoice.paymentStatus || invoice.status}
                         {invoiceTotal(invoice) ? ` | ${money(invoiceTotal(invoice))}` : ""}
                       </div>
                     </button>

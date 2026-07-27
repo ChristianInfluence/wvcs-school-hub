@@ -91,6 +91,11 @@ const defaultInvoice = {
   preparedBy: "",
   note: "",
   paymentNote: DEFAULT_PAYMENT_NOTE,
+  paymentStatus: "Unpaid",
+  paidAt: "",
+  paymentHistory: [],
+  paymentMethod: "",
+  checkNumber: "",
   registrationFee: "250.00",
   registrationFeePaid: false,
   students: [createBlankStudent()],
@@ -301,6 +306,24 @@ function chargeDisplayName(charge = {}) {
 
 function getPaymentHistory(invoice) {
   return Array.isArray(invoice.paymentHistory) ? invoice.paymentHistory : [];
+}
+
+function tuitionPaidTotal(invoice) {
+  return getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .reduce((total, payment) => total + money(payment.amount), 0);
+}
+
+function tuitionBalance(invoice) {
+  return Math.max(invoiceTotals(invoice).grandTotal - tuitionPaidTotal(invoice), 0);
+}
+
+function getTuitionPaymentStatus(invoice) {
+  const paid = tuitionPaidTotal(invoice);
+  const total = invoiceTotals(invoice).grandTotal;
+  if (total > 0 && paid + 0.005 >= total) return "Paid";
+  if (paid > 0) return "Partially Paid";
+  return "Unpaid";
 }
 
 function incidentalPaidTotal(invoice) {
@@ -1224,10 +1247,21 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingIncidentalEmail, setSendingIncidentalEmail] = useState(false);
   const [officePaymentOpen, setOfficePaymentOpen] = useState(false);
+  const [tuitionPaymentOpen, setTuitionPaymentOpen] = useState(false);
+  const [tuitionPaymentDraft, setTuitionPaymentDraft] = useState({
+    amount: "",
+    paymentDate: today,
+    method: "check",
+    checkNumber: "",
+    note: "",
+  });
   const [actionFeedback, setActionFeedback] = useState({});
   const actionFeedbackTimers = useRef({});
   const invoiceRef = useRef(null);
   const totals = useMemo(() => invoiceTotals(invoice), [invoice]);
+  const tuitionPaid = useMemo(() => tuitionPaidTotal(invoice), [invoice]);
+  const tuitionDue = useMemo(() => tuitionBalance(invoice), [invoice]);
+  const tuitionPaymentStatus = useMemo(() => getTuitionPaymentStatus(invoice), [invoice]);
   const groupedSavedInvoices = useMemo(() => groupInvoicesByYear(savedInvoices), [savedInvoices]);
   const incidentalDraftTotal = useMemo(() => incidentalTotal(incidentalInvoice), [incidentalInvoice]);
   const familySearchResults = useMemo(
@@ -1476,17 +1510,28 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const invoiceId = invoice.id || selectedInvoiceId || crypto.randomUUID();
     const nextInvoice = {
       ...invoice,
+      ...patch,
       id: invoiceId,
       status: patch.status || invoice.status || "Draft",
+      paymentStatus: patch.paymentStatus || invoice.paymentStatus || getTuitionPaymentStatus(invoice),
+      paidAt: patch.paidAt ?? invoice.paidAt ?? "",
+      paymentHistory: patch.paymentHistory ?? invoice.paymentHistory ?? [],
+      paymentMethod: patch.paymentMethod ?? invoice.paymentMethod ?? "",
+      checkNumber: patch.checkNumber ?? invoice.checkNumber ?? "",
     };
     const record = {
       id: invoiceId,
       familyKey: nextInvoice.familyKey || "",
       studentIds: nextInvoice.studentIds || [],
       invoice: nextInvoice,
-      status: patch.status || "Draft",
-      sentAt: patch.sentAt || invoice.sentAt || "",
-      sentTo: patch.sentTo || invoice.sentTo || [],
+      status: nextInvoice.status,
+      paymentStatus: nextInvoice.paymentStatus,
+      paidAt: nextInvoice.paidAt || "",
+      paymentHistory: nextInvoice.paymentHistory || [],
+      paymentMethod: nextInvoice.paymentMethod || "",
+      checkNumber: nextInvoice.checkNumber || "",
+      sentAt: nextInvoice.sentAt || "",
+      sentTo: nextInvoice.sentTo || [],
     };
     const result = await saveTuitionInvoice(record, currentUserEmail);
     const savedTuitionInvoice = {
@@ -1497,6 +1542,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       studentIds: result.invoice.studentIds || nextInvoice.studentIds || [],
       status: result.invoice.status || nextInvoice.status,
       sentAt: result.invoice.sentAt || nextInvoice.sentAt || "",
+      paymentStatus: result.invoice.paymentStatus || nextInvoice.paymentStatus || "Unpaid",
+      paidAt: result.invoice.paidAt || nextInvoice.paidAt || "",
+      paymentHistory: result.invoice.paymentHistory || nextInvoice.paymentHistory || [],
+      paymentMethod: result.invoice.paymentMethod || nextInvoice.paymentMethod || "",
+      checkNumber: result.invoice.checkNumber || nextInvoice.checkNumber || "",
     };
     setInvoice({
       ...savedTuitionInvoice,
@@ -1504,6 +1554,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       status: result.invoice.status || "Draft",
       sentAt: result.invoice.sentAt || "",
       sentTo: result.invoice.sentTo || [],
+      paymentStatus: result.invoice.paymentStatus || savedTuitionInvoice.paymentStatus || "Unpaid",
+      paidAt: result.invoice.paidAt || savedTuitionInvoice.paidAt || "",
+      paymentHistory: result.invoice.paymentHistory || savedTuitionInvoice.paymentHistory || [],
+      paymentMethod: result.invoice.paymentMethod || savedTuitionInvoice.paymentMethod || "",
+      checkNumber: result.invoice.checkNumber || savedTuitionInvoice.checkNumber || "",
     });
     setSelectedInvoiceId(result.invoice.id);
     setSavedInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
@@ -1532,6 +1587,63 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     }
   }
 
+  function openTuitionPaymentPanel() {
+    setTuitionPaymentDraft({
+      amount: tuitionDue > 0 ? tuitionDue.toFixed(2) : "",
+      paymentDate: today,
+      method: "check",
+      checkNumber: "",
+      note: "",
+    });
+    setTuitionPaymentOpen(true);
+  }
+
+  async function recordTuitionOfficePayment() {
+    const amount = money(tuitionPaymentDraft.amount);
+    if (amount <= 0) {
+      setStatus("Enter a tuition payment amount greater than zero.");
+      setActionState("recordTuitionPayment", "error", "Needs Amount");
+      return;
+    }
+    if (tuitionPaymentDraft.method === "check" && !String(tuitionPaymentDraft.checkNumber || "").trim()) {
+      setStatus("Enter the check number before recording a check payment.");
+      setActionState("recordTuitionPayment", "error", "Needs Check #");
+      return;
+    }
+
+    setActionState("recordTuitionPayment", "working", "Recording...");
+    try {
+      const payment = {
+        id: uid("tuition-payment"),
+        type: "payment",
+        date: tuitionPaymentDraft.paymentDate || today,
+        amount: amount.toFixed(2),
+        method: tuitionPaymentDraft.method,
+        checkNumber: tuitionPaymentDraft.method === "check" ? String(tuitionPaymentDraft.checkNumber || "").trim() : "",
+        note: tuitionPaymentDraft.note || "",
+        recordedBy: currentUserEmail,
+        recordedAt: new Date().toISOString(),
+      };
+      const nextHistory = [...getPaymentHistory(invoice), payment];
+      const nextInvoice = { ...invoice, paymentHistory: nextHistory };
+      const nextStatus = getTuitionPaymentStatus(nextInvoice);
+      const saved = await saveCurrentInvoice({
+        status: invoice.status === "Draft" ? "Saved" : invoice.status || "Saved",
+        paymentStatus: nextStatus,
+        paidAt: nextStatus === "Paid" ? payment.date : invoice.paidAt || "",
+        paymentHistory: nextHistory,
+        paymentMethod: payment.method,
+        checkNumber: payment.checkNumber,
+      });
+      setTuitionPaymentOpen(false);
+      setStatus(`${saved.familyName || "Tuition invoice"} payment recorded. Balance due: ${formatCurrency(tuitionBalance(saved.invoice || nextInvoice))}.`);
+      setActionState("recordTuitionPayment", "done", "Payment Recorded");
+    } catch (error) {
+      setStatus(`Unable to record tuition payment: ${error.message}`);
+      setActionState("recordTuitionPayment", "error", "Payment Failed");
+    }
+  }
+
   function loadInvoiceRecord(record) {
     setInvoice({
       ...defaultInvoice,
@@ -1542,10 +1654,16 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       status: record.status || "Draft",
       sentAt: record.sentAt || "",
       sentTo: record.sentTo || [],
+      paymentStatus: record.paymentStatus || record.invoice?.paymentStatus || "Unpaid",
+      paidAt: record.paidAt || record.invoice?.paidAt || "",
+      paymentHistory: record.paymentHistory || record.invoice?.paymentHistory || [],
+      paymentMethod: record.paymentMethod || record.invoice?.paymentMethod || "",
+      checkNumber: record.checkNumber || record.invoice?.checkNumber || "",
     });
     setSelectedInvoiceId(record.id);
     setTuitionAttachFamilyOpen(!(record.familyKey || record.invoice?.familyKey));
     setTuitionFamilySearch("");
+    setTuitionPaymentOpen(false);
     setStatus(`Loaded ${record.familyName || "saved invoice"}.`);
   }
 
@@ -1630,10 +1748,16 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       id: "",
       status: "Draft",
       invoiceDate: today,
+      paymentStatus: "Unpaid",
+      paidAt: "",
+      paymentHistory: [],
+      paymentMethod: "",
+      checkNumber: "",
       students: defaultInvoice.students.map((student) => ({ ...student })),
     });
     setTuitionFamilySearch("");
     setTuitionAttachFamilyOpen(true);
+    setTuitionPaymentOpen(false);
     setSelectedInvoiceId("");
     setStatus("Started a fresh invoice draft.");
   }
@@ -2565,13 +2689,19 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             </div>
                             <span
                               className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
-                                record.status === "Sent"
+                                record.paymentStatus === "Paid"
                                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                                  : record.paymentStatus === "Partially Paid"
+                                    ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
                                   : "border-amber-500/40 bg-amber-500/10 text-amber-200"
                               }`}
                             >
-                              {record.status || "Draft"}
+                              {record.paymentStatus || "Unpaid"}
                             </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                            <span>Total {formatCurrency(invoiceTotals({ ...defaultInvoice, ...(record.invoice || {}) }).grandTotal)}</span>
+                            <span>Paid {formatCurrency(tuitionPaidTotal(record.invoice || {}))}</span>
                           </div>
                           {record.sentAt && (
                             <div className="mt-2 text-xs text-slate-400">
@@ -2766,6 +2896,115 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   className="min-h-20 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
                 />
               </label>
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CreditCard size={16} className="text-emerald-300" />
+                      Full-Pay Tuition Payment
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">Record payments received through the WVCS office only.</div>
+                  </div>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-xs font-bold ${
+                      tuitionPaymentStatus === "Paid"
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                        : tuitionPaymentStatus === "Partially Paid"
+                          ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
+                          : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                    }`}
+                  >
+                    {tuitionPaymentStatus}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
+                    <div className="uppercase tracking-[0.12em] text-slate-500">Total</div>
+                    <div className="mt-1 font-bold text-white">{formatCurrency(totals.grandTotal)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
+                    <div className="uppercase tracking-[0.12em] text-slate-500">Paid</div>
+                    <div className="mt-1 font-bold text-emerald-200">{formatCurrency(tuitionPaid)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
+                    <div className="uppercase tracking-[0.12em] text-slate-500">Due</div>
+                    <div className="mt-1 font-bold text-amber-200">{formatCurrency(tuitionDue)}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={tuitionPaymentOpen ? () => setTuitionPaymentOpen(false) : openTuitionPaymentPanel}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                >
+                  <Plus size={15} />
+                  {tuitionPaymentOpen ? "Close Payment Entry" : "Record Office Payment"}
+                </button>
+                {tuitionPaymentOpen && (
+                  <div className="mt-3 grid gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 sm:grid-cols-2">
+                    <Field label="Amount Received">
+                      <MoneyInput
+                        value={tuitionPaymentDraft.amount}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, amount: event.target.value }))}
+                      />
+                    </Field>
+                    <Field label="Date Received">
+                      <Input
+                        type="date"
+                        value={tuitionPaymentDraft.paymentDate}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, paymentDate: event.target.value }))}
+                      />
+                    </Field>
+                    <Field label="Payment Method">
+                      <select
+                        value={tuitionPaymentDraft.method}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, method: event.target.value, checkNumber: event.target.value === "check" ? current.checkNumber : "" }))}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                      >
+                        <option value="check">Check</option>
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="money_order">Money Order</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </Field>
+                    <Field label={tuitionPaymentDraft.method === "check" ? "Check Number" : "Reference"}>
+                      <Input
+                        value={tuitionPaymentDraft.checkNumber}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, checkNumber: event.target.value }))}
+                        placeholder={tuitionPaymentDraft.method === "check" ? "Required for check" : "Optional"}
+                      />
+                    </Field>
+                    <label className="grid gap-1 text-sm font-medium text-slate-200 sm:col-span-2">
+                      Office Note
+                      <textarea
+                        value={tuitionPaymentDraft.note}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, note: event.target.value }))}
+                        placeholder="Optional internal note"
+                        className="min-h-16 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={recordTuitionOfficePayment}
+                      aria-busy={actionFeedback.recordTuitionPayment?.state === "working"}
+                      className={actionButtonClass("recordTuitionPayment", "inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 sm:col-span-2")}
+                    >
+                      {actionIcon("recordTuitionPayment", <CheckCircle2 size={16} />)}
+                      {actionLabel("recordTuitionPayment", "Save Payment")}
+                    </button>
+                  </div>
+                )}
+                {getPaymentHistory(invoice).length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {getPaymentHistory(invoice).slice().reverse().map((payment) => (
+                      <div key={payment.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                        <span>{formatShortDate(payment.date || payment.recordedAt)} · {String(payment.method || "office").replace("_", " ")}</span>
+                        <span className="font-bold text-white">{formatCurrency(payment.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
