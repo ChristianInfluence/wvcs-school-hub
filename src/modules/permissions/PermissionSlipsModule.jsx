@@ -1294,13 +1294,28 @@ export function ParentPermissionSigningPage({ token }) {
   async function downloadParentSignedPdf() {
     const submission = state.submissions.find((item) => item.token === token) || alreadyRecordedSubmission;
     if (!submission) return;
+    const pdfWindow = window.open("about:blank", "_blank");
+    if (pdfWindow) {
+      pdfWindow.opener = null;
+      pdfWindow.document.title = "Opening signed permission slip...";
+      pdfWindow.document.body.innerHTML = "<p style=\"font-family: system-ui, sans-serif; padding: 24px;\">Opening signed permission slip...</p>";
+    }
     if (submission.id) {
-      const url = await createParentPermissionPdfUrl({ token, submissionId: submission.id });
-      if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
-        return;
+      try {
+        const url = await createParentPermissionPdfUrl({ token, submissionId: submission.id });
+        if (url) {
+          if (pdfWindow) {
+            pdfWindow.location.href = url;
+          } else {
+            window.location.href = url;
+          }
+          return;
+        }
+      } catch {
+        if (pdfWindow) pdfWindow.close();
       }
     }
+    if (pdfWindow) pdfWindow.close();
     await viewSignedPermissionPdf({ event, recipient, submission });
   }
 

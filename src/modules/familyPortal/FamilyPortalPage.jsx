@@ -380,15 +380,27 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       return;
     }
     setPermissionStatus("Opening signed permission slip...");
+    const pdfWindow = window.open("about:blank", "_blank");
+    if (pdfWindow) {
+      pdfWindow.opener = null;
+      pdfWindow.document.title = "Opening signed permission slip...";
+      pdfWindow.document.body.innerHTML = "<p style=\"font-family: system-ui, sans-serif; padding: 24px;\">Opening signed permission slip...</p>";
+    }
     try {
       const url = await createParentPermissionPdfUrl({ token: slip.pdfToken, submissionId: slip.submissionId });
       if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
+        if (pdfWindow) {
+          pdfWindow.location.href = url;
+        } else {
+          window.location.href = url;
+        }
         setPermissionStatus("");
       } else {
+        if (pdfWindow) pdfWindow.close();
         setPermissionStatus("Signed PDF is not available yet.");
       }
     } catch (error) {
+      if (pdfWindow) pdfWindow.close();
       setPermissionStatus(`Unable to open signed PDF: ${error.message}`);
     }
   }
