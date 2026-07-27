@@ -4,6 +4,8 @@ import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAudi
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
+import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
+import { fetchFormSubmissions } from "../../lib/formsData.js";
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -83,6 +85,11 @@ function familyNamesMatch(a, b) {
   return Boolean(first && second && first === second);
 }
 
+function emailsMatchAny(value, emails = []) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return Boolean(normalized && emails.includes(normalized));
+}
+
 function isVerifiedDriver(application) {
   return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
 }
@@ -125,7 +132,7 @@ function driverTone(status) {
 }
 
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
-  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], backgroundChecks: [], error: "" });
+  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
@@ -147,7 +154,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult, backgroundResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
@@ -157,6 +164,10 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fetchFosAuditEvents(120),
         fetchVolunteerDriverApplications(),
         fetchParentBackgroundChecks(),
+        fetchPermissionEvents(),
+        fetchPermissionRecipients(),
+        fetchPermissionSubmissions(),
+        fetchFormSubmissions(),
       ]);
       setData({
         loading: false,
@@ -169,7 +180,11 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         audit: auditResult.events || [],
         driverApplications: driverResult.applications || [],
         backgroundChecks: backgroundResult.backgroundChecks || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || "",
+        permissionEvents: permissionEventsResult.events || [],
+        permissionRecipients: permissionRecipientsResult.recipients || [],
+        permissionSubmissions: permissionSubmissionsResult.submissions || [],
+        formSubmissions: formSubmissionsResult.submissions || [],
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
@@ -192,7 +207,10 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const familySummaries = useMemo(() => {
     const accounts = new Map((data.lunch?.accounts || []).map((account) => [account.familyKey, account]));
     const accessMap = new Map(data.access.map((record) => [record.familyKey, record]));
+    const eventMap = new Map(data.permissionEvents.map((event) => [event.id, event]));
     return data.families.map((family) => {
+      const parentEmails = family.parents.map((parent) => String(parent.email || "").trim().toLowerCase()).filter(Boolean);
+      const studentIds = new Set(family.students.map((student) => student.studentId).filter(Boolean));
       const incidentalInvoices = data.incidentals.filter((invoice) => invoice.familyKey === family.familyKey || familyNamesMatch(invoice.familyName, family.familyName));
       const tuitionInvoices = data.tuition.filter((invoice) => invoice.familyKey === family.familyKey || invoice.invoice?.familyKey === family.familyKey || familyNamesMatch(invoice.familyName || invoice.invoice?.familyName, family.familyName));
       const lunchOrders = (data.lunch?.orders || []).filter((order) => order.familyKey === family.familyKey);
@@ -207,6 +225,35 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       const pendingDrivers = driverApplications.filter((application) => application.status === "Pending");
       const backgroundChecks = data.backgroundChecks.filter((record) => record.familyKey === family.familyKey || familyNamesMatch(record.familyName, family.familyName));
       const currentBackgroundChecks = backgroundChecks.filter(isCurrentBackgroundCheck);
+      const permissionRecipients = data.permissionRecipients.filter((recipient) => studentIds.has(recipient.studentId) || emailsMatchAny(recipient.parentEmail, parentEmails));
+      const permissionSubmissions = data.permissionSubmissions.filter((submission) => studentIds.has(submission.studentId) || emailsMatchAny(submission.parentEmail, parentEmails));
+      const permissionDocuments = permissionRecipients
+        .map((recipient) => {
+          const signedSubmission = permissionSubmissions.find((submission) => submission.recipientId === recipient.id || (submission.eventId === recipient.eventId && submission.studentId === recipient.studentId && emailsMatchAny(submission.parentEmail, [String(recipient.parentEmail || "").toLowerCase()])));
+          const event = eventMap.get(recipient.eventId);
+          return {
+            id: recipient.id,
+            type: "Permission Slip",
+            title: event?.title || recipient.recipient?.eventTitle || "Permission Slip",
+            studentName: recipient.studentName || signedSubmission?.studentName || "",
+            status: signedSubmission?.signedAt || recipient.signedAt ? "Signed" : "Unsigned",
+            at: signedSubmission?.signedAt || recipient.sentAt || recipient.emailedAt || "",
+            token: signedSubmission?.token || recipient.token || "",
+            submissionId: signedSubmission?.id || "",
+          };
+        });
+      const formDocuments = data.formSubmissions
+        .filter((submission) => emailsMatchAny(submission.submitterEmail, parentEmails) || familyNamesMatch(submission.submitterName, family.familyName))
+        .map((submission) => ({
+          id: submission.id,
+          type: "Form",
+          title: submission.templateTitle || "Form Submission",
+          studentName: submission.submitterName || "",
+          status: submission.status || "Submitted",
+          at: submission.submittedAt || submission.reviewedAt || "",
+        }));
+      const familyDocuments = [...permissionDocuments, ...formDocuments]
+        .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
       return {
         ...family,
         access,
@@ -223,6 +270,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         pendingDrivers,
         backgroundChecks,
         currentBackgroundChecks,
+        familyDocuments,
         searchText: `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
       };
     });
@@ -324,6 +372,22 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       setActionStatus("");
     } catch (error) {
       setActionStatus(`Unable to open driver document: ${error.message}`);
+    }
+  }
+
+  async function openPermissionDocument(document) {
+    if (!document.submissionId || !document.token) {
+      setActionStatus("This permission slip does not have a signed PDF yet.");
+      return;
+    }
+    try {
+      setActionStatus("Opening signed permission slip...");
+      const url = await createParentPermissionPdfUrl({ token: document.token, submissionId: document.submissionId });
+      if (!url) throw new Error("Signed PDF link could not be created.");
+      window.open(url, "_blank", "noopener,noreferrer");
+      setActionStatus("");
+    } catch (error) {
+      setActionStatus(`Unable to open signed permission slip: ${error.message}`);
     }
   }
 
@@ -748,6 +812,36 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                     </div>
                   ))}
                   {!selectedFamily.incidentalInvoices.length && !selectedFamily.tuitionInvoices.length && <div className="text-sm text-slate-500">No invoice records yet.</div>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><ClipboardCheck size={16} className="text-sky-600" />Permissions & Forms</div>
+                <div className="mt-3 grid gap-2">
+                  {selectedFamily.familyDocuments.slice(0, 10).map((document) => (
+                    <div key={`${document.type}-${document.id}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold text-slate-900">{document.title}</div>
+                          <div className="mt-1 text-xs text-slate-500">{document.studentName || document.type}{document.at ? ` · ${formatDate(document.at)}` : ""}</div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <StatusPill tone={document.type === "Permission Slip" ? "sky" : "slate"}>{document.type}</StatusPill>
+                            <StatusPill tone={document.status === "Signed" || document.status === "Approved" ? "emerald" : document.status === "Unsigned" || document.status === "Pending" ? "amber" : "slate"}>{document.status}</StatusPill>
+                          </div>
+                        </div>
+                        {document.type === "Permission Slip" && document.status === "Signed" && (
+                          <button
+                            type="button"
+                            onClick={() => openPermissionDocument(document)}
+                            className="shrink-0 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-50"
+                          >
+                            View PDF
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {!selectedFamily.familyDocuments.length && <div className="text-sm text-slate-500">No permission or form records yet.</div>}
                 </div>
               </div>
 
