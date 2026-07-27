@@ -459,26 +459,59 @@ function isVerifiedDriverApplication(application) {
 }
 
 function DriverVolunteersModule() {
-  const [state, setState] = useState({ loading: true, drivers: [], error: "" });
+  const [state, setState] = useState({ loading: true, drivers: [], families: [], error: "" });
+  const [gradeFilter, setGradeFilter] = useState("all");
+  const gradeOrder = ["PS", "PK", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
   async function loadDrivers() {
     setState((current) => ({ ...current, loading: true, error: "" }));
     try {
-      const result = await fetchVolunteerDriverApplications();
+      const [result, familyResult] = await Promise.all([
+        fetchVolunteerDriverApplications(),
+        fetchOfficeFamilyDirectory(),
+      ]);
       const drivers = (result.applications || [])
         .filter(isVerifiedDriverApplication)
         .sort((a, b) =>
           String(a.parentName || a.parentEmail || "").localeCompare(String(b.parentName || b.parentEmail || ""), undefined, { sensitivity: "base" })
         );
-      setState({ loading: false, drivers, error: result.reason || "" });
+      setState({ loading: false, drivers, families: familyResult.families || [], error: result.reason || familyResult.reason || "" });
     } catch (error) {
-      setState({ loading: false, drivers: [], error: error.message });
+      setState({ loading: false, drivers: [], families: [], error: error.message });
     }
   }
 
   useEffect(() => {
     loadDrivers();
   }, []);
+
+  const familyByKey = useMemo(() => new Map(state.families.map((family) => [family.familyKey, family])), [state.families]);
+  const familyByName = useMemo(
+    () => new Map(state.families.map((family) => [String(family.familyName || "").trim().toLowerCase(), family])),
+    [state.families]
+  );
+  const driversWithFamilies = useMemo(
+    () => state.drivers.map((driver) => ({
+      ...driver,
+      family: familyByKey.get(driver.familyKey) || familyByName.get(String(driver.familyName || "").trim().toLowerCase()) || null,
+    })),
+    [familyByKey, familyByName, state.drivers]
+  );
+  const availableGrades = useMemo(() => {
+    const grades = new Set();
+    driversWithFamilies.forEach((driver) => {
+      (driver.family?.students || []).forEach((student) => {
+        if (student.grade) grades.add(student.grade);
+      });
+    });
+    return [...grades].sort((a, b) => gradeOrder.indexOf(a) - gradeOrder.indexOf(b));
+  }, [driversWithFamilies]);
+  const filteredDrivers = useMemo(() => {
+    if (gradeFilter === "all") return driversWithFamilies;
+    return driversWithFamilies.filter((driver) =>
+      (driver.family?.students || []).some((student) => student.grade === gradeFilter)
+    );
+  }, [driversWithFamilies, gradeFilter]);
 
   return (
     <section className="min-h-[560px] bg-slate-950 text-slate-100">
@@ -507,24 +540,56 @@ function DriverVolunteersModule() {
           </div>
         )}
 
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Grade</span>
+          <button
+            type="button"
+            onClick={() => setGradeFilter("all")}
+            className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+              gradeFilter === "all"
+                ? "border-emerald-300 bg-emerald-500 text-white"
+                : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            All
+          </button>
+          {availableGrades.map((grade) => (
+            <button
+              key={grade}
+              type="button"
+              onClick={() => setGradeFilter(grade)}
+              className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                gradeFilter === grade
+                  ? "border-emerald-300 bg-emerald-500 text-white"
+                  : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              {grade}
+            </button>
+          ))}
+        </div>
+
         <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
-          <div className="grid gap-2 border-b border-slate-800 bg-slate-950 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 md:grid-cols-[1.1fr_1fr_1fr_1.2fr_0.8fr]">
+          <div className="grid gap-2 border-b border-slate-800 bg-slate-950 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 md:grid-cols-[1.1fr_1fr_0.8fr_1fr_1.2fr_0.8fr]">
             <div>Driver</div>
             <div>Family</div>
+            <div>Grades</div>
             <div>Email</div>
             <div>Vehicle</div>
             <div>Verified Until</div>
           </div>
           {state.loading ? (
             <div className="p-5 text-sm text-slate-400">Loading verified drivers...</div>
-          ) : state.drivers.length ? (
-            state.drivers.map((driver) => {
+          ) : filteredDrivers.length ? (
+            filteredDrivers.map((driver) => {
               const vehicle = [
                 driver.application?.car1MakeModelYear || driver.application?.car1ModelYear,
                 driver.application?.car1LicensePlate,
               ].filter(Boolean).join(" · ");
+              const grades = [...new Set((driver.family?.students || []).map((student) => student.grade).filter(Boolean))]
+                .sort((a, b) => gradeOrder.indexOf(a) - gradeOrder.indexOf(b));
               return (
-                <div key={driver.id} className="grid gap-2 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr_0.8fr]">
+                <div key={driver.id} className="grid gap-2 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1.1fr_1fr_0.8fr_1fr_1.2fr_0.8fr]">
                   <div>
                     <div className="font-bold text-white">{driver.parentName || "Verified Driver"}</div>
                     <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold text-emerald-100">
@@ -533,6 +598,7 @@ function DriverVolunteersModule() {
                     </div>
                   </div>
                   <div className="text-slate-300">{driver.familyName || "Family not listed"}</div>
+                  <div className="text-slate-300">{grades.length ? grades.join(", ") : "Not listed"}</div>
                   <div className="break-words text-slate-300">{driver.parentEmail || "No email listed"}</div>
                   <div className="text-slate-300">{vehicle || "Vehicle not listed"}</div>
                   <div className="font-semibold text-emerald-100">{formatDriverDate(driver.expiresAt)}</div>
@@ -540,7 +606,9 @@ function DriverVolunteersModule() {
               );
             })
           ) : (
-            <div className="p-5 text-sm text-slate-400">No verified parent drivers are listed yet.</div>
+            <div className="p-5 text-sm text-slate-400">
+              {gradeFilter === "all" ? "No verified parent drivers are listed yet." : `No verified parent drivers are tied to grade ${gradeFilter}.`}
+            </div>
           )}
         </div>
       </div>
