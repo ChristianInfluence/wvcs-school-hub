@@ -1165,6 +1165,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [familyDirectory, setFamilyDirectory] = useState([]);
   const [familySearch, setFamilySearch] = useState("");
   const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
+  const [attachFamilyOpen, setAttachFamilyOpen] = useState(true);
   const [receivablesSearch, setReceivablesSearch] = useState("");
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
   const [receivablesCategoryFilter, setReceivablesCategoryFilter] = useState("all");
@@ -1715,9 +1716,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   }
 
   function loadIncidentalRecord(record) {
-    setIncidentalInvoice(getRecordInvoice(record));
+    const loadedInvoice = getRecordInvoice(record);
+    setIncidentalInvoice(loadedInvoice);
     setSelectedIncidentalInvoiceId(record.id);
     setIncidentalWorkspaceView("invoice");
+    setAttachFamilyOpen(!loadedInvoice.familyKey);
     setOfficePaymentOpen(false);
     setStatus(`Loaded ${record.familyName || "incidental invoice"}.`);
   }
@@ -1740,7 +1743,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       studentIds: (family.students || []).map((student) => student.studentId).filter(Boolean),
       students: family.students || [],
     }));
-    setFamilySearch(family.familyName);
+    setFamilySearch("");
+    setAttachFamilyOpen(false);
     setStatus(`Attached incidental invoice to ${family.familyName}.`);
   }
 
@@ -1877,6 +1881,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       charges: defaultIncidentalInvoice.charges.map((charge) => ({ ...charge, id: uid("charge") })),
     });
     setSelectedIncidentalInvoiceId("");
+    setAttachFamilyOpen(true);
+    setFamilySearch("");
     setOfficePaymentOpen(false);
     setStatus("Started a fresh incidental invoice.");
   }
@@ -2833,50 +2839,83 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-white">Attach to Family Roster</div>
-                      <div className="mt-1 text-xs text-slate-500">{familyDirectoryStatus}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {incidentalInvoice.familyKey && !attachFamilyOpen
+                          ? "Family roster is attached."
+                          : familyDirectoryStatus}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={loadFamilyDirectory}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
-                    >
-                      <RefreshCw size={13} />
-                      Refresh
-                    </button>
-                  </div>
-                  <label className="relative mt-3 block">
-                    <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
-                    <Input
-                      value={familySearch}
-                      onChange={(event) => setFamilySearch(event.target.value)}
-                      placeholder="Type family, parent email, student name, or grade"
-                      className="pl-9"
-                    />
-                  </label>
-                  {familySearchResults.length > 0 && (
-                    <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900">
-                      {familySearchResults.map((family) => (
+                    <div className="flex flex-wrap gap-2">
+                      {incidentalInvoice.familyKey && !attachFamilyOpen && (
                         <button
-                          key={family.familyKey}
                           type="button"
-                          onClick={() => selectIncidentalFamily(family)}
-                          className="block w-full border-b border-slate-800 px-2.5 py-1.5 text-left last:border-b-0 hover:bg-slate-800"
+                          onClick={() => setAttachFamilyOpen(true)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
                         >
-                          <div className="truncate text-xs font-bold text-white">{family.familyName}</div>
-                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
-                            {(family.students || []).map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}
-                          </div>
-                          <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                            {(family.parents || []).map((parent) => parent.email || parent.name).filter(Boolean).join(" | ")}
-                          </div>
+                          Change family
                         </button>
-                      ))}
+                      )}
+                      {attachFamilyOpen && (
+                        <button
+                          type="button"
+                          onClick={loadFamilyDirectory}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                        >
+                          <RefreshCw size={13} />
+                          Refresh
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {incidentalInvoice.familyKey && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100">
+                      <span>Attached to {incidentalInvoice.familyName}: {getIncidentalStudentSummary(incidentalInvoice) || "family roster"}</span>
+                      {attachFamilyOpen && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAttachFamilyOpen(false);
+                            setFamilySearch("");
+                          }}
+                          className="rounded-md border border-emerald-400/40 px-2 py-1 text-[11px] font-bold text-emerald-50 hover:bg-emerald-500/10"
+                        >
+                          Collapse
+                        </button>
+                      )}
                     </div>
                   )}
-                  {incidentalInvoice.familyKey && (
-                    <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100">
-                      Attached to {incidentalInvoice.familyName}: {getIncidentalStudentSummary(incidentalInvoice) || "family roster"}
-                    </div>
+                  {attachFamilyOpen && (
+                    <>
+                      <label className="relative mt-3 block">
+                        <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+                        <Input
+                          value={familySearch}
+                          onChange={(event) => setFamilySearch(event.target.value)}
+                          placeholder="Type family, parent email, student name, or grade"
+                          className="pl-9"
+                        />
+                      </label>
+                      {familySearchResults.length > 0 && (
+                        <div className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900">
+                          {familySearchResults.map((family) => (
+                            <button
+                              key={family.familyKey}
+                              type="button"
+                              onClick={() => selectIncidentalFamily(family)}
+                              className="block w-full border-b border-slate-800 px-2.5 py-1.5 text-left last:border-b-0 hover:bg-slate-800"
+                            >
+                              <div className="truncate text-xs font-bold text-white">{family.familyName}</div>
+                              <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                                {(family.students || []).map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}
+                              </div>
+                              <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                                {(family.parents || []).map((parent) => parent.email || parent.name).filter(Boolean).join(" | ")}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
