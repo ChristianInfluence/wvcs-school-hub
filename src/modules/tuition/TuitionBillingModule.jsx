@@ -45,7 +45,7 @@ const DISCOUNT_OPTIONS = [
 const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
-const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Special Events", "Other"];
+const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Other"];
 
 function createBlankParent() {
   return {
