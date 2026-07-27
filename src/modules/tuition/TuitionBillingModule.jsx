@@ -79,10 +79,12 @@ function createBlankStudent() {
 
 const defaultInvoice = {
   schoolYear: "2026-2027",
+  familyKey: "",
   familyName: "",
   parentName: "",
   parentEmail: "",
   parents: [createBlankParent()],
+  studentIds: [],
   invoiceDate: today,
   dueDate: "",
   preparedBy: "",
@@ -479,6 +481,16 @@ function familyMatchesSearch(family, query) {
     .join(" ")
     .toLowerCase()
     .includes(needle);
+}
+
+function normalizeFamilyName(value) {
+  return String(value || "").trim().replace(/\s+Family$/i, "").toLowerCase();
+}
+
+function familyNamesMatch(a, b) {
+  const first = normalizeFamilyName(a);
+  const second = normalizeFamilyName(b);
+  return Boolean(first && second && first === second);
 }
 
 function recordMatchesSearch(record, query) {
@@ -1164,6 +1176,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [incidentalWorkspaceView, setIncidentalWorkspaceView] = useState("invoice");
   const [familyDirectory, setFamilyDirectory] = useState([]);
   const [familySearch, setFamilySearch] = useState("");
+  const [tuitionFamilySearch, setTuitionFamilySearch] = useState("");
+  const [tuitionAttachFamilyOpen, setTuitionAttachFamilyOpen] = useState(true);
   const [familyDirectoryStatus, setFamilyDirectoryStatus] = useState("Loading family roster...");
   const [attachFamilyOpen, setAttachFamilyOpen] = useState(true);
   const [receivablesSearch, setReceivablesSearch] = useState("");
@@ -1192,6 +1206,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const familySearchResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, familySearch)),
     [familyDirectory, familySearch]
+  );
+  const tuitionFamilySearchResults = useMemo(
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, tuitionFamilySearch)).slice(0, 12),
+    [familyDirectory, tuitionFamilySearch]
   );
   const manualFamilyResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, manualReceivableDraft.familySearch)).slice(0, 8),
@@ -1228,12 +1246,30 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const ledgerRecords = useMemo(
     () =>
       ledgerFamilyKey
-        ? savedIncidentalInvoices.filter((record) => {
-            const invoice = getRecordInvoice(record);
-            return invoice.familyKey === ledgerFamilyKey;
+        ? [
+            ...savedIncidentalInvoices
+              .filter((record) => {
+                const invoice = getRecordInvoice(record);
+                return invoice.familyKey === ledgerFamilyKey || familyNamesMatch(invoice.familyName, selectedLedgerFamily?.familyName);
+              })
+              .map((record) => ({ type: "incidental", record })),
+            ...savedInvoices
+              .filter((record) => {
+                const invoiceRecord = record.invoice || {};
+                return record.familyKey === ledgerFamilyKey
+                  || invoiceRecord.familyKey === ledgerFamilyKey
+                  || familyNamesMatch(record.familyName || invoiceRecord.familyName, selectedLedgerFamily?.familyName);
+              })
+              .map((record) => ({ type: "tuition", record })),
+          ].sort((a, b) => {
+            const aRecord = a.record.invoice || a.record;
+            const bRecord = b.record.invoice || b.record;
+            return String(bRecord.sentAt || b.record.sentAt || b.record.updatedAt || b.record.createdAt || "").localeCompare(
+              String(aRecord.sentAt || a.record.sentAt || a.record.updatedAt || a.record.createdAt || "")
+            );
           })
         : [],
-    [ledgerFamilyKey, savedIncidentalInvoices]
+    [ledgerFamilyKey, savedIncidentalInvoices, savedInvoices, selectedLedgerFamily]
   );
 
   function setActionState(action, state, label = "") {
@@ -1393,6 +1429,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     };
     const record = {
       id: invoiceId,
+      familyKey: nextInvoice.familyKey || "",
+      studentIds: nextInvoice.studentIds || [],
       invoice: nextInvoice,
       status: patch.status || "Draft",
       sentAt: patch.sentAt || invoice.sentAt || "",
@@ -1429,11 +1467,15 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       ...defaultInvoice,
       ...(record.invoice || {}),
       id: record.id,
+      familyKey: record.familyKey || record.invoice?.familyKey || "",
+      studentIds: record.studentIds || record.invoice?.studentIds || [],
       status: record.status || "Draft",
       sentAt: record.sentAt || "",
       sentTo: record.sentTo || [],
     });
     setSelectedInvoiceId(record.id);
+    setTuitionAttachFamilyOpen(!(record.familyKey || record.invoice?.familyKey));
+    setTuitionFamilySearch("");
     setStatus(`Loaded ${record.familyName || "saved invoice"}.`);
   }
 
@@ -1520,6 +1562,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       invoiceDate: today,
       students: defaultInvoice.students.map((student) => ({ ...student })),
     });
+    setTuitionFamilySearch("");
+    setTuitionAttachFamilyOpen(true);
     setSelectedInvoiceId("");
     setStatus("Started a fresh invoice draft.");
   }
@@ -1723,6 +1767,48 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     setAttachFamilyOpen(!loadedInvoice.familyKey);
     setOfficePaymentOpen(false);
     setStatus(`Loaded ${record.familyName || "incidental invoice"}.`);
+  }
+
+  function selectTuitionFamily(family) {
+    const parents = (family.parents?.length ? family.parents : [createBlankParent()]).map((parent) => ({
+      id: parent.id || uid("parent"),
+      name: parent.name || "",
+      email: parent.email || "",
+    }));
+    const primaryParent = parents.find((parent) => parent.email) || parents[0] || { name: "", email: "" };
+    setInvoice((current) => {
+      const existingStudents = new Map(
+        (current.students || []).map((student) => [
+          String(student.studentId || student.name || "").trim().toLowerCase(),
+          student,
+        ])
+      );
+      const students = (family.students || []).map((student) => {
+        const existing = existingStudents.get(String(student.studentId || "").toLowerCase())
+          || existingStudents.get(String(student.name || "").trim().toLowerCase())
+          || {};
+        return {
+          ...createBlankStudent(),
+          ...existing,
+          studentId: student.studentId || existing.studentId || "",
+          name: student.name || existing.name || "",
+          grade: student.grade || existing.grade || "",
+        };
+      });
+      return {
+        ...current,
+        familyKey: family.familyKey,
+        familyName: family.familyName,
+        parentName: primaryParent.name,
+        parentEmail: primaryParent.email,
+        parents,
+        studentIds: (family.students || []).map((student) => student.studentId).filter(Boolean),
+        students: students.length ? students : current.students,
+      };
+    });
+    setTuitionFamilySearch("");
+    setTuitionAttachFamilyOpen(false);
+    setStatus(`Attached tuition breakdown to ${family.familyName}.`);
   }
 
   function selectIncidentalFamily(family) {
@@ -2438,6 +2524,56 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <Calculator size={16} className="text-sky-300" />
                 Invoice Details
+              </div>
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-white">Attach to Family Roster</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {invoice.familyKey ? `Linked to ${invoice.familyName || "family roster"}` : "Link this breakdown so it appears in the family ledger and portal."}
+                    </div>
+                  </div>
+                  {invoice.familyKey && (
+                    <button
+                      type="button"
+                      onClick={() => setTuitionAttachFamilyOpen((current) => !current)}
+                      className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                    >
+                      {tuitionAttachFamilyOpen ? "Hide" : "Change"}
+                    </button>
+                  )}
+                </div>
+                {(!invoice.familyKey || tuitionAttachFamilyOpen) && (
+                  <div className="mt-3">
+                    <label className="relative block">
+                      <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                      <input
+                        value={tuitionFamilySearch}
+                        onChange={(event) => setTuitionFamilySearch(event.target.value)}
+                        placeholder="Search family, parent, student, email, or grade"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 py-2 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                      />
+                    </label>
+                    <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900">
+                      {tuitionFamilySearchResults.map((family) => (
+                        <button
+                          key={family.familyKey}
+                          type="button"
+                          onClick={() => selectTuitionFamily(family)}
+                          className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800"
+                        >
+                          <span className="block text-sm font-semibold text-white">{family.familyName}</span>
+                          <span className="mt-0.5 block truncate text-xs text-slate-500">
+                            {(family.students || []).map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ") || "No students listed"}
+                          </span>
+                        </button>
+                      ))}
+                      {!tuitionFamilySearchResults.length && (
+                        <div className="px-3 py-3 text-xs text-slate-500">{familyDirectoryStatus || "No families found."}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Field label="Family Name">
@@ -3742,11 +3878,36 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         <div>Net</div>
                         <div>Balance</div>
                       </div>
-                      {ledgerRecords.map((record) => {
+                      {ledgerRecords.map(({ type, record }) => {
+                        if (type === "tuition") {
+                          const tuitionInvoice = { ...defaultInvoice, ...(record.invoice || {}) };
+                          const tuitionTotal = invoiceTotals(tuitionInvoice).grandTotal;
+                          return (
+                            <button
+                              key={`tuition-${record.id}`}
+                              type="button"
+                              onClick={() => {
+                                setActiveView("tuition");
+                                loadInvoiceRecord(record);
+                              }}
+                              className="grid w-full gap-2 px-3 py-2 text-left text-sm hover:bg-slate-900 md:grid-cols-[1fr_95px_95px_95px_95px_95px] md:items-center"
+                            >
+                              <div>
+                                <div className="font-semibold text-white">{formatShortDate(tuitionInvoice.invoiceDate) || "No date"} - Tuition Breakdown</div>
+                                <div className="mt-1 truncate text-xs text-slate-500">{tuitionInvoice.schoolYear || record.schoolYear || "School year"} full-pay invoice</div>
+                              </div>
+                              <div className="text-slate-300">{record.status || tuitionInvoice.status || "Draft"}</div>
+                              <div className="font-semibold text-emerald-200">{record.sentAt ? "Sent" : "-"}</div>
+                              <div className="font-semibold text-rose-200">-</div>
+                              <div className="font-semibold text-sky-200">-</div>
+                              <div className="font-semibold text-amber-200">{formatCurrency(tuitionTotal)}</div>
+                            </button>
+                          );
+                        }
                         const invoice = getRecordInvoice(record);
                         return (
                           <button
-                            key={record.id}
+                            key={`incidental-${record.id}`}
                             type="button"
                             onClick={() => loadIncidentalRecord(record)}
                             className="grid w-full gap-2 px-3 py-2 text-left text-sm hover:bg-slate-900 md:grid-cols-[1fr_95px_95px_95px_95px_95px] md:items-center"
@@ -3763,7 +3924,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           </button>
                         );
                       })}
-                      {!ledgerRecords.length && <div className="p-4 text-sm text-slate-500">No incidental records for this family yet.</div>}
+                      {!ledgerRecords.length && <div className="p-4 text-sm text-slate-500">No invoice records for this family yet.</div>}
                     </div>
                   ) : (
                     <div className="p-4 text-sm text-slate-500">Select a family to view its incidental ledger.</div>

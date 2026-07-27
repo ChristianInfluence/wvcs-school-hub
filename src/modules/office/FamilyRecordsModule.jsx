@@ -41,6 +41,16 @@ function paymentTone(invoice) {
   return "rose";
 }
 
+function normalizeFamilyName(value) {
+  return String(value || "").trim().replace(/\s+Family$/i, "").toLowerCase();
+}
+
+function familyNamesMatch(a, b) {
+  const first = normalizeFamilyName(a);
+  const second = normalizeFamilyName(b);
+  return Boolean(first && second && first === second);
+}
+
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
   const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], error: "" });
   const [search, setSearch] = useState("");
@@ -101,8 +111,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     const accounts = new Map((data.lunch?.accounts || []).map((account) => [account.familyKey, account]));
     const accessMap = new Map(data.access.map((record) => [record.familyKey, record]));
     return data.families.map((family) => {
-      const incidentalInvoices = data.incidentals.filter((invoice) => invoice.familyKey === family.familyKey || invoice.familyName === family.familyName);
-      const tuitionInvoices = data.tuition.filter((invoice) => invoice.familyName === family.familyName);
+      const incidentalInvoices = data.incidentals.filter((invoice) => invoice.familyKey === family.familyKey || familyNamesMatch(invoice.familyName, family.familyName));
+      const tuitionInvoices = data.tuition.filter((invoice) => invoice.familyKey === family.familyKey || invoice.invoice?.familyKey === family.familyKey || familyNamesMatch(invoice.familyName || invoice.invoice?.familyName, family.familyName));
       const lunchOrders = (data.lunch?.orders || []).filter((order) => order.familyKey === family.familyKey);
       const lunchAccount = accounts.get(family.familyKey) || { balance: 0 };
       const fosEntries = data.fosEntries.filter((entry) => entry.familyKey === family.familyKey);

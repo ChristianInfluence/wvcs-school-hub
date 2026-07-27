@@ -27,6 +27,8 @@ function mapInvoiceFromDatabase(row) {
   return {
     id: row.id,
     familyName: row.family_name || "",
+    familyKey: row.family_key || row.invoice_json?.familyKey || "",
+    studentIds: row.student_ids || row.invoice_json?.studentIds || [],
     schoolYear: row.school_year || "",
     status: row.status || "Draft",
     invoice: row.invoice_json || {},
@@ -39,12 +41,17 @@ function mapInvoiceFromDatabase(row) {
 
 function mapInvoiceToDatabase(record, updatedByEmail = "") {
   const invoice = record.invoice || record;
+  const id = record.id || invoice.id || crypto.randomUUID();
+  const familyKey = invoice.familyKey || record.familyKey || "";
+  const studentIds = invoice.studentIds || record.studentIds || [];
   return {
-    id: record.id || invoice.id || crypto.randomUUID(),
+    id,
     family_name: invoice.familyName || record.familyName || "",
+    family_key: familyKey || null,
+    student_ids: studentIds,
     school_year: invoice.schoolYear || record.schoolYear || "",
     status: record.status || invoice.status || "Draft",
-    invoice_json: invoice,
+    invoice_json: { ...invoice, id, familyKey, studentIds },
     sent_at: record.sentAt || null,
     sent_to: record.sentTo || [],
     updated_by_email: updatedByEmail || null,
@@ -170,6 +177,8 @@ export async function saveTuitionInvoice(record, updatedByEmail = "") {
     const invoiceRecord = {
       id: row.id,
       familyName: row.family_name,
+      familyKey: row.family_key || "",
+      studentIds: row.student_ids || [],
       schoolYear: row.school_year,
       status: row.status,
       invoice: { ...row.invoice_json, id: row.id },

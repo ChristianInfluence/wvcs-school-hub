@@ -46,6 +46,8 @@ function mapInvoice(row: Record<string, any>, type = "incidental") {
     type,
     publicToken: row.public_token || row.invoice_json?.publicToken || "",
     familyName: row.family_name || "",
+    familyKey: row.family_key || row.invoice_json?.familyKey || "",
+    studentIds: row.student_ids || row.invoice_json?.studentIds || [],
     schoolYear: row.school_year || row.invoice_json?.schoolYear || "",
     status: row.status || "",
     paymentStatus: row.payment_status || "",
@@ -207,7 +209,7 @@ Deno.serve(async (request) => {
     const nameTerms = familyNameTerms(access.family_name);
     const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
 
-    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: portalSettingsRow }] =
+    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: tuitionNameRows, error: tuitionNameError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: portalSettingsRow }] =
       await Promise.all([
         supabase.from("student_directory").select("*").eq("active", true),
         supabase.from("fos_hour_entries").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }),
@@ -215,6 +217,7 @@ Deno.serve(async (request) => {
         familyNameFilter
           ? supabase.from("incidental_invoices").select("*").or(familyNameFilter).order("updated_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
+        supabase.from("tuition_invoices").select("*").eq("family_key", access.family_key).order("updated_at", { ascending: false }),
         familyNameFilter
           ? supabase.from("tuition_invoices").select("*").or(familyNameFilter).order("updated_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
@@ -230,6 +233,7 @@ Deno.serve(async (request) => {
     if (incidentalError) throw incidentalError;
     if (incidentalNameError) throw incidentalNameError;
     if (tuitionError) throw tuitionError;
+    if (tuitionNameError) throw tuitionNameError;
     if (lunchAccountError) throw lunchAccountError;
     if (lunchMenusError) throw lunchMenusError;
     if (lunchOrdersError) throw lunchOrdersError;
@@ -315,6 +319,8 @@ Deno.serve(async (request) => {
     const balance = calculateFosBalance(entries, access);
     const incidentalById = new Map<string, Record<string, any>>();
     [...(incidentalRows || []), ...(incidentalNameRows || [])].forEach((row) => incidentalById.set(row.id, row));
+    const tuitionById = new Map<string, Record<string, any>>();
+    [...(tuitionRows || []), ...(tuitionNameRows || [])].forEach((row) => tuitionById.set(row.id, row));
 
     return new Response(
       JSON.stringify({
@@ -349,7 +355,7 @@ Deno.serve(async (request) => {
         },
         invoices: {
           incidentals: [...incidentalById.values()].map((row) => mapInvoice(row, "incidental")),
-          tuition: (tuitionRows || []).map((row) => mapInvoice(row, "tuition")),
+          tuition: [...tuitionById.values()].map((row) => mapInvoice(row, "tuition")),
         },
         lunch: {
           enabled: true,
