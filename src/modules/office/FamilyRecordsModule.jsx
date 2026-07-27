@@ -61,7 +61,7 @@ function invoiceCategory(invoice) {
     if (unique.length <= 2) return unique.join(", ");
     return `${unique[0]} + ${unique.length - 1} more`;
   }
-  if (Array.isArray(invoice.invoice?.students)) return "Tuition Breakdown";
+  if (Array.isArray(invoice.invoice?.students)) return "Full-pay Tuition";
   return invoice.invoice?.category || invoice.category || "Invoice";
 }
 
