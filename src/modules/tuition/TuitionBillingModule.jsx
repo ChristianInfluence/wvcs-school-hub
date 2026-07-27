@@ -123,6 +123,25 @@ const defaultIncidentalInvoice = {
   charges: [{ id: "charge-1", category: "Other", description: "", amount: "" }],
 };
 
+function createManualReceivableDraft() {
+  return {
+    familySearch: "",
+    familyKey: "",
+    familyName: "",
+    category: "Other",
+    description: "",
+    amount: "",
+    invoiceDate: today,
+    dueDate: "",
+    markPaid: false,
+    paidAt: today,
+    paymentMethod: "",
+    checkNumber: "",
+    processingFee: "",
+    note: "Manual accounts receivable entry.",
+  };
+}
+
 function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -1149,6 +1168,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [receivablesSearch, setReceivablesSearch] = useState("");
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
   const [receivablesCategoryFilter, setReceivablesCategoryFilter] = useState("all");
+  const [manualReceivableOpen, setManualReceivableOpen] = useState(false);
+  const [manualReceivableDraft, setManualReceivableDraft] = useState(createManualReceivableDraft);
   const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
   const [ledgerFamilyKey, setLedgerFamilyKey] = useState("");
   const [savedInvoices, setSavedInvoices] = useState([]);
@@ -1170,6 +1191,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const familySearchResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, familySearch)),
     [familyDirectory, familySearch]
+  );
+  const manualFamilyResults = useMemo(
+    () => familyDirectory.filter((family) => familyMatchesSearch(family, manualReceivableDraft.familySearch)).slice(0, 8),
+    [familyDirectory, manualReceivableDraft.familySearch]
   );
   const filteredReceivables = useMemo(
     () =>
@@ -1720,20 +1745,112 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   }
 
   function startManualReceivableEntry() {
-    setIncidentalInvoice({
-      ...defaultIncidentalInvoice,
-      id: "",
-      publicToken: "",
-      invoiceDate: today,
-      status: "Manual Entry",
-      paymentStatus: "Unpaid",
-      note: "Manual accounts receivable entry.",
-      charges: [{ id: uid("charge"), category: "Other", description: "", amount: "" }],
-    });
-    setSelectedIncidentalInvoiceId("");
-    setIncidentalWorkspaceView("invoice");
+    setManualReceivableDraft(createManualReceivableDraft());
+    setManualReceivableOpen(true);
     setOfficePaymentOpen(false);
     setStatus("Started a manual accounts receivable entry.");
+  }
+
+  function selectManualReceivableFamily(family) {
+    setManualReceivableDraft((current) => ({
+      ...current,
+      familyKey: family.familyKey,
+      familyName: family.familyName,
+      familySearch: family.familyName,
+    }));
+  }
+
+  async function saveManualReceivableEntry() {
+    const selectedFamily = familyDirectory.find((family) => family.familyKey === manualReceivableDraft.familyKey) || null;
+    const familyName = manualReceivableDraft.familyName || selectedFamily?.familyName || manualReceivableDraft.familySearch;
+    const amount = money(manualReceivableDraft.amount);
+    const description = manualReceivableDraft.category === "Other" ? manualReceivableDraft.description.trim() : manualReceivableDraft.category;
+    if (!String(familyName || "").trim()) {
+      setStatus("Choose or enter a family before saving the manual entry.");
+      setActionState("manualReceivable", "error", "Needs Family");
+      return;
+    }
+    if (amount <= 0) {
+      setStatus("Enter an amount greater than zero before saving the manual entry.");
+      setActionState("manualReceivable", "error", "Needs Amount");
+      return;
+    }
+    if (manualReceivableDraft.category === "Other" && !description) {
+      setStatus("Enter a description for an Other manual entry.");
+      setActionState("manualReceivable", "error", "Needs Description");
+      return;
+    }
+    if (manualReceivableDraft.markPaid && !manualReceivableDraft.paymentMethod) {
+      setStatus("Choose cash, card, or check for the office payment.");
+      setActionState("manualReceivable", "error", "Choose Method");
+      return;
+    }
+    if (manualReceivableDraft.markPaid && manualReceivableDraft.paymentMethod === "check" && !String(manualReceivableDraft.checkNumber || "").trim()) {
+      setStatus("Enter the check number before saving a check payment.");
+      setActionState("manualReceivable", "error", "Needs Check #");
+      return;
+    }
+
+    setActionState("manualReceivable", "working", "Saving...");
+    try {
+      const parents = selectedFamily?.parents || [];
+      const primaryParent = parents.find((parent) => parent.email) || parents[0] || {};
+      const paidAt = manualReceivableDraft.paidAt
+        ? new Date(`${manualReceivableDraft.paidAt}T12:00:00`).toISOString()
+        : new Date().toISOString();
+      const paymentHistory = manualReceivableDraft.markPaid
+        ? [{
+            id: uid("payment"),
+            type: "payment",
+            date: paidAt,
+            amount: amount.toFixed(2),
+            processingFee: money(manualReceivableDraft.processingFee) ? money(manualReceivableDraft.processingFee).toFixed(2) : "",
+            netAmount: Math.max(amount - money(manualReceivableDraft.processingFee), 0).toFixed(2),
+            method: manualReceivableDraft.paymentMethod,
+            checkNumber: manualReceivableDraft.paymentMethod === "check" ? manualReceivableDraft.checkNumber : "",
+            note: "Manual office entry",
+            recordedBy: currentUserEmail,
+          }]
+        : [];
+      const invoice = {
+        ...defaultIncidentalInvoice,
+        id: "",
+        publicToken: "",
+        familyKey: selectedFamily?.familyKey || manualReceivableDraft.familyKey || "",
+        familyName,
+        parentName: primaryParent.name || "",
+        parentEmail: primaryParent.email || "",
+        parents,
+        studentIds: (selectedFamily?.students || []).map((student) => student.studentId).filter(Boolean),
+        students: selectedFamily?.students || [],
+        invoiceDate: manualReceivableDraft.invoiceDate || today,
+        dueDate: manualReceivableDraft.dueDate || "",
+        status: "Manual Entry",
+        paymentStatus: manualReceivableDraft.markPaid ? "Paid" : "Unpaid",
+        paidAt: manualReceivableDraft.markPaid ? paidAt : "",
+        paymentHistory,
+        paidInOffice: manualReceivableDraft.markPaid,
+        paymentMethod: manualReceivableDraft.markPaid ? manualReceivableDraft.paymentMethod : "",
+        checkNumber: manualReceivableDraft.markPaid && manualReceivableDraft.paymentMethod === "check" ? manualReceivableDraft.checkNumber : "",
+        note: manualReceivableDraft.note || "Manual accounts receivable entry.",
+        charges: [{
+          id: uid("charge"),
+          category: manualReceivableDraft.category,
+          description,
+          amount: amount.toFixed(2),
+        }],
+      };
+      const saved = await saveCurrentIncidentalInvoiceFor(invoice, { status: "Manual Entry" });
+      const savedInvoice = getRecordInvoice(saved);
+      const lunchSynced = getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0;
+      setManualReceivableDraft(createManualReceivableDraft());
+      setManualReceivableOpen(false);
+      setStatus(`Manual entry saved for ${savedInvoice.familyName || "family"}.${lunchSynced ? " Lunch account synced." : ""}`);
+      setActionState("manualReceivable", "done", "Saved");
+    } catch (error) {
+      setStatus(`Unable to save manual entry: ${error.message}`);
+      setActionState("manualReceivable", "error", "Save Failed");
+    }
   }
 
   async function removeSavedIncidentalInvoice(record) {
@@ -3239,6 +3356,173 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   </button>
                 </div>
               </div>
+
+              {manualReceivableOpen && (
+                <div className="rounded-lg border border-sky-500/30 bg-slate-900 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-bold text-white">Manual AR Entry</div>
+                      <div className="text-xs text-slate-500">Record a quick charge or office payment without opening the full invoice composer.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualReceivableDraft(createManualReceivableDraft());
+                        setManualReceivableOpen(false);
+                      }}
+                      className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3 xl:grid-cols-[1.15fr_.8fr_.8fr_.7fr]">
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Family
+                      <div className="relative">
+                        <Search size={15} className="pointer-events-none absolute left-3 top-2 text-slate-500" />
+                        <Input
+                          value={manualReceivableDraft.familySearch}
+                          onChange={(event) => setManualReceivableDraft((current) => ({
+                            ...current,
+                            familySearch: event.target.value,
+                            familyKey: "",
+                            familyName: event.target.value,
+                          }))}
+                          placeholder="Search family, parent, or student"
+                          className="py-1.5 pl-8 text-xs"
+                        />
+                        {manualReceivableDraft.familySearch && manualFamilyResults.length > 0 && !manualReceivableDraft.familyKey && (
+                          <div className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-xl">
+                            {manualFamilyResults.map((family) => (
+                              <button
+                                key={family.familyKey}
+                                type="button"
+                                onClick={() => selectManualReceivableFamily(family)}
+                                className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800"
+                              >
+                                <span className="block text-xs font-bold text-white">{family.familyName}</span>
+                                <span className="block truncate text-[11px] text-slate-500">
+                                  {(family.students || []).map((student) => student.name).filter(Boolean).join(", ") || "No students listed"}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Category
+                      <select
+                        value={manualReceivableDraft.category}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, category: event.target.value }))}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-sky-400"
+                      >
+                        {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Amount
+                      <MoneyInput
+                        value={manualReceivableDraft.amount}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, amount: event.target.value }))}
+                        className="py-1.5 text-xs"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Entry Date
+                      <Input
+                        type="date"
+                        value={manualReceivableDraft.invoiceDate}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, invoiceDate: event.target.value }))}
+                        className="py-1.5 text-xs"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_170px_170px_170px]">
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Description
+                      <Input
+                        value={manualReceivableDraft.description}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, description: event.target.value }))}
+                        placeholder={manualReceivableDraft.category === "Other" ? "Required for Other" : "Optional note"}
+                        className="py-1.5 text-xs"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-slate-300">
+                      Due Date
+                      <Input
+                        type="date"
+                        value={manualReceivableDraft.dueDate}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, dueDate: event.target.value }))}
+                        className="py-1.5 text-xs"
+                      />
+                    </label>
+                    <label className="mt-5 inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={manualReceivableDraft.markPaid}
+                        onChange={(event) => setManualReceivableDraft((current) => ({ ...current, markPaid: event.target.checked }))}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                      />
+                      Paid in office
+                    </label>
+                    <button
+                      type="button"
+                      onClick={saveManualReceivableEntry}
+                      aria-busy={actionFeedback.manualReceivable?.state === "working"}
+                      className={actionButtonClass("manualReceivable", "mt-5 inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20")}
+                    >
+                      {actionIcon("manualReceivable", <Save size={14} />)}
+                      {actionLabel("manualReceivable", "Save Manual Entry")}
+                    </button>
+                  </div>
+                  {manualReceivableDraft.markPaid && (
+                    <div className="mt-3 grid gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 md:grid-cols-4">
+                      <label className="grid gap-1 text-xs font-semibold text-emerald-100">
+                        Paid Date
+                        <Input
+                          type="date"
+                          value={manualReceivableDraft.paidAt}
+                          onChange={(event) => setManualReceivableDraft((current) => ({ ...current, paidAt: event.target.value }))}
+                          className="py-1.5 text-xs"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold text-emerald-100">
+                        Method
+                        <select
+                          value={manualReceivableDraft.paymentMethod}
+                          onChange={(event) => setManualReceivableDraft((current) => ({ ...current, paymentMethod: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-sky-400"
+                        >
+                          <option value="">Select method</option>
+                          <option value="cash">Cash</option>
+                          <option value="card">Card</option>
+                          <option value="check">Check</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold text-emerald-100">
+                        Check #
+                        <Input
+                          value={manualReceivableDraft.checkNumber}
+                          onChange={(event) => setManualReceivableDraft((current) => ({ ...current, checkNumber: event.target.value }))}
+                          disabled={manualReceivableDraft.paymentMethod !== "check"}
+                          className="py-1.5 text-xs disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold text-emerald-100">
+                        Processing Fee
+                        <MoneyInput
+                          value={manualReceivableDraft.processingFee}
+                          onChange={(event) => setManualReceivableDraft((current) => ({ ...current, processingFee: event.target.value }))}
+                          className="py-1.5 text-xs"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
                 <div className="grid grid-cols-[1.25fr_.9fr_92px_92px_105px_115px_150px] gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
