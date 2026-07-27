@@ -117,6 +117,22 @@ function mapDriverApplication(row) {
   };
 }
 
+function mapBackgroundCheck(row) {
+  return {
+    id: row.id,
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    parentName: row.parent_name || "",
+    parentEmail: row.parent_email || "",
+    verifiedAt: row.verified_at || "",
+    expiresAt: row.expires_at || "",
+    status: row.status || "Verified",
+    officeNote: row.office_note || "",
+    verifiedByEmail: row.verified_by_email || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function mapFosReminderTemplate(row) {
   if (!row) return DEFAULT_FOS_REMINDER_TEMPLATE;
   return {
@@ -222,6 +238,43 @@ export async function fetchVolunteerDriverApplications() {
     .order("submitted_at", { ascending: false });
   if (error) return { loaded: false, applications: [], reason: "Volunteer driver applications table is not installed yet." };
   return { loaded: true, applications: (data || []).map(mapDriverApplication) };
+}
+
+export async function fetchParentBackgroundChecks() {
+  if (!isSupabaseConfigured) return { loaded: false, backgroundChecks: [], reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("parent_background_checks")
+    .select("*")
+    .order("expires_at", { ascending: true });
+  if (error) return { loaded: false, backgroundChecks: [], reason: "Background check table is not installed yet." };
+  return { loaded: true, backgroundChecks: (data || []).map(mapBackgroundCheck) };
+}
+
+export async function saveParentBackgroundCheck(record, currentUserEmail = "") {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+  const parentEmail = String(record.parentEmail || "").trim().toLowerCase();
+  if (!record.familyKey || !parentEmail) throw new Error("Choose a parent with an email before saving the background check.");
+  const { data, error } = await supabase
+    .from("parent_background_checks")
+    .upsert(
+      {
+        family_key: record.familyKey,
+        family_name: record.familyName || "",
+        parent_name: record.parentName || "",
+        parent_email: parentEmail,
+        verified_at: record.verifiedAt || new Date().toISOString().slice(0, 10),
+        expires_at: record.expiresAt,
+        status: record.status || "Verified",
+        office_note: record.officeNote || "",
+        verified_by_email: currentUserEmail || null,
+      },
+      { onConflict: "family_key,parent_email" }
+    )
+    .select("*")
+    .single();
+  if (error) throw error;
+  return { saved: true, backgroundCheck: mapBackgroundCheck(data) };
 }
 
 export async function createDriverAttachmentUrl(attachment) {

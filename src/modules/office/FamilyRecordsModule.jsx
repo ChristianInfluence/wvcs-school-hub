@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
+import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
@@ -87,6 +87,16 @@ function isVerifiedDriver(application) {
   return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
 }
 
+function addYears(value, years) {
+  const date = value ? new Date(`${value}T00:00:00`) : new Date();
+  date.setFullYear(date.getFullYear() + years);
+  return date.toISOString().slice(0, 10);
+}
+
+function isCurrentBackgroundCheck(record) {
+  return record?.status === "Verified" && record.expiresAt && record.expiresAt.slice(0, 10) >= today;
+}
+
 function driverTone(status) {
   const value = String(status || "").toLowerCase();
   if (value === "verified") return "emerald";
@@ -96,7 +106,7 @@ function driverTone(status) {
 }
 
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
-  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], error: "" });
+  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], backgroundChecks: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
@@ -105,6 +115,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [actionStatus, setActionStatus] = useState("");
   const [driverReviewDrafts, setDriverReviewDrafts] = useState({});
   const [driverReviewingId, setDriverReviewingId] = useState("");
+  const [backgroundDrafts, setBackgroundDrafts] = useState({});
+  const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -115,7 +127,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult, backgroundResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
@@ -124,6 +136,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fetchFamilyPortalAccessRecords(),
         fetchFosAuditEvents(120),
         fetchVolunteerDriverApplications(),
+        fetchParentBackgroundChecks(),
       ]);
       setData({
         loading: false,
@@ -135,7 +148,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         access: accessResult.access || [],
         audit: auditResult.events || [],
         driverApplications: driverResult.applications || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || "",
+        backgroundChecks: backgroundResult.backgroundChecks || [],
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
@@ -171,6 +185,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       const driverApplications = data.driverApplications.filter((application) => application.familyKey === family.familyKey || familyNamesMatch(application.familyName, family.familyName));
       const verifiedDrivers = driverApplications.filter(isVerifiedDriver);
       const pendingDrivers = driverApplications.filter((application) => application.status === "Pending");
+      const backgroundChecks = data.backgroundChecks.filter((record) => record.familyKey === family.familyKey || familyNamesMatch(record.familyName, family.familyName));
+      const currentBackgroundChecks = backgroundChecks.filter(isCurrentBackgroundCheck);
       return {
         ...family,
         access,
@@ -185,6 +201,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         driverApplications,
         verifiedDrivers,
         pendingDrivers,
+        backgroundChecks,
+        currentBackgroundChecks,
         searchText: `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
       };
     });
@@ -308,6 +326,42 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
   }
 
+  async function saveBackgroundCheckForParent(parent, existingRecord) {
+    if (!selectedFamily || !parent?.email) return;
+    const email = String(parent.email).toLowerCase();
+    const draftKey = `${selectedFamily.familyKey}:${email}`;
+    const draft = backgroundDrafts[draftKey] || {};
+    const verifiedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
+    const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(verifiedAt, 2);
+    if (!expiresAt) {
+      setActionStatus("Enter a background check expiration date before saving.");
+      return;
+    }
+    try {
+      setBackgroundSavingKey(draftKey);
+      setActionStatus(`Saving background check for ${parent.name || email}...`);
+      await saveParentBackgroundCheck(
+        {
+          familyKey: selectedFamily.familyKey,
+          familyName: selectedFamily.familyName,
+          parentName: parent.name || "",
+          parentEmail: email,
+          verifiedAt,
+          expiresAt,
+          status: draft.status || existingRecord?.status || "Verified",
+          officeNote: draft.officeNote ?? existingRecord?.officeNote ?? "",
+        },
+        currentUserEmail
+      );
+      setActionStatus(`Background check saved for ${parent.name || email}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to save background check: ${error.message}`);
+    } finally {
+      setBackgroundSavingKey("");
+    }
+  }
+
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
@@ -388,10 +442,17 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                     {selectedFamily.parents.map((parent) => {
                       const parentEmail = String(parent.email || "").toLowerCase();
                       const verified = selectedFamily.verifiedDrivers.find((application) => String(application.parentEmail || "").toLowerCase() === parentEmail);
+                      const backgroundCheck = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === parentEmail);
                       return (
                         <span key={`${parent.email}-${parent.name}`} className="inline-flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
                           <Mail size={12} />
                           {parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}
+                          {isCurrentBackgroundCheck(backgroundCheck) && (
+                            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-800">
+                              <ShieldCheck size={11} />
+                              Background Check
+                            </span>
+                          )}
                           {verified && (
                             <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
                               <ShieldCheck size={11} />
@@ -441,6 +502,80 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
               </div>
             </div>
             {actionStatus && <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">{actionStatus}</div>}
+
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><ShieldCheck size={16} className="text-sky-600" />Background Checks</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">Background checks expire every two years. Save a current verification for each parent or guardian who needs one.</div>
+              <div className="mt-3 grid gap-2">
+                {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
+                  const email = String(parent.email || "").toLowerCase();
+                  const draftKey = `${selectedFamily.familyKey}:${email}`;
+                  const existingRecord = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === email);
+                  const draft = backgroundDrafts[draftKey] || {};
+                  const verifiedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
+                  const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(verifiedAt, 2);
+                  const status = draft.status || existingRecord?.status || "Verified";
+                  const current = isCurrentBackgroundCheck({ ...existingRecord, status, expiresAt });
+                  return (
+                    <div key={draftKey} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[1.1fr_120px_120px_120px_1fr_auto] lg:items-end">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-slate-900">{parent.name || "Parent / Guardian"}</div>
+                        <div className="truncate text-xs text-slate-500">{email}</div>
+                        <div className="mt-1"><StatusPill tone={current ? "emerald" : existingRecord ? "amber" : "slate"}>{current ? "Current" : existingRecord ? "Needs Review" : "Not Recorded"}</StatusPill></div>
+                      </div>
+                      <label className="grid gap-1 text-xs font-bold text-slate-600">
+                        Verified
+                        <input
+                          type="date"
+                          value={verifiedAt}
+                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, verifiedAt: event.target.value, expiresAt: draft.expiresAt || addYears(event.target.value, 2) } }))}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-600">
+                        Expires
+                        <input
+                          type="date"
+                          value={expiresAt}
+                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, expiresAt: event.target.value } }))}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-600">
+                        Status
+                        <select
+                          value={status}
+                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, status: event.target.value } }))}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"
+                        >
+                          <option>Verified</option>
+                          <option>Expired</option>
+                          <option>Revoked</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-600">
+                        Office note
+                        <input
+                          value={draft.officeNote ?? existingRecord?.officeNote ?? ""}
+                          onChange={(event) => setBackgroundDrafts((currentDrafts) => ({ ...currentDrafts, [draftKey]: { ...draft, officeNote: event.target.value } }))}
+                          placeholder="Optional"
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => saveBackgroundCheckForParent(parent, existingRecord)}
+                        disabled={backgroundSavingKey === draftKey}
+                        className="rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"
+                      >
+                        {backgroundSavingKey === draftKey ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  );
+                })}
+                {!(selectedFamily.parents || []).some((parent) => parent.email) && <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">No parent emails are attached to this family.</div>}
+              </div>
+            </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>
