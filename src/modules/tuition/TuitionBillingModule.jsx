@@ -3288,57 +3288,57 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           </div>
           )}
           {incidentalWorkspaceView === "receivables" && (
-            <div className="mt-2 space-y-2">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Open AR</div>
-                  <div className="text-lg font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
+            <div className="mt-2 space-y-1.5">
+              <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(102px,1fr))]">
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Open AR</div>
+                  <div className="text-sm font-bold text-white">{formatCurrency(receivableTotals.open)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Paid</div>
-                  <div className="text-lg font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Paid</div>
+                  <div className="text-sm font-bold text-emerald-200">{formatCurrency(receivableTotals.paid)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Fees</div>
-                  <div className="text-lg font-bold text-rose-200">{formatCurrency(receivableTotals.fees)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Fees</div>
+                  <div className="text-sm font-bold text-rose-200">{formatCurrency(receivableTotals.fees)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Net</div>
-                  <div className="text-lg font-bold text-sky-200">{formatCurrency(receivableTotals.net)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Net</div>
+                  <div className="text-sm font-bold text-sky-200">{formatCurrency(receivableTotals.net)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">All Incidentals</div>
-                  <div className="text-lg font-bold text-white">{formatCurrency(receivableTotals.total)}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Total</div>
+                  <div className="text-sm font-bold text-white">{formatCurrency(receivableTotals.total)}</div>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Records</div>
-                  <div className="text-lg font-bold text-white">{filteredReceivables.length}</div>
+                <div className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <div className="text-[9px] font-semibold uppercase text-slate-500">Records</div>
+                  <div className="text-sm font-bold text-white">{filteredReceivables.length}</div>
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
                 {[
                   ["Current", agingBuckets.current],
                   ["1-30 Past Due", agingBuckets.days30],
                   ["31-60 Past Due", agingBuckets.days60],
                   ["60+ Past Due", agingBuckets.daysOver60],
                 ].map(([label, amount]) => (
-                  <div key={label} className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
-                    <div className="text-sm font-bold text-white">{formatCurrency(amount)}</div>
+                  <div key={label} className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                    <div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div>
+                    <div className="text-xs font-bold text-white">{formatCurrency(amount)}</div>
                   </div>
                 ))}
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(112px,1fr))]">
                 {receivableCategoryTotals.map(({ category, amount }) => (
-                  <div key={category} className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{category}</div>
-                    <div className="text-sm font-bold text-white">{formatCurrency(amount)}</div>
+                  <div key={category} className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                    <div className="truncate text-[9px] font-semibold uppercase text-slate-500">{category}</div>
+                    <div className="text-xs font-bold text-white">{formatCurrency(amount)}</div>
                   </div>
                 ))}
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                <div className="grid gap-2 lg:grid-cols-[1fr_150px_170px_auto_auto_auto] lg:items-center">
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
+                <div className="grid gap-1.5 lg:grid-cols-[minmax(260px,1fr)_120px_140px_92px_88px_82px] lg:items-center">
                   <label className="relative">
                     <Search size={15} className="pointer-events-none absolute left-3 top-2 text-slate-500" />
                     <Input
@@ -3372,25 +3372,25 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <button
                     type="button"
                     onClick={startManualReceivableEntry}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
                   >
-                    <Plus size={14} />
-                    Manual Entry
+                    <Plus size={13} />
+                    Manual
                   </button>
                   <button
                     type="button"
                     onClick={exportReceivablesCsv}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
                   >
-                    <Download size={14} />
-                    Export CSV
+                    <Download size={13} />
+                    Export
                   </button>
                   <button
                     type="button"
                     onClick={loadSavedIncidentalInvoices}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
                   >
-                    <RefreshCw size={14} />
+                    <RefreshCw size={13} />
                     Refresh
                   </button>
                 </div>
@@ -3564,7 +3564,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               )}
 
               <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
-                <div className="grid grid-cols-[1.25fr_.9fr_92px_92px_105px_115px_150px] gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                <div className="grid grid-cols-[minmax(170px,1.25fr)_minmax(125px,.85fr)_76px_76px_86px_84px_112px] gap-1.5 border-b border-slate-800 bg-slate-950 px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500">
                   <div>Family / Students</div>
                   <div>Charges</div>
                   <div className="text-right">Total</div>
@@ -3577,10 +3577,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   {filteredReceivables.map((record) => {
                     const recordInvoice = getRecordInvoice(record);
                     return (
-                      <div key={record.id} className="grid grid-cols-[1.25fr_.9fr_92px_92px_105px_115px_150px] gap-2 border-b border-slate-800 px-3 py-2 text-xs last:border-b-0">
+                      <div key={record.id} className="grid grid-cols-[minmax(170px,1.25fr)_minmax(125px,.85fr)_76px_76px_86px_84px_112px] gap-1.5 border-b border-slate-800 px-2 py-1.5 text-[11px] last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
-                          <div className="mt-0.5 leading-4 text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
+                          <div className="mt-0.5 truncate text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
                           {recordInvoice.paidAt && <div className="mt-0.5 text-emerald-300">Paid {formatShortDate(recordInvoice.paidAt)}</div>}
                         </div>
                         <div className="text-slate-300">
@@ -3599,7 +3599,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           <div className="mt-0.5 text-sky-300">Net {formatCurrency(incidentalNetTotal(recordInvoice))}</div>
                         </div>
                         <div>
-                          <div className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+                          <div className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
                             getIncidentalPaymentStatus(recordInvoice) === "Paid"
                               ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
                               : getIncidentalPaymentStatus(recordInvoice) === "Partial"
@@ -3615,29 +3615,29 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             </div>
                           )}
                         </div>
-                        <div className="grid gap-1.5">
+                        <div className="grid gap-1">
                           <button
                             type="button"
                             onClick={() => loadIncidentalRecord(record)}
-                            className="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                            className="rounded-md border border-slate-700 px-1.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800"
                           >
                             Open
                           </button>
                           {getIncidentalPaymentStatus(recordInvoice) === "Paid" ? (
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-2 gap-1">
                               <button
                                 type="button"
                                 onClick={() => printIncidentalReceipt(record)}
-                                className="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                                className="rounded-md border border-slate-700 px-1.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800"
                               >
                                 Print
                               </button>
                               <button
                                 type="button"
                                 onClick={() => exportIncidentalReceipt(record)}
-                                className="rounded-md border border-emerald-500/40 px-2 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                                className="rounded-md border border-emerald-500/40 px-1.5 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
                               >
-                                Receipt
+                                Rcpt
                               </button>
                             </div>
                           ) : (
@@ -3649,9 +3649,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                                 setIncidentalWorkspaceView("invoice");
                                 setOfficePaymentOpen(true);
                               }}
-                              className="rounded-md border border-emerald-500/40 px-2 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                              className="rounded-md border border-emerald-500/40 px-1.5 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
                             >
-                              Record Payment
+                              Payment
                             </button>
                           )}
                         </div>
