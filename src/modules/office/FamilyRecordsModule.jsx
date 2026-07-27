@@ -445,6 +445,28 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                             Submitted {formatDate(application.submittedAt)}{application.expiresAt ? ` · Expires ${formatDate(application.expiresAt)}` : ""}
                           </div>
                           {application.officeNote && <div className="mt-1 text-xs text-slate-600">Office note: {application.officeNote}</div>}
+                          <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                              <div className="font-bold text-slate-900">Driving history</div>
+                              <div className="mt-1">Commercial license: {application.application?.commercialLicense || "Not answered"}</div>
+                              <div>Accident in last 3 years: {application.application?.accidentLastThreeYears || "Not answered"}</div>
+                              <div>Moving violation in last 3 years: {application.application?.movingViolationLastThreeYears || "Not answered"}</div>
+                              <div>DWI/DUI or suspension history: {application.application?.duiOrSuspensionHistory || "Not answered"}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                              <div className="font-bold text-slate-900">Driver certification</div>
+                              <div className="mt-1">State license: {application.application?.stateLicense || "Not listed"}</div>
+                              <div>Requirements acknowledged: {application.application?.driverRequirementsAcknowledged ? "Yes" : "No"}</div>
+                              <div>Signed: {application.application?.electronicSignature || "Not signed"}</div>
+                              <div>Date: {application.application?.signatureDate || "Not dated"}</div>
+                            </div>
+                          </div>
+                          {(application.application?.accidentExplanation || application.application?.movingViolationExplanation) && (
+                            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-900">
+                              {application.application?.accidentExplanation && <div><span className="font-bold">Accident note:</span> {application.application.accidentExplanation}</div>}
+                              {application.application?.movingViolationExplanation && <div><span className="font-bold">Moving violation note:</span> {application.application.movingViolationExplanation}</div>}
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {(application.attachments || []).map((attachment) => (

@@ -32,6 +32,17 @@ const driverApplicationDefaults = {
   car2LiabilityPerPerson: "",
   car2LiabilityPerAccident: "",
   car2PropertyDamage: "",
+  commercialLicense: "",
+  accidentLastThreeYears: "",
+  accidentExplanation: "",
+  movingViolationLastThreeYears: "",
+  movingViolationExplanation: "",
+  duiOrSuspensionHistory: "",
+  stateLicense: "",
+  driverRequirementsAcknowledged: false,
+  driverDeclarationAcknowledged: false,
+  electronicSignature: "",
+  signatureDate: today,
   requirementsAcknowledged: false,
   truthAcknowledged: false,
 };
@@ -477,6 +488,30 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   }
 
   async function submitDriverApplication() {
+    if (!driverDraft.commercialLicense || !driverDraft.accidentLastThreeYears || !driverDraft.movingViolationLastThreeYears || !driverDraft.duiOrSuspensionHistory) {
+      setDriverStatus("Answer each driving history question before submitting.");
+      return;
+    }
+    if (driverDraft.accidentLastThreeYears === "Yes" && !driverDraft.accidentExplanation.trim()) {
+      setDriverStatus("Please describe the accident and cause before submitting.");
+      return;
+    }
+    if (driverDraft.movingViolationLastThreeYears === "Yes" && !driverDraft.movingViolationExplanation.trim()) {
+      setDriverStatus("Please describe the moving violation before submitting.");
+      return;
+    }
+    if (driverDraft.duiOrSuspensionHistory === "Yes") {
+      setDriverStatus("This application cannot be submitted for verification with a yes answer to the DWI/DUI, suspension, reckless operation, or revocation question.");
+      return;
+    }
+    if (!driverDraft.stateLicense.trim() || !driverDraft.driverRequirementsAcknowledged) {
+      setDriverStatus("Complete the volunteer driver requirements section before submitting.");
+      return;
+    }
+    if (!driverDraft.driverDeclarationAcknowledged || !driverDraft.electronicSignature.trim() || !driverDraft.signatureDate) {
+      setDriverStatus("Complete the declaration and electronic signature before submitting.");
+      return;
+    }
     if (!driverFiles.license || !driverFiles.insurance) {
       setDriverStatus("Attach a picture of your driver's license and insurance card before submitting.");
       return;
@@ -1253,6 +1288,82 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     </div>
                   </div>
 
+                  <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="text-sm font-bold text-white">Driving History</div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <Field label="Licensed to drive a commercial vehicle?">
+                        <select value={driverDraft.commercialLicense} onChange={(event) => setDriverDraft({ ...driverDraft, commercialLicense: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Select</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </Field>
+                      <Field label="Accident in the last three years?">
+                        <select value={driverDraft.accidentLastThreeYears} onChange={(event) => setDriverDraft({ ...driverDraft, accidentLastThreeYears: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Select</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </Field>
+                      {driverDraft.accidentLastThreeYears === "Yes" && (
+                        <div className="md:col-span-2">
+                          <Field label="Accident description and cause">
+                            <textarea value={driverDraft.accidentExplanation} onChange={(event) => setDriverDraft({ ...driverDraft, accidentExplanation: event.target.value })} rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400" />
+                          </Field>
+                        </div>
+                      )}
+                      <Field label="Moving violation ticket in the last three years?">
+                        <select value={driverDraft.movingViolationLastThreeYears} onChange={(event) => setDriverDraft({ ...driverDraft, movingViolationLastThreeYears: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Select</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </Field>
+                      <Field label="DWI/DUI, suspension, reckless operation, or revocation?">
+                        <select value={driverDraft.duiOrSuspensionHistory} onChange={(event) => setDriverDraft({ ...driverDraft, duiOrSuspensionHistory: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Select</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </Field>
+                      {driverDraft.movingViolationLastThreeYears === "Yes" && (
+                        <div className="md:col-span-2">
+                          <Field label="Moving violation description">
+                            <textarea value={driverDraft.movingViolationExplanation} onChange={(event) => setDriverDraft({ ...driverDraft, movingViolationExplanation: event.target.value })} rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400" />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                    {driverDraft.duiOrSuspensionHistory === "Yes" && (
+                      <div className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs leading-5 text-rose-100">
+                        WVCS cannot use volunteer drivers with a yes answer to this item.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="text-sm font-bold text-white">Requirements for Volunteer Drivers</div>
+                    <div className="mt-3 max-w-sm">
+                      <Field label="State of valid driver's license"><Input value={driverDraft.stateLicense} onChange={(event) => setDriverDraft({ ...driverDraft, stateLicense: event.target.value })} placeholder="OR" /></Field>
+                    </div>
+                    <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">
+                      <input type="checkbox" checked={driverDraft.driverRequirementsAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, driverRequirementsAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                      <span>I certify that I have a valid driver&apos;s license, will keep required insurance active, will notify WVCS of accidents, citations, license or insurance changes, will use working seatbelts and required child restraints, and will follow WVCS driver/chaperone instructions.</span>
+                    </label>
+                  </div>
+
+                  <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="text-sm font-bold text-white">Declaration and Electronic Signature</div>
+                    <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300">
+                      <input type="checkbox" checked={driverDraft.driverDeclarationAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, driverDeclarationAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                      <span>I affirm that I will carefully transport students under my care, obey all traffic laws, and that the information in this application is true and correct to the best of my knowledge.</span>
+                    </label>
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
+                      <Field label="Electronic signature"><Input value={driverDraft.electronicSignature} onChange={(event) => setDriverDraft({ ...driverDraft, electronicSignature: event.target.value })} placeholder="Type full legal name" /></Field>
+                      <Field label="Date"><Input type="date" value={driverDraft.signatureDate} onChange={(event) => setDriverDraft({ ...driverDraft, signatureDate: event.target.value })} /></Field>
+                    </div>
+                  </div>
+
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
                     <Field label="Driver's License Image">
                       <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
@@ -1260,17 +1371,6 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     <Field label="Insurance Card Image">
                       <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
                     </Field>
-                  </div>
-
-                  <div className="mt-5 space-y-2">
-                    <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
-                      <input type="checkbox" checked={driverDraft.requirementsAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, requirementsAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
-                      <span>I understand and meet the WVCS minimum insurance requirements for volunteer drivers.</span>
-                    </label>
-                    <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
-                      <input type="checkbox" checked={driverDraft.truthAcknowledged} onChange={(event) => setDriverDraft({ ...driverDraft, truthAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
-                      <span>I certify that the information submitted is accurate and that I have attached current license and insurance documentation.</span>
-                    </label>
                   </div>
 
                   <button type="button" onClick={submitDriverApplication} disabled={submittingDriver} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60">
