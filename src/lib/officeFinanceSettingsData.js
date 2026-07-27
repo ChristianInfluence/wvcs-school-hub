@@ -13,6 +13,15 @@ export const DEFAULT_FAMILY_PORTAL_SETTINGS = {
   },
 };
 
+export const DEFAULT_OFFICE_EMAIL_SETTINGS = {
+  senderDisplayName: "WVCS School Hub",
+  desiredSenderEmail: "",
+  financeReplyToEmail: "office@wvcs.org",
+  defaultReplyToEmail: "office@wvcs.org",
+  bccArchiveEmail: "",
+  setupNote: "Changing the actual sending mailbox requires reconnecting the Google account and updating the Gmail sender secret.",
+};
+
 export function normalizeFamilyPortalSettings(settings = {}) {
   const announcement = settings.announcement || {};
   const help = settings.help || {};
@@ -30,6 +39,17 @@ export function normalizeFamilyPortalSettings(settings = {}) {
   };
 }
 
+export function normalizeOfficeEmailSettings(settings = {}) {
+  return {
+    senderDisplayName: settings.senderDisplayName || DEFAULT_OFFICE_EMAIL_SETTINGS.senderDisplayName,
+    desiredSenderEmail: settings.desiredSenderEmail || "",
+    financeReplyToEmail: settings.financeReplyToEmail || settings.defaultReplyToEmail || DEFAULT_OFFICE_EMAIL_SETTINGS.financeReplyToEmail,
+    defaultReplyToEmail: settings.defaultReplyToEmail || DEFAULT_OFFICE_EMAIL_SETTINGS.defaultReplyToEmail,
+    bccArchiveEmail: settings.bccArchiveEmail || "",
+    setupNote: settings.setupNote || DEFAULT_OFFICE_EMAIL_SETTINGS.setupNote,
+  };
+}
+
 export async function fetchFamilyPortalSettings() {
   if (!isSupabaseConfigured) return { loaded: false, settings: DEFAULT_FAMILY_PORTAL_SETTINGS, reason: "Supabase is not configured." };
 
@@ -43,6 +63,24 @@ export async function fetchFamilyPortalSettings() {
   return {
     loaded: true,
     settings: normalizeFamilyPortalSettings(data?.settings || DEFAULT_FAMILY_PORTAL_SETTINGS),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function fetchOfficeEmailSettings() {
+  if (!isSupabaseConfigured) return { loaded: false, settings: DEFAULT_OFFICE_EMAIL_SETTINGS, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings,updated_by_email,updated_at")
+    .eq("id", "email_settings")
+    .maybeSingle();
+
+  if (error) return { loaded: false, settings: DEFAULT_OFFICE_EMAIL_SETTINGS, reason: "Email settings are not available yet." };
+  return {
+    loaded: true,
+    settings: normalizeOfficeEmailSettings(data?.settings || DEFAULT_OFFICE_EMAIL_SETTINGS),
     updatedByEmail: data?.updated_by_email || "",
     updatedAt: data?.updated_at || "",
   };
@@ -69,6 +107,32 @@ export async function saveFamilyPortalSettings(settings, updatedByEmail = "") {
   return {
     saved: true,
     settings: normalizeFamilyPortalSettings(data?.settings || normalized),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function saveOfficeEmailSettings(settings, updatedByEmail = "") {
+  const normalized = normalizeOfficeEmailSettings(settings);
+  if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .upsert(
+      {
+        id: "email_settings",
+        settings: normalized,
+        updated_by_email: updatedByEmail || null,
+      },
+      { onConflict: "id" }
+    )
+    .select("settings,updated_by_email,updated_at")
+    .single();
+
+  if (error) throw error;
+  return {
+    saved: true,
+    settings: normalizeOfficeEmailSettings(data?.settings || normalized),
     updatedByEmail: data?.updated_by_email || "",
     updatedAt: data?.updated_at || "",
   };

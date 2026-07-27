@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
 import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
-import { DEFAULT_FAMILY_PORTAL_SETTINGS, fetchFamilyPortalSettings, saveFamilyPortalSettings } from "../../lib/officeFinanceSettingsData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
@@ -1011,6 +1011,126 @@ function FamilyPortalSettingsPanel({ currentUserEmail = "" }) {
   );
 }
 
+export function OfficeEmailSettingsPanel({ currentUserEmail = "", compact = false, showIdentityFields = false }) {
+  const [settings, setSettings] = useState(DEFAULT_OFFICE_EMAIL_SETTINGS);
+  const [status, setStatus] = useState("Loading email settings...");
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      try {
+        const result = await fetchOfficeEmailSettings();
+        if (!active) return;
+        setSettings(result.settings || DEFAULT_OFFICE_EMAIL_SETTINGS);
+        setStatus(result.loaded ? "Email settings loaded." : result.reason);
+      } catch (error) {
+        if (active) setStatus(`Unable to load email settings: ${error.message}`);
+      }
+    }
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveSettings() {
+    setStatus("Saving email settings...");
+    try {
+      const result = await saveOfficeEmailSettings(settings, currentUserEmail);
+      setSettings(result.settings || settings);
+      setStatus(result.saved ? "Email settings saved." : result.reason);
+    } catch (error) {
+      setStatus(`Unable to save email settings: ${error.message}`);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+          <Mail size={16} className="text-sky-600" />
+          Office Email Replies
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Tuition breakdown and incidental invoice replies will go to this inbox when families click reply.
+        </p>
+        {showIdentityFields && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Sender Display Name
+              <input
+                value={settings.senderDisplayName}
+                onChange={(event) => setSettings({ ...settings, senderDisplayName: event.target.value })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                placeholder="WVCS School Hub"
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Desired Hub Sender Email
+              <input
+                type="email"
+                value={settings.desiredSenderEmail}
+                onChange={(event) => setSettings({ ...settings, desiredSenderEmail: event.target.value })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                placeholder="hub@wvcs.org"
+              />
+            </label>
+          </div>
+        )}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Finance Reply-To Email
+            <input
+              type="email"
+              value={settings.financeReplyToEmail}
+              onChange={(event) => setSettings({ ...settings, financeReplyToEmail: event.target.value })}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+              placeholder="office@wvcs.org"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Optional BCC Archive
+            <input
+              type="email"
+              value={settings.bccArchiveEmail}
+              onChange={(event) => setSettings({ ...settings, bccArchiveEmail: event.target.value })}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+              placeholder="Optional"
+            />
+          </label>
+        </div>
+        {!compact && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+            The visible sender still uses the verified Gmail account configured on the server. This setting controls where parent replies go.
+          </div>
+        )}
+        {showIdentityFields && (
+          <label className="mt-4 grid gap-1 text-sm font-semibold text-slate-700">
+            Internal Setup Note
+            <textarea
+              value={settings.setupNote}
+              onChange={(event) => setSettings({ ...settings, setupNote: event.target.value })}
+              rows={3}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 outline-none focus:border-sky-500"
+            />
+          </label>
+        )}
+      </div>
+      <div className="grid gap-3">
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-900">
+          <div className="font-bold">Recommended setup</div>
+          Use a shared office inbox for billing questions, such as office@wvcs.org or finance@wvcs.org, so replies do not depend on one person's account.
+        </div>
+        <button type="button" onClick={saveSettings} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700">
+          <Save size={16} />
+          Save Email Settings
+        </button>
+        {status && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">{status}</div>}
+      </div>
+    </div>
+  );
+}
+
 function ParentAccessAuditPanel() {
   const [state, setState] = useState({ loading: true, access: [], families: [], error: "" });
   const [search, setSearch] = useState("");
@@ -1106,6 +1226,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
   const [settingsView, setSettingsView] = useState("portal");
   const settingsViews = [
     ["portal", "Family Portal Settings"],
+    ["email", "Email Replies"],
     ["audit", "Parent Access Audit"],
     ["rollover", "Yearly Rollover"],
   ];
@@ -1126,6 +1247,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
         </label>
       </div>
       <div className="mt-4">{settingsView === "portal" && <FamilyPortalSettingsPanel currentUserEmail={currentUserEmail} />}</div>
+      <div className="mt-4">{settingsView === "email" && <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel />}</div>
       <div className="mt-4">{settingsView === "rollover" && <OfficeRolloverModule embedded />}</div>
     </section>

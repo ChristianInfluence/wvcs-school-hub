@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Cloud, Database, Mail, Plus, ServerCog, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
 import { isSupabaseConfigured } from "../../lib/supabaseClient.js";
 import DriveBackupModule from "./DriveBackupModule.jsx";
+import { OfficeEmailSettingsPanel } from "../office/FamilyRecordsModule.jsx";
 import {
   deleteStaffAccess,
   fetchStaffAccessList,
@@ -327,11 +328,48 @@ function SystemStatusPanel() {
   );
 }
 
+function EmailIdentityPanel({ currentUserEmail = "" }) {
+  const setupSteps = [
+    "Create or choose a shared WVCS Google account for Hub email, such as hub@wvcs.org or office@wvcs.org.",
+    "In Google Cloud, make sure the OAuth consent app and Gmail API are configured for that account.",
+    "Reconnect the Hub Gmail OAuth flow using the shared account so the refresh token belongs to that inbox.",
+    "Update the Supabase Edge Function secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, and GMAIL_SENDER_EMAIL.",
+    "Send a test tuition breakdown and incidental invoice, then reply to confirm responses go to the finance reply-to inbox.",
+  ];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+      <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} compact showIdentityFields />
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Mail size={16} className="text-emerald-300" />
+          Default Hub Email Setup
+        </div>
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          The Hub can save the intended sender/reply settings here, but changing the actual sending mailbox requires Google OAuth and Supabase secret updates.
+        </p>
+        <div className="mt-4 grid gap-2">
+          {setupSteps.map((step, index) => (
+            <div key={step} className="flex gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-sky-500/40 bg-sky-500/10 text-xs font-black text-sky-200">{index + 1}</div>
+              <div>{step}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+          Keep the actual sender on a verified WVCS Google account. Do not use a personal mailbox long-term for system email because replies, audit trails, and future staff transitions become harder to manage.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSettingsModule({ currentUserEmail = "", canManageUsers = false }) {
   const [settingsView, setSettingsView] = useState(canManageUsers ? "users" : "system");
   const settingOptions = [
     ...(canManageUsers ? [["users", "Users", Users]] : []),
     ...(canManageUsers ? [["drive", "Drive Backup", Cloud]] : []),
+    ...(canManageUsers ? [["email", "Email Identity", Mail]] : []),
     ["system", "System Status", Settings],
   ];
 
@@ -369,6 +407,7 @@ export default function AdminSettingsModule({ currentUserEmail = "", canManageUs
 
         {settingsView === "users" && canManageUsers && <StaffAccessManager />}
         {settingsView === "drive" && canManageUsers && <DriveBackupModule currentUserEmail={currentUserEmail} embedded />}
+        {settingsView === "email" && canManageUsers && <EmailIdentityPanel currentUserEmail={currentUserEmail} />}
         {settingsView === "system" && <SystemStatusPanel />}
       </div>
     </section>

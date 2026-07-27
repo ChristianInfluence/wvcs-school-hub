@@ -31,6 +31,7 @@ import {
 } from "../../lib/tuitionBillingData.js";
 import { recordLunchDepositFromIncidental } from "../../lib/lunchData.js";
 import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
+import { DEFAULT_OFFICE_EMAIL_SETTINGS, fetchOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -1247,6 +1248,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingIncidentalEmail, setSendingIncidentalEmail] = useState(false);
   const [officePaymentOpen, setOfficePaymentOpen] = useState(false);
+  const [officeEmailSettings, setOfficeEmailSettings] = useState(DEFAULT_OFFICE_EMAIL_SETTINGS);
   const [tuitionPaymentOpen, setTuitionPaymentOpen] = useState(false);
   const [tuitionPaymentDraft, setTuitionPaymentDraft] = useState({
     amount: "",
@@ -1426,7 +1428,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     loadSavedInvoices();
     loadSavedIncidentalInvoices();
     loadFamilyDirectory();
+    loadOfficeEmailSettings();
   }, []);
+
+  async function loadOfficeEmailSettings() {
+    try {
+      const result = await fetchOfficeEmailSettings();
+      setOfficeEmailSettings(result.settings || DEFAULT_OFFICE_EMAIL_SETTINGS);
+    } catch {
+      setOfficeEmailSettings(DEFAULT_OFFICE_EMAIL_SETTINGS);
+    }
+  }
 
   useEffect(() => {
     if (!officeFinanceTarget) return;
@@ -1845,6 +1857,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           title: invoiceTitle(invoice),
         },
         recipients,
+        replyToEmail: officeEmailSettings.financeReplyToEmail || officeEmailSettings.defaultReplyToEmail,
+        bccEmail: officeEmailSettings.bccArchiveEmail,
+        senderDisplayName: officeEmailSettings.senderDisplayName,
         attachment: {
           filename: getInvoiceFileName(invoice),
           mimeType: "application/pdf",
@@ -2230,6 +2245,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         total: incidentalTotal(savedInvoice),
         portalUrl: getIncidentalPortalUrl(savedInvoice),
         recipients,
+        replyToEmail: officeEmailSettings.financeReplyToEmail || officeEmailSettings.defaultReplyToEmail,
+        bccEmail: officeEmailSettings.bccArchiveEmail,
+        senderDisplayName: officeEmailSettings.senderDisplayName,
       });
       setStatus(result.sent ? `Incidental invoice sent to ${recipients.join(", ")}.` : result.reason || "Email was not sent.");
       setActionState("sendIncidental", result.sent ? "done" : "error", result.sent ? "Sent" : "Not Sent");

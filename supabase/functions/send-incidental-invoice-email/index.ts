@@ -41,10 +41,18 @@ function normalizeEmail(value: string) {
   return String(value || "").trim().toLowerCase();
 }
 
+function optionalHeaderEmail(value: any) {
+  const email = normalizeEmail(String(value || ""));
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
 function buildMessage(payload: Record<string, any>, senderEmail: string, recipientEmail: string) {
   const invoice = payload.invoice || {};
   const total = formatCurrency(payload.total);
   const portalUrl = String(payload.portalUrl || "");
+  const replyToEmail = optionalHeaderEmail(payload.replyToEmail);
+  const bccEmail = optionalHeaderEmail(payload.bccEmail);
+  const senderDisplayName = sanitizeHeader(payload.senderDisplayName || "WVCS School Hub");
   const subject = `WVCS Incidental Invoice: ${invoice.familyName || "Family"}`;
   const greetingName = invoice.parentName || "Parent/Guardian";
 
@@ -117,8 +125,10 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
 </html>`;
 
   return [
-    `From: WVCS School Hub <${senderEmail}>`,
+    `From: ${senderDisplayName} <${senderEmail}>`,
     `To: ${recipientEmail}`,
+    ...(replyToEmail ? [`Reply-To: ${replyToEmail}`] : []),
+    ...(bccEmail ? [`Bcc: ${bccEmail}`] : []),
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: multipart/alternative; boundary=\"wvcs-incidental-alt\"",

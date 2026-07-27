@@ -41,6 +41,11 @@ function normalizeEmail(value: string) {
   return String(value || "").trim().toLowerCase();
 }
 
+function optionalHeaderEmail(value: any) {
+  const email = normalizeEmail(String(value || ""));
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
 function getParentNames(invoice: Record<string, any>) {
   if (Array.isArray(invoice.parents)) {
     const names = invoice.parents.map((parent: Record<string, any>) => String(parent?.name || "").trim()).filter(Boolean);
@@ -54,6 +59,9 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
   const altBoundary = `wvcs-tuition-alt-${crypto.randomUUID()}`;
   const invoice = payload.invoice || {};
   const attachment = payload.attachment || {};
+  const replyToEmail = optionalHeaderEmail(payload.replyToEmail);
+  const bccEmail = optionalHeaderEmail(payload.bccEmail);
+  const senderDisplayName = sanitizeHeader(payload.senderDisplayName || "WVCS School Hub");
   const subject = `WVCS Tuition Breakdown: ${invoice.familyName || invoice.title || "Family"}`;
   const greetingName = getParentNames(invoice);
   const total = formatCurrency(invoice.total);
@@ -131,8 +139,10 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
 </html>`;
 
   const parts = [
-    `From: WVCS School Hub <${senderEmail}>`,
+    `From: ${senderDisplayName} <${senderEmail}>`,
     `To: ${recipientEmail}`,
+    ...(replyToEmail ? [`Reply-To: ${replyToEmail}`] : []),
+    ...(bccEmail ? [`Bcc: ${bccEmail}`] : []),
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
