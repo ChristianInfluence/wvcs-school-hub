@@ -535,7 +535,7 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
 
       {activeView === "accounts" && (
         <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
-          <div className="grid gap-4">
+          <div className="grid self-start gap-3">
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="text-sm font-bold text-slate-950">Record Lunch Payment</div>
               <div className="mt-4 grid gap-3">
@@ -547,10 +547,13 @@ export default function LunchAdminModule({ currentUserEmail = "" }) {
                 <button type="button" onClick={saveDeposit} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700">Record Payment</button>
               </div>
             </div>
-            <details className="rounded-lg border border-slate-200 bg-white p-4">
+            <details className="rounded-lg border border-slate-200 bg-white px-4 py-3">
               <summary className="cursor-pointer list-none text-sm font-bold text-slate-950 marker:hidden">
-                Beginning Balance / Carryover
-                <span className="ml-2 text-xs font-semibold text-slate-500">Open only for yearly setup or corrections</span>
+                <span className="flex items-center justify-between gap-3">
+                  <span>Beginning Balance / Carryover</span>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">Setup only</span>
+                </span>
+                <span className="mt-1 block text-xs font-semibold text-slate-500">Open only for yearly setup or corrections</span>
               </summary>
               <div className="mt-2 text-xs leading-5 text-slate-500">
                 Enter a positive amount for credit. Enter a negative amount for money owed from last year.
