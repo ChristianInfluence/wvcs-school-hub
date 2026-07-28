@@ -662,14 +662,25 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
                         <span>{request.submitterEmail || "Unknown"}</span>
                       </div>
                     </div>
-                    <div className="grid gap-2 lg:grid-cols-[160px_minmax(260px,1fr)_auto]">
-                      <select
-                        value={draft.status}
-                        onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, status: event.target.value } }))}
-                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
-                      >
-                        {Object.entries(supportStatusLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                      </select>
+                    <div className="grid gap-2 lg:w-[420px]">
+                      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                        <select
+                          value={draft.status}
+                          onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, status: event.target.value } }))}
+                          className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                        >
+                          {Object.entries(supportStatusLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => saveRequestUpdate(request)}
+                          disabled={savingId === request.id}
+                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                        >
+                          {savingId === request.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                          Save
+                        </button>
+                      </div>
                       <textarea
                         value={draft.adminResponse}
                         onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, adminResponse: event.target.value } }))}
@@ -677,15 +688,6 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
                         rows={3}
                         className="min-h-24 resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-5 outline-none focus:border-sky-400"
                       />
-                      <button
-                        type="button"
-                        onClick={() => saveRequestUpdate(request)}
-                        disabled={savingId === request.id}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-                      >
-                        {savingId === request.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                        Save
-                      </button>
                     </div>
                   </div>
                   <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">{request.body}</pre>
