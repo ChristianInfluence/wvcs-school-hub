@@ -23,18 +23,20 @@ function sanitizeHeader(value: string) {
 function buildMessage(payload: Record<string, any>, senderEmail: string, recipientEmail: string) {
   const boundary = `wvcs-suggestion-${crypto.randomUUID()}`;
   const { suggestion, note, attachment } = payload;
-  const subject = `Staff suggestion: ${suggestion?.title || "WVCS suggestion"}`;
+  const kind = payload.kind === "support-request" ? "Support request" : "Staff suggestion";
+  const subject = `${kind}: ${suggestion?.title || "WVCS Hub item"}`;
   const textBody = [
-    "A staff suggestion has been shared from WVCS School Hub.",
+    `A ${kind.toLowerCase()} has been shared from WVCS School Hub.`,
     "",
     `Title: ${suggestion?.title || ""}`,
     `Category: ${suggestion?.category || "General"}`,
     `Status: ${suggestion?.statusLabel || suggestion?.status || "New"}`,
     `Submitted: ${suggestion?.createdAt || ""}`,
+    suggestion?.submitterEmail ? `Submitted by: ${suggestion.submitterEmail}` : "",
     "",
-    note ? `Administrative note:\n${note}` : "Administrative note: No note included.",
+    note ? `Note:\n${note}` : "Note: No note included.",
     "",
-    "The suggestion PDF is attached.",
+    attachment?.contentBase64 ? "A PDF copy is attached." : "Open the Hub to review and update this item.",
   ].join("\r\n");
 
   const parts = [

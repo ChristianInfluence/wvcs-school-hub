@@ -1,5 +1,14 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 
+export const DEFAULT_SUPPORT_REQUEST_SETTINGS = {
+  itRecipients: [],
+  maintenanceRecipients: [],
+  facilitiesRecipients: [],
+  suppliesRecipients: [],
+};
+
+export const SUPPORT_REQUEST_CATEGORIES = ["IT Support", "Maintenance", "Facilities", "Supplies", "Other"];
+
 function mapSuggestionFromDatabase(row) {
   return {
     id: row.id,
@@ -29,6 +38,31 @@ function mapSuggestionToDatabase(suggestion) {
   };
 }
 
+export function parseEmailList(value) {
+  return String(value || "")
+    .split(/[,\n;]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeSupportRequestSettings(settings = {}) {
+  return {
+    itRecipients: Array.isArray(settings.itRecipients) ? settings.itRecipients : parseEmailList(settings.itRecipients),
+    maintenanceRecipients: Array.isArray(settings.maintenanceRecipients) ? settings.maintenanceRecipients : parseEmailList(settings.maintenanceRecipients),
+    facilitiesRecipients: Array.isArray(settings.facilitiesRecipients) ? settings.facilitiesRecipients : parseEmailList(settings.facilitiesRecipients),
+    suppliesRecipients: Array.isArray(settings.suppliesRecipients) ? settings.suppliesRecipients : parseEmailList(settings.suppliesRecipients),
+  };
+}
+
+export function getSupportRecipientsForCategory(settings = DEFAULT_SUPPORT_REQUEST_SETTINGS, category = "") {
+  const normalized = normalizeSupportRequestSettings(settings);
+  if (category === "IT Support") return normalized.itRecipients;
+  if (category === "Maintenance") return normalized.maintenanceRecipients;
+  if (category === "Facilities") return normalized.facilitiesRecipients;
+  if (category === "Supplies") return normalized.suppliesRecipients;
+  return normalized.itRecipients;
+}
+
 export async function fetchSuggestions() {
   if (!isSupabaseConfigured) {
     return { loaded: false, reason: "Supabase is not configured.", suggestions: [] };
@@ -43,6 +77,50 @@ export async function fetchSuggestions() {
   return { loaded: true, suggestions: (data || []).map(mapSuggestionFromDatabase) };
 }
 
+export async function fetchSupportRequestSettings() {
+  if (!isSupabaseConfigured) return { loaded: false, settings: DEFAULT_SUPPORT_REQUEST_SETTINGS, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings,updated_by_email,updated_at")
+    .eq("id", "support_requests")
+    .maybeSingle();
+
+  if (error) return { loaded: false, settings: DEFAULT_SUPPORT_REQUEST_SETTINGS, reason: "Support request settings are not available yet." };
+  return {
+    loaded: true,
+    settings: normalizeSupportRequestSettings(data?.settings || DEFAULT_SUPPORT_REQUEST_SETTINGS),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function saveSupportRequestSettings(settings, updatedByEmail = "") {
+  const normalized = normalizeSupportRequestSettings(settings);
+  if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .upsert(
+      {
+        id: "support_requests",
+        settings: normalized,
+        updated_by_email: updatedByEmail || null,
+      },
+      { onConflict: "id" }
+    )
+    .select("settings,updated_by_email,updated_at")
+    .single();
+
+  if (error) throw error;
+  return {
+    saved: true,
+    settings: normalizeSupportRequestSettings(data?.settings || normalized),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
 export async function saveSuggestion(suggestion) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
 
@@ -54,6 +132,18 @@ export async function saveSuggestion(suggestion) {
 
   if (error) throw error;
   return { saved: true, suggestion: mapSuggestionFromDatabase(data) };
+}
+
+export async function submitSupportRequest(suggestion) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase.functions.invoke("support-request", {
+    body: { action: "create", request: suggestion },
+  });
+
+  if (error) throw error;
+  if (!data?.saved) return { saved: false, reason: data?.reason || data?.error || "Support request was not saved." };
+  return { saved: true, suggestion: mapSuggestionFromDatabase(data.suggestion), notified: data.notified || [] };
 }
 
 export async function updateSuggestionStatus(suggestionId, patch) {

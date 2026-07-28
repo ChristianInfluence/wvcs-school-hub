@@ -14,6 +14,7 @@ import {
   Lightbulb,
   Lock,
   LogOut,
+  MessageSquareText,
   NotebookPen,
   ReceiptText,
   Search,
@@ -41,7 +42,7 @@ import FamilyRecordsModule, { OfficeFinanceSettingsModule } from "./modules/offi
 import StaffLunchOrderModule from "./modules/lunch/StaffLunchOrderModule.jsx";
 import PermissionSlipsModule, { ParentPermissionSigningPage } from "./modules/permissions/PermissionSlipsModule.jsx";
 import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx";
-import SuggestionsModule, { AdminSuggestionsModule } from "./modules/suggestions/SuggestionsModule.jsx";
+import SuggestionsModule, { AdminSuggestionsModule, AdminSupportRequestsModule, SupportRequestsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
@@ -135,6 +136,14 @@ const modules = [
     description: "View parent volunteers who are currently verified to drive.",
     color: "emerald",
     callout: "Verified drivers",
+  },
+  {
+    id: "support-requests",
+    label: "Support Requests",
+    icon: MessageSquareText,
+    description: "Submit IT, maintenance, facilities, and supplies requests and track progress.",
+    color: "blue",
+    callout: "IT and operations help",
   },
   {
     id: "suggestions",
@@ -1365,6 +1374,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
     ["meetings", "Meetings Admin", Users],
     ["documents", "Documents Admin", Files],
     ["suggestions", "Suggestions", Lightbulb],
+    ["support", "Support Requests", MessageSquareText],
     ["look-of-the-week", "Look of the Week", Sparkles],
   ];
 
@@ -1418,6 +1428,7 @@ function AdminModule({ currentUserEmail = "", access = defaultAccess }) {
           {moduleAdminView === "forms" && <AdminFormsModule currentUserEmail={currentUserEmail} />}
           {moduleAdminView === "documents" && <AdminDocumentsModule />}
           {moduleAdminView === "suggestions" && <AdminSuggestionsModule />}
+          {moduleAdminView === "support" && <AdminSupportRequestsModule currentUserEmail={currentUserEmail} />}
           {moduleAdminView === "look-of-the-week" && <AdminLookOfWeekModule />}
         </>
       )}
@@ -1872,6 +1883,10 @@ export default function App() {
 
       {activeModule === "suggestions" && (
         <SuggestionsModule currentUserEmail={user.email} />
+      )}
+
+      {activeModule === "support-requests" && (
+        <SupportRequestsModule currentUserEmail={user.email} />
       )}
 
       {activeModule === "office-finance" && access.canUseOfficePayroll && (

@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import html2pdf from "html2pdf.js";
-import { CheckCircle2, ChevronDown, ChevronRight, FileText, Lightbulb, Loader2, Mail, MessageSquareText, Plus, Send, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, FileText, Lightbulb, Loader2, Mail, MessageSquareText, Plus, Save, Send, Trash2 } from "lucide-react";
 import {
+  DEFAULT_SUPPORT_REQUEST_SETTINGS,
+  SUPPORT_REQUEST_CATEGORIES,
   deleteSuggestion,
   fetchSuggestions,
+  fetchSupportRequestSettings,
   saveSuggestion,
+  saveSupportRequestSettings,
+  submitSupportRequest,
   updateSuggestionStatus,
 } from "../../lib/suggestionsData.js";
 import { sendSuggestionEmail } from "../../lib/suggestionNotifications.js";
@@ -27,6 +32,20 @@ const statusStyles = {
   resolved: "border-emerald-400/50 bg-emerald-500/15 text-emerald-100",
   declined: "border-slate-600 bg-slate-800 text-slate-200",
 };
+
+const supportStatusLabels = {
+  new: "New",
+  reviewing: "In Progress",
+  planned: "Waiting",
+  resolved: "Completed",
+  declined: "Closed",
+};
+
+const priorityOptions = ["Normal", "Urgent", "Low"];
+
+function isSupportRequest(item) {
+  return SUPPORT_REQUEST_CATEGORIES.includes(item.category);
+}
 
 function formatDate(value) {
   return new Date(value).toLocaleDateString([], {
@@ -203,7 +222,7 @@ export default function SuggestionsModule({ currentUserEmail = "" }) {
     anonymous: false,
   });
   const visibleSuggestions = useMemo(
-    () => suggestions.filter((suggestion) => suggestion.status !== "declined"),
+    () => suggestions.filter((suggestion) => !isSupportRequest(suggestion) && suggestion.status !== "declined"),
     [suggestions]
   );
 
@@ -332,6 +351,387 @@ export default function SuggestionsModule({ currentUserEmail = "" }) {
   );
 }
 
+export function SupportRequestsModule({ currentUserEmail = "" }) {
+  const { suggestions, setSuggestions, status, setStatus, loadSuggestions } = useSuggestionStore();
+  const [draft, setDraft] = useState({
+    title: "",
+    category: "IT Support",
+    priority: "Normal",
+    location: "",
+    device: "",
+    issueType: "General IT help",
+    impact: "One person",
+    timing: "",
+    body: "",
+  });
+
+  const myRequests = useMemo(
+    () => suggestions.filter((item) => isSupportRequest(item) && item.submitterEmail?.toLowerCase() === currentUserEmail.toLowerCase()),
+    [suggestions, currentUserEmail]
+  );
+
+  function buildRequestBody() {
+    return [
+      `Priority: ${draft.priority}`,
+      `Location: ${draft.location || "Not specified"}`,
+      draft.category === "IT Support" ? `Issue type: ${draft.issueType}` : "",
+      draft.category === "IT Support" ? `Device/user affected: ${draft.device || "Not specified"}` : "",
+      draft.category === "IT Support" ? `Impact: ${draft.impact}` : "",
+      `Preferred timing: ${draft.timing || "Not specified"}`,
+      "",
+      "Details:",
+      draft.body.trim(),
+    ].filter((line) => line !== "").join("\n");
+  }
+
+  async function submitRequest() {
+    if (!draft.title.trim() || !draft.body.trim()) return;
+    const request = {
+      id: crypto.randomUUID(),
+      title: draft.title.trim(),
+      category: draft.category,
+      body: buildRequestBody(),
+      submitterEmail: currentUserEmail,
+      anonymous: false,
+      status: "new",
+      adminResponse: "",
+    };
+
+    try {
+      setStatus("Submitting support request...");
+      const result = await submitSupportRequest(request);
+      if (!result.saved) {
+        setStatus(result.reason);
+        return;
+      }
+      setSuggestions((current) => [result.suggestion, ...current]);
+      setDraft({
+        title: "",
+        category: "IT Support",
+        priority: "Normal",
+        location: "",
+        device: "",
+        issueType: "General IT help",
+        impact: "One person",
+        timing: "",
+        body: "",
+      });
+      setStatus(result.notified?.length ? "Support request submitted and notification sent." : "Support request submitted.");
+      await loadSuggestions();
+    } catch (error) {
+      setStatus(`Unable to submit support request: ${error.message}`);
+    }
+  }
+
+  return (
+    <section className="min-h-[680px] bg-slate-950 text-slate-100">
+      <div className="mx-auto max-w-[1500px] px-5 py-6">
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Staff Support</div>
+            <h1 className="mt-2 text-2xl font-bold text-white">Support Requests</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+              Submit IT, maintenance, facilities, and supplies requests. You can track your recent requests here.
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">{status}</div>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+          <aside className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <MessageSquareText size={16} className="text-sky-300" />
+              New Support Request
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1 text-sm font-medium text-slate-200">
+                Request type
+                <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400">
+                  {SUPPORT_REQUEST_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-200">
+                  Priority
+                  <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400">
+                    {priorityOptions.map((priority) => <option key={priority}>{priority}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-200">
+                  Location
+                  <input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} placeholder="Room, office, area" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm font-medium text-slate-200">
+                Title
+                <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Brief summary" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+              </label>
+              {draft.category === "IT Support" && (
+                <div className="grid gap-3 rounded-lg border border-sky-500/20 bg-sky-500/10 p-3">
+                  <label className="grid gap-1 text-sm font-medium text-slate-200">
+                    IT issue type
+                    <select value={draft.issueType} onChange={(event) => setDraft({ ...draft, issueType: event.target.value })} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400">
+                      {["General IT help", "Login/account", "Internet/network", "Printer", "Projector/display", "Chromebook/device", "Software/app", "Other"].map((issue) => <option key={issue}>{issue}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-200">
+                    Device or user affected
+                    <input value={draft.device} onChange={(event) => setDraft({ ...draft, device: event.target.value })} placeholder="Device, student, staff member, or class" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-200">
+                    Impact
+                    <select value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400">
+                      {["One person", "Class affected", "Office affected", "Schoolwide"].map((impact) => <option key={impact}>{impact}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
+              <label className="grid gap-1 text-sm font-medium text-slate-200">
+                Preferred timing
+                <input value={draft.timing} onChange={(event) => setDraft({ ...draft, timing: event.target.value })} placeholder="Any helpful timing notes" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-slate-200">
+                Details
+                <textarea value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} className="min-h-32 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
+              </label>
+              <button type="button" onClick={submitRequest} disabled={!draft.title.trim() || !draft.body.trim()} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40">
+                <Send size={16} />
+                Submit Request
+              </button>
+            </div>
+          </aside>
+
+          <main className="space-y-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <FileText size={16} className="text-sky-300" />
+                My Recent Requests
+              </div>
+            </div>
+            {myRequests.map((request) => (
+              <SuggestionCard key={request.id} suggestion={request} />
+            ))}
+            {!myRequests.length && (
+              <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-400">
+                You do not have any support requests yet.
+              </div>
+            )}
+          </main>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
+  const { suggestions, setSuggestions, status, setStatus, loadSuggestions } = useSuggestionStore();
+  const [settings, setSettings] = useState(DEFAULT_SUPPORT_REQUEST_SETTINGS);
+  const [settingsStatus, setSettingsStatus] = useState("Loading notification settings...");
+  const [drafts, setDrafts] = useState({});
+  const [filter, setFilter] = useState("All");
+  const [savingId, setSavingId] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      try {
+        const result = await fetchSupportRequestSettings();
+        if (!active) return;
+        setSettings(result.settings || DEFAULT_SUPPORT_REQUEST_SETTINGS);
+        setSettingsStatus(result.loaded ? "Notification settings loaded." : result.reason);
+      } catch (error) {
+        if (active) setSettingsStatus(`Unable to load notification settings: ${error.message}`);
+      }
+    }
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const supportRequests = useMemo(
+    () => suggestions.filter((item) => isSupportRequest(item)),
+    [suggestions]
+  );
+  const filteredRequests = useMemo(
+    () => supportRequests.filter((item) => filter === "All" || item.category === filter),
+    [supportRequests, filter]
+  );
+
+  function getDraft(request) {
+    return drafts[request.id] || {
+      status: request.status,
+      adminResponse: request.adminResponse,
+    };
+  }
+
+  async function saveRequestUpdate(request) {
+    const draft = getDraft(request);
+    try {
+      setSavingId(request.id);
+      setStatus("Saving support request...");
+      const result = await updateSuggestionStatus(request.id, draft);
+      if (!result.saved) {
+        setStatus(result.reason);
+        return;
+      }
+      setSuggestions((current) => current.map((item) => (item.id === request.id ? result.suggestion : item)));
+      setStatus("Support request updated.");
+      await loadSuggestions();
+    } catch (error) {
+      setStatus(`Unable to update support request: ${error.message}`);
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function saveSettings() {
+    try {
+      setSettingsStatus("Saving notification settings...");
+      const result = await saveSupportRequestSettings(settings, currentUserEmail);
+      if (!result.saved) {
+        setSettingsStatus(result.reason);
+        return;
+      }
+      setSettings(result.settings || settings);
+      setSettingsStatus("Notification settings saved.");
+    } catch (error) {
+      setSettingsStatus(`Unable to save notification settings: ${error.message}`);
+    }
+  }
+
+  function updateRecipientField(field, value) {
+    setSettings((current) => ({
+      ...current,
+      [field]: parseEmailList(value),
+    }));
+  }
+
+  const counts = supportRequests.reduce((summary, item) => ({ ...summary, [item.status]: (summary[item.status] || 0) + 1 }), {});
+
+  return (
+    <section className="min-h-[680px] bg-slate-950 text-slate-100">
+      <div className="mx-auto max-w-[1500px] px-5 py-6">
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Administration</div>
+            <h1 className="mt-2 text-2xl font-bold text-white">Support Requests</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+              Manage IT, maintenance, facilities, and supplies requests from staff.
+            </p>
+          </div>
+          <select value={filter} onChange={(event) => setFilter(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-white outline-none focus:border-sky-400">
+            <option>All</option>
+            {SUPPORT_REQUEST_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
+          </select>
+        </div>
+
+        <div className="mb-5 grid gap-3 md:grid-cols-5">
+          {Object.entries(supportStatusLabels).map(([id, label]) => (
+            <div key={id} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+              <div className="text-xl font-bold text-white">{counts[id] || 0}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+          <main className="space-y-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-sky-100">{status}</div>
+            {filteredRequests.map((request) => {
+              const draft = getDraft(request);
+              return (
+                <article key={request.id} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-lg font-bold text-white">{request.title}</h2>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[request.status]}`}>
+                          {supportStatusLabels[request.status] || request.status}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
+                        <span>{request.category}</span>
+                        <span>{formatDate(request.createdAt)}</span>
+                        <span>{request.submitterEmail || "Unknown"}</span>
+                      </div>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-[160px_1fr_auto]">
+                      <select
+                        value={draft.status}
+                        onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, status: event.target.value } }))}
+                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      >
+                        {Object.entries(supportStatusLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                      </select>
+                      <input
+                        value={draft.adminResponse}
+                        onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, adminResponse: event.target.value } }))}
+                        placeholder="Internal/update note"
+                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => saveRequestUpdate(request)}
+                        disabled={savingId === request.id}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                      >
+                        {savingId === request.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-300">{request.body}</pre>
+                  {request.adminResponse && <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-500/10 p-3 text-sm text-sky-100">{request.adminResponse}</div>}
+                </article>
+              );
+            })}
+            {!filteredRequests.length && (
+              <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-400">
+                No support requests match this view.
+              </div>
+            )}
+          </main>
+
+          <aside className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <Mail size={16} className="text-sky-300" />
+              Notification Recipients
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Add the people who should be emailed when a new request is submitted. Separate multiple emails with commas.
+            </p>
+            <div className="mt-4 grid gap-3">
+              {[
+                ["itRecipients", "IT Support"],
+                ["maintenanceRecipients", "Maintenance"],
+                ["facilitiesRecipients", "Facilities"],
+                ["suppliesRecipients", "Supplies"],
+              ].map(([field, label]) => (
+                <label key={field} className="grid gap-1 text-sm font-semibold text-slate-200">
+                  {label}
+                  <textarea
+                    value={(settings[field] || []).join(", ")}
+                    onChange={(event) => updateRecipientField(field, event.target.value)}
+                    rows={2}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                    placeholder="name@wvcs.org"
+                  />
+                </label>
+              ))}
+              <button type="button" onClick={saveSettings} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400">
+                <Save size={16} />
+                Save Notification Settings
+              </button>
+              <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{settingsStatus}</div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function AdminSuggestionsModule() {
   const { suggestions, setSuggestions, status, setStatus, loadSuggestions } = useSuggestionStore();
   const [drafts, setDrafts] = useState({});
@@ -360,7 +760,7 @@ export function AdminSuggestionsModule() {
       declined: 3,
       resolved: 4,
     };
-    return [...suggestions].sort((a, b) => {
+    return suggestions.filter((suggestion) => !isSupportRequest(suggestion)).sort((a, b) => {
       const rankDiff = (statusRank[a.status] ?? 2) - (statusRank[b.status] ?? 2);
       if (rankDiff) return rankDiff;
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
