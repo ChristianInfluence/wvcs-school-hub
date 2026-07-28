@@ -15,7 +15,6 @@ import {
   Lock,
   LogOut,
   MessageSquareText,
-  NotebookPen,
   ReceiptText,
   Search,
   ShieldAlert,
@@ -161,15 +160,6 @@ const modules = [
     color: "sky",
     callout: "Billing and AR",
     topLevelOnly: true,
-  },
-  {
-    id: "meeting-notes",
-    label: "Meeting Notes",
-    icon: NotebookPen,
-    description: "Shared notes, action items, and follow-up records from school meetings.",
-    color: "indigo",
-    callout: "Coming soon",
-    comingSoon: true,
   },
   {
     id: "look-of-the-week",

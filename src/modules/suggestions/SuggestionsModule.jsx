@@ -526,6 +526,7 @@ export function SupportRequestsModule({ currentUserEmail = "" }) {
 export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
   const { suggestions, setSuggestions, status, setStatus, loadSuggestions } = useSuggestionStore();
   const [settings, setSettings] = useState(DEFAULT_SUPPORT_REQUEST_SETTINGS);
+  const [recipientDrafts, setRecipientDrafts] = useState(DEFAULT_SUPPORT_REQUEST_SETTINGS);
   const [settingsStatus, setSettingsStatus] = useState("Loading notification settings...");
   const [drafts, setDrafts] = useState({});
   const [filter, setFilter] = useState("All");
@@ -538,6 +539,7 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
         const result = await fetchSupportRequestSettings();
         if (!active) return;
         setSettings(result.settings || DEFAULT_SUPPORT_REQUEST_SETTINGS);
+        setRecipientDrafts(result.settings || DEFAULT_SUPPORT_REQUEST_SETTINGS);
         setSettingsStatus(result.loaded ? "Notification settings loaded." : result.reason);
       } catch (error) {
         if (active) setSettingsStatus(`Unable to load notification settings: ${error.message}`);
@@ -588,12 +590,16 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
   async function saveSettings() {
     try {
       setSettingsStatus("Saving notification settings...");
-      const result = await saveSupportRequestSettings(settings, currentUserEmail);
+      const parsedSettings = Object.fromEntries(
+        Object.entries(recipientDrafts).map(([field, value]) => [field, parseEmailList(Array.isArray(value) ? value.join(", ") : value)])
+      );
+      const result = await saveSupportRequestSettings(parsedSettings, currentUserEmail);
       if (!result.saved) {
         setSettingsStatus(result.reason);
         return;
       }
       setSettings(result.settings || settings);
+      setRecipientDrafts(result.settings || parsedSettings);
       setSettingsStatus("Notification settings saved.");
     } catch (error) {
       setSettingsStatus(`Unable to save notification settings: ${error.message}`);
@@ -601,9 +607,9 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
   }
 
   function updateRecipientField(field, value) {
-    setSettings((current) => ({
+    setRecipientDrafts((current) => ({
       ...current,
-      [field]: parseEmailList(value),
+      [field]: value,
     }));
   }
 
@@ -656,7 +662,7 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
                         <span>{request.submitterEmail || "Unknown"}</span>
                       </div>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-[160px_1fr_auto]">
+                    <div className="grid gap-2 lg:grid-cols-[160px_minmax(260px,1fr)_auto]">
                       <select
                         value={draft.status}
                         onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, status: event.target.value } }))}
@@ -664,11 +670,12 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
                       >
                         {Object.entries(supportStatusLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                       </select>
-                      <input
+                      <textarea
                         value={draft.adminResponse}
                         onChange={(event) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, adminResponse: event.target.value } }))}
                         placeholder="Internal/update note"
-                        className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                        rows={3}
+                        className="min-h-24 resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-5 outline-none focus:border-sky-400"
                       />
                       <button
                         type="button"
@@ -711,11 +718,12 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
                 <label key={field} className="grid gap-1 text-sm font-semibold text-slate-200">
                   {label}
                   <textarea
-                    value={(settings[field] || []).join(", ")}
+                    value={Array.isArray(recipientDrafts[field]) ? recipientDrafts[field].join(", ") : recipientDrafts[field] || ""}
                     onChange={(event) => updateRecipientField(field, event.target.value)}
-                    rows={2}
+                    onBlur={(event) => updateRecipientField(field, parseEmailList(event.target.value).join(", "))}
+                    rows={3}
                     className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                    placeholder="name@wvcs.org"
+                    placeholder="greg@wvcs.org, helper@wvcs.org"
                   />
                 </label>
               ))}

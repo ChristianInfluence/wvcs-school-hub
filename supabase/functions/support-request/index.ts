@@ -77,6 +77,7 @@ async function getAccessToken() {
 
 function buildMessage(ticket: Record<string, any>, senderEmail: string, recipientEmail: string) {
   const subject = `WVCS Support Request: ${ticket.title || "New request"}`;
+  const requesterEmail = normalizeEmail(ticket.submitter_email);
   const body = [
     "A new support request was submitted from WVCS School Hub.",
     "",
@@ -93,6 +94,7 @@ function buildMessage(ticket: Record<string, any>, senderEmail: string, recipien
   return [
     `From: WVCS School Hub <${senderEmail}>`,
     `To: ${recipientEmail}`,
+    ...(requesterEmail ? [`Reply-To: ${requesterEmail}`] : []),
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
