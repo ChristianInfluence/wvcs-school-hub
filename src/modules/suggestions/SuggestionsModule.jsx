@@ -353,6 +353,7 @@ export default function SuggestionsModule({ currentUserEmail = "" }) {
 
 export function SupportRequestsModule({ currentUserEmail = "" }) {
   const { suggestions, setSuggestions, status, setStatus, loadSuggestions } = useSuggestionStore();
+  const [submitState, setSubmitState] = useState("idle");
   const [draft, setDraft] = useState({
     title: "",
     category: "IT Support",
@@ -385,7 +386,7 @@ export function SupportRequestsModule({ currentUserEmail = "" }) {
   }
 
   async function submitRequest() {
-    if (!draft.title.trim() || !draft.body.trim()) return;
+    if (!draft.title.trim() || !draft.body.trim() || submitState === "submitting") return;
     const request = {
       id: crypto.randomUUID(),
       title: draft.title.trim(),
@@ -398,10 +399,12 @@ export function SupportRequestsModule({ currentUserEmail = "" }) {
     };
 
     try {
+      setSubmitState("submitting");
       setStatus("Submitting support request...");
       const result = await submitSupportRequest(request);
       if (!result.saved) {
         setStatus(result.reason);
+        setSubmitState("idle");
         return;
       }
       setSuggestions((current) => [result.suggestion, ...current]);
@@ -417,9 +420,12 @@ export function SupportRequestsModule({ currentUserEmail = "" }) {
         body: "",
       });
       setStatus(result.notified?.length ? "Support request submitted and notification sent." : "Support request submitted.");
+      setSubmitState("submitted");
+      window.setTimeout(() => setSubmitState("idle"), 1800);
       await loadSuggestions();
     } catch (error) {
       setStatus(`Unable to submit support request: ${error.message}`);
+      setSubmitState("idle");
     }
   }
 
@@ -494,9 +500,19 @@ export function SupportRequestsModule({ currentUserEmail = "" }) {
                 Details
                 <textarea value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} className="min-h-32 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400" />
               </label>
-              <button type="button" onClick={submitRequest} disabled={!draft.title.trim() || !draft.body.trim()} className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40">
-                <Send size={16} />
-                Submit Request
+              <button
+                type="button"
+                onClick={submitRequest}
+                disabled={!draft.title.trim() || !draft.body.trim() || submitState === "submitting"}
+                aria-busy={submitState === "submitting"}
+                className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold text-white transition ${
+                  submitState === "submitted"
+                    ? "border-emerald-500 bg-emerald-600"
+                    : "border-sky-400 bg-sky-500 hover:bg-sky-400"
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                {submitState === "submitting" ? <Loader2 size={16} className="animate-spin" /> : submitState === "submitted" ? <CheckCircle2 size={16} /> : <Send size={16} />}
+                {submitState === "submitting" ? "Submitting..." : submitState === "submitted" ? "Submitted" : "Submit Request"}
               </button>
             </div>
           </aside>
