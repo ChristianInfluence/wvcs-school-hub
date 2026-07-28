@@ -103,6 +103,14 @@ export async function fetchEmailAuditLog() {
   };
 }
 
+export async function backfillEmailAuditLog() {
+  if (!isSupabaseConfigured) return { backfilled: false, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase.functions.invoke("backfill-email-audit", { body: {} });
+  if (error) throw error;
+  return data || { backfilled: true };
+}
+
 export async function saveFamilyPortalSettings(settings, updatedByEmail = "") {
   const normalized = normalizeFamilyPortalSettings(settings);
   if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };

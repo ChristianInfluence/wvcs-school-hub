@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
 import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
-import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
@@ -1230,6 +1230,7 @@ function formatAuditDate(value) {
 function EmailAuditPanel() {
   const [state, setState] = useState({ loading: true, entries: [], error: "" });
   const [search, setSearch] = useState("");
+  const [backfilling, setBackfilling] = useState(false);
 
   async function loadAudit() {
     setState((current) => ({ ...current, loading: true }));
@@ -1244,6 +1245,26 @@ function EmailAuditPanel() {
   useEffect(() => {
     loadAudit();
   }, []);
+
+  async function backfillAudit() {
+    if (!window.confirm("Backfill the email audit from existing Hub records? This can be run more than once without duplicating the same records.")) return;
+    setBackfilling(true);
+    setState((current) => ({ ...current, error: "Backfilling historical email records..." }));
+    try {
+      const result = await backfillEmailAuditLog();
+      await loadAudit();
+      setState((current) => ({
+        ...current,
+        error: result.backfilled
+          ? `Backfill complete. Added ${result.added || 0} possible historical records. Showing ${result.total || current.entries.length} total audit rows.`
+          : result.reason || "Backfill did not complete.",
+      }));
+    } catch (error) {
+      setState((current) => ({ ...current, error: `Unable to backfill email audit: ${error.message}` }));
+    } finally {
+      setBackfilling(false);
+    }
+  }
 
   const filteredEntries = state.entries.filter((entry) =>
     `${entry.module} ${entry.subject} ${(entry.recipients || []).join(" ")} ${entry.senderEmail} ${entry.actorEmail} ${entry.status}`.toLowerCase().includes(search.toLowerCase())
@@ -1274,6 +1295,10 @@ function EmailAuditPanel() {
           <button type="button" onClick={loadAudit} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             <RefreshCw size={15} />
             Refresh
+          </button>
+          <button type="button" onClick={backfillAudit} disabled={backfilling} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60">
+            <History size={15} />
+            {backfilling ? "Backfilling..." : "Backfill"}
           </button>
         </div>
       </div>
