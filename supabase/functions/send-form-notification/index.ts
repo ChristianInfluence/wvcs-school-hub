@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { recordEmailAudit } from "../_shared/emailAudit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -442,6 +443,17 @@ Deno.serve(async (request) => {
       const data = await response.json();
       sentMessages.push({ recipient, gmailMessageId: data.id });
     }
+
+    await recordEmailAudit({
+      module: "Form Notification",
+      subject: `Form submitted: ${payload.submission?.templateTitle || payload.template?.title || "WVCS Form"}`,
+      recipients,
+      senderEmail,
+      actorEmail: payload.submission?.submitterEmail || "",
+      status: "sent",
+      messageIds: sentMessages.map((message) => message.gmailMessageId),
+      metadata: { submissionId: payload.submission?.id || "", templateId: payload.submission?.templateId || payload.template?.id || "" },
+    });
 
     return new Response(JSON.stringify({ sent: true, messages: sentMessages }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

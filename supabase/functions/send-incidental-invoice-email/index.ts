@@ -1,3 +1,5 @@
+import { recordEmailAudit } from "../_shared/emailAudit.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -196,6 +198,17 @@ Deno.serve(async (request) => {
       const data = await response.json();
       sentMessages.push({ recipient, gmailMessageId: data.id });
     }
+
+    await recordEmailAudit({
+      module: "Incidental Invoice",
+      subject: `WVCS Incidental Invoice: ${payload.invoice?.familyName || "Family"}`,
+      recipients,
+      senderEmail,
+      actorEmail: payload.currentUserEmail || payload.sentByEmail || "",
+      status: "sent",
+      messageIds: sentMessages.map((message) => message.gmailMessageId),
+      metadata: { invoiceId: payload.invoice?.id || "", familyName: payload.invoice?.familyName || "" },
+    });
 
     return new Response(JSON.stringify({ sent: true, messages: sentMessages }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

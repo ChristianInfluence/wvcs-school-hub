@@ -1,3 +1,5 @@
+import { recordEmailAudit } from "../_shared/emailAudit.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -185,6 +187,17 @@ Deno.serve(async (request) => {
       const data = await response.json();
       sentMessages.push({ recipient, gmailMessageId: data.id });
     }
+
+    await recordEmailAudit({
+      module: "Hub Message",
+      subject: `Hub message: ${payload.thread?.subject || "New message"}`,
+      recipients,
+      senderEmail,
+      actorEmail: postSender,
+      status: "sent",
+      messageIds: sentMessages.map((message) => message.gmailMessageId),
+      metadata: { threadId: payload.thread?.id || payload.post?.threadId || payload.post?.thread_id || "" },
+    });
 
     return new Response(JSON.stringify({ sent: true, messages: sentMessages }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

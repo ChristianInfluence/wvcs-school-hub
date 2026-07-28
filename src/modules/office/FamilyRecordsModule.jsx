@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
 import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
-import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
@@ -1222,11 +1222,95 @@ function ParentAccessAuditPanel() {
   );
 }
 
+function formatAuditDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function EmailAuditPanel() {
+  const [state, setState] = useState({ loading: true, entries: [], error: "" });
+  const [search, setSearch] = useState("");
+
+  async function loadAudit() {
+    setState((current) => ({ ...current, loading: true }));
+    try {
+      const result = await fetchEmailAuditLog();
+      setState({ loading: false, entries: result.entries || [], error: result.loaded ? "" : result.reason });
+    } catch (error) {
+      setState({ loading: false, entries: [], error: error.message });
+    }
+  }
+
+  useEffect(() => {
+    loadAudit();
+  }, []);
+
+  const filteredEntries = state.entries.filter((entry) =>
+    `${entry.module} ${entry.subject} ${(entry.recipients || []).join(" ")} ${entry.senderEmail} ${entry.actorEmail} ${entry.status}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+            <Mail size={16} className="text-sky-600" />
+            Hub Email Audit
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Recent emails sent by Hub automation. The log keeps the latest 500 entries.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <label className="relative">
+            <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="w-72 rounded-lg border border-slate-300 px-9 py-2 text-sm text-slate-900 outline-none focus:border-sky-500"
+              placeholder="Search emails..."
+            />
+          </label>
+          <button type="button" onClick={loadAudit} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+        </div>
+      </div>
+      {state.error && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{state.error}</div>}
+      {state.loading && <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Loading email audit...</div>}
+      <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
+        <div className="grid grid-cols-[130px_150px_1fr_1fr_90px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+          <div>Sent</div>
+          <div>Type</div>
+          <div>Subject</div>
+          <div>Recipients</div>
+          <div>Status</div>
+        </div>
+        {filteredEntries.slice(0, 150).map((entry) => (
+          <div key={entry.id} className="grid grid-cols-[130px_150px_1fr_1fr_90px] gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0">
+            <div className="font-semibold text-slate-700">{formatAuditDate(entry.sentAt)}</div>
+            <div className="text-slate-700">{entry.module}</div>
+            <div>
+              <div className="font-semibold text-slate-950">{entry.subject || "No subject"}</div>
+              <div className="text-xs text-slate-500">From {entry.senderEmail || "Hub"}{entry.actorEmail ? ` | Actor ${entry.actorEmail}` : ""}</div>
+            </div>
+            <div className="truncate text-slate-700" title={(entry.recipients || []).join(", ")}>{(entry.recipients || []).join(", ")}</div>
+            <div className="font-bold text-emerald-700">{entry.status || "sent"}</div>
+          </div>
+        ))}
+        {!filteredEntries.length && !state.loading && <div className="p-5 text-sm text-slate-500">No email audit entries found yet.</div>}
+      </div>
+    </div>
+  );
+}
+
 export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
   const [settingsView, setSettingsView] = useState("portal");
   const settingsViews = [
     ["portal", "Family Portal Settings"],
     ["email", "Email Replies"],
+    ["email-audit", "Email Audit"],
     ["audit", "Parent Access Audit"],
     ["rollover", "Yearly Rollover"],
   ];
@@ -1248,6 +1332,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
       </div>
       <div className="mt-4">{settingsView === "portal" && <FamilyPortalSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "email" && <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} />}</div>
+      <div className="mt-4">{settingsView === "email-audit" && <EmailAuditPanel />}</div>
       <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel />}</div>
       <div className="mt-4">{settingsView === "rollover" && <OfficeRolloverModule embedded />}</div>
     </section>

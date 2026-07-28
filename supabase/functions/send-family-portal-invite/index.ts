@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildFosMessage, corsHeaders, normalizeEmail, requiredEnv, sendEmail } from "../_shared/fosEmail.ts";
+import { recordEmailAudit } from "../_shared/emailAudit.ts";
 
 function makeToken() {
   return `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "").slice(0, 4)}`;
@@ -97,6 +98,16 @@ Deno.serve(async (request) => {
         );
       }),
     );
+
+    await recordEmailAudit({
+      module: "Family Portal Invite",
+      subject: `WVCS Family Portal Invitation: ${familyName}`,
+      recipients: selectedRecipients,
+      senderEmail: Deno.env.get("GMAIL_SENDER_EMAIL") || "",
+      actorEmail: requesterEmail,
+      status: "sent",
+      metadata: { familyKey, familyName },
+    });
 
     return new Response(JSON.stringify({ sent: true, access, recipients: selectedRecipients, loginUrl }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

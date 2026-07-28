@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, escapeHtml, normalizeEmail, requiredEnv, sendEmail } from "../_shared/fosEmail.ts";
+import { recordEmailAudit } from "../_shared/emailAudit.ts";
 
 function sanitizeHeader(value: string) {
   return String(value || "").replace(/[\r\n]/g, " ").trim();
@@ -122,6 +123,15 @@ Deno.serve(async (request) => {
     if (!actionLink) throw new Error("Unable to create a secure family portal sign-in link.");
 
     await sendEmail(buildFamilyLoginMessage({ recipientEmail: cleanEmail, familyName: access.family_name || "WVCS Family", actionLink }));
+    await recordEmailAudit({
+      module: "Family Portal Login",
+      subject: "WVCS Family Portal Sign-In Link",
+      recipients: [cleanEmail],
+      senderEmail: Deno.env.get("GMAIL_SENDER_EMAIL") || "",
+      actorEmail: cleanEmail,
+      status: "sent",
+      metadata: { familyName: access.family_name || "" },
+    });
 
     return new Response(JSON.stringify({ sent: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

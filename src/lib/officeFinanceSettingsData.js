@@ -86,6 +86,23 @@ export async function fetchOfficeEmailSettings() {
   };
 }
 
+export async function fetchEmailAuditLog() {
+  if (!isSupabaseConfigured) return { loaded: false, entries: [], reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings,updated_at")
+    .eq("id", "email_audit")
+    .maybeSingle();
+
+  if (error) return { loaded: false, entries: [], reason: "Email audit is not available yet." };
+  return {
+    loaded: true,
+    entries: Array.isArray(data?.settings?.entries) ? data.settings.entries : [],
+    updatedAt: data?.updated_at || "",
+  };
+}
+
 export async function saveFamilyPortalSettings(settings, updatedByEmail = "") {
   const normalized = normalizeFamilyPortalSettings(settings);
   if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };
