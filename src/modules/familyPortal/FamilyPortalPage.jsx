@@ -90,13 +90,40 @@ const studentDriverPolicyTerms = [
   "WVCS administration reserves the right to revoke student driving privileges when students do not comply with the WVCS Student Driver Policy.",
   "The student driver's license and insurance card must be submitted with this registration for office review.",
 ];
-const offCampusLunchTerms = [
-  "This permission applies only to off-campus lunch privileges approved by WVCS and may be limited or revoked by school administration.",
-  "The student must follow all WVCS expectations while off campus, return to campus on time, and remain responsible for school attendance and behavior requirements.",
-  "If the student drives, the student must have a valid driver's license, current insurance, and an approved WVCS Student Driver Vehicle Registration on file.",
-  "Students may not transport other students unless permission has been granted by the parents or guardians of both students and the arrangement is permissible by law.",
-  "Students riding with another student may only ride with the student drivers specifically listed on this form.",
-  "Parents/guardians understand that transportation by student drivers is a family permission decision and is not school-provided transportation.",
+const offCampusLunchAgreementConditions = [
+  "I agree to check out with designated office staff in the elementary building when leaving campus at lunch.",
+  "I agree this privilege will only be used by the student named on this form.",
+  "I will only go to lunch with students who have off-campus lunch privileges.",
+  "If I am driving or being driven by another student, I will have a completed WVCS Student Driver/Passenger Waiver form completed and turned in to the main office.",
+  "I will return to campus in time for my next class. I will not be tardy to class.",
+  "I will not incur more than four lunch-related tardies per year. Tardies may result in escalating consequences, up to total suspension of the privilege, according to the Student Handbook.",
+  "I will maintain an attendance rate of 90% or better.",
+  "I will maintain a GPA of 2.5 or higher with no F's and a maximum of two D's.",
+  "If operating a motor vehicle, I will have a completed driver's form on file in the main office.",
+  "I will operate my vehicle in a lawful and safe way at all times.",
+  "I will not park in parking spaces that are not designated as student parking.",
+];
+const offCampusLiabilityTerms = [
+  {
+    title: "Closed Campus and Purpose",
+    body: "WVCS maintains a closed campus. Students are not permitted to leave campus after being dropped off in the morning until dismissal unless the parent/guardian follows the checkout process through the main office. This form grants permission for the approved off-campus privilege described here.",
+  },
+  {
+    title: "Acknowledgment, Waiver, and Release of Liability",
+    body: "In consideration of allowing the student to leave campus, the parent/guardian freely and voluntarily executes this waiver and release of liability in favor of Willamette Valley Christian School, its directors, officers, trustees, employees, and agents.",
+  },
+  {
+    title: "Release and Waiver",
+    body: "The parent/guardian releases and holds harmless WVCS from liability, claims, and demands related to bodily injury, personal injury, illness, death, or property damage that may result from the student leaving campus, including risks associated with the off-campus activity.",
+  },
+  {
+    title: "Medical Treatment",
+    body: "If emergency medical treatment is required because of illness or accident during the off-campus activity, the parent/guardian consents to such treatment and agrees to inform WVCS of medical conditions that may limit participation or should be known by emergency personnel.",
+  },
+  {
+    title: "Privilege May Be Revoked",
+    body: "Off-campus privileges may be revoked at any time if the student violates WVCS expectations, this agreement, transportation requirements, or the Student Handbook.",
+  },
 ];
 
 function money(value) {
@@ -1550,18 +1577,31 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
                       <div className="flex items-center gap-2 text-sm font-bold text-white">
                         <Info size={16} className="text-sky-300" />
-                        Off-Campus Lunch Terms
+                        Off-Campus Lunch Conditions
                       </div>
-                      <div className="mt-3 max-h-60 overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-3">
                         <ol className="grid gap-2 pl-5 text-sm leading-6 text-slate-300">
-                          {offCampusLunchTerms.map((term) => (
+                          {offCampusLunchAgreementConditions.map((term) => (
                             <li key={term} className="list-decimal">{term}</li>
                           ))}
                         </ol>
                       </div>
+                      <details className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.14em] text-sky-200">
+                          View Terms and Conditions
+                        </summary>
+                        <div className="mt-3 grid gap-3 text-xs leading-5 text-slate-400">
+                          {offCampusLiabilityTerms.map((term) => (
+                            <div key={term.title}>
+                              <div className="font-bold text-slate-200">{term.title}</div>
+                              <div className="mt-1">{term.body}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                       <label className="mt-3 flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm font-semibold text-sky-100">
                         <input type="checkbox" checked={offCampusDraft.termsAcknowledged} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, termsAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
-                        <span>We have read, understand, and agree to the off-campus lunch terms above.</span>
+                        <span>We have read, understand, and agree to the off-campus lunch conditions and the Terms and Conditions above.</span>
                       </label>
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_180px]">
