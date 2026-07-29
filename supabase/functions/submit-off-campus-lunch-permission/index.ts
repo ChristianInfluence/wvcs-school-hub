@@ -1,6 +1,43 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildFosMessage, corsHeaders, normalizeEmail, requiredEnv, sendEmail } from "../_shared/fosEmail.ts";
 
+const termsVersion = "2026-2027-off-campus-lunch-v1";
+const agreementConditions = [
+  "I agree to check out with designated office staff in the elementary building when leaving campus at lunch.",
+  "I agree this privilege will only be used by the student named on this form.",
+  "I will only go to lunch with students who have off-campus lunch privileges.",
+  "If I am driving or being driven by another student, I will have a completed WVCS Student Driver/Passenger Waiver form completed and turned in to the main office.",
+  "I will return to campus in time for my next class. I will not be tardy to class.",
+  "I will not incur more than four lunch-related tardies per year. Tardies may result in escalating consequences, up to total suspension of the privilege, according to the Student Handbook.",
+  "I will maintain an attendance rate of 90% or better.",
+  "I will maintain a GPA of 2.5 or higher with no F's and a maximum of two D's.",
+  "If operating a motor vehicle, I will have a completed driver's form on file in the main office.",
+  "I will operate my vehicle in a lawful and safe way at all times.",
+  "I will not park in parking spaces that are not designated as student parking.",
+];
+const liabilityTerms = [
+  {
+    title: "Closed Campus and Purpose",
+    body: "WVCS maintains a closed campus. Students are not permitted to leave campus after being dropped off in the morning until dismissal unless the parent/guardian follows the checkout process through the main office. This form grants permission for the approved off-campus privilege described here.",
+  },
+  {
+    title: "Acknowledgment, Waiver, and Release of Liability",
+    body: "In consideration of allowing the student to leave campus, the parent/guardian freely and voluntarily executes this waiver and release of liability in favor of Willamette Valley Christian School, its directors, officers, trustees, employees, and agents.",
+  },
+  {
+    title: "Release and Waiver",
+    body: "The parent/guardian releases and holds harmless WVCS from liability, claims, and demands related to bodily injury, personal injury, illness, death, or property damage that may result from the student leaving campus, including risks associated with the off-campus activity.",
+  },
+  {
+    title: "Medical Treatment",
+    body: "If emergency medical treatment is required because of illness or accident during the off-campus activity, the parent/guardian consents to such treatment and agrees to inform WVCS of medical conditions that may limit participation or should be known by emergency personnel.",
+  },
+  {
+    title: "Privilege May Be Revoked",
+    body: "Off-campus privileges may be revoked at any time if the student violates WVCS expectations, this agreement, transportation requirements, or the Student Handbook.",
+  },
+];
+
 function familyKeyFor(row: Record<string, any>) {
   return String([row.email1, row.email2, row.student_last_name].filter(Boolean).join("|")).replace(/\s+/g, "").toLowerCase();
 }
@@ -27,6 +64,12 @@ function validatePermission(permission: Record<string, any>) {
 function isUpperGrade(value: string) {
   const grade = String(value || "").trim().toLowerCase();
   return grade === "11" || grade === "11th" || grade === "12" || grade === "12th";
+}
+
+async function sha256Hex(value: string) {
+  const data = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 Deno.serve(async (request) => {
@@ -80,6 +123,13 @@ Deno.serve(async (request) => {
     }
 
     const submittedAt = new Date().toISOString();
+    const termsSnapshot = { agreementConditions, liabilityTerms };
+    const termsHash = await sha256Hex(JSON.stringify({ termsVersion, termsSnapshot }));
+    const ipAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-real-ip") ||
+      "";
+    const userAgent = request.headers.get("user-agent") || "";
     const row = {
       family_key: access.family_key,
       family_name: access.family_name,
@@ -91,6 +141,13 @@ Deno.serve(async (request) => {
       status: "Pending",
       permission: {
         ...permission,
+        termsVersion,
+        termsSnapshot,
+        termsHash,
+        signedAt: submittedAt,
+        signedByEmail: requesterEmail,
+        ipAddress,
+        userAgent,
         parentEmail: requesterEmail,
         submittedByEmail: requesterEmail,
       },

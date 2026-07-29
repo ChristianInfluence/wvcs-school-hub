@@ -90,6 +90,77 @@ function emailsMatchAny(value, emails = []) {
   return Boolean(normalized && emails.includes(normalized));
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function offCampusPermissionRecordHtml(permission) {
+  const record = permission?.permission || {};
+  const conditions = record.termsSnapshot?.agreementConditions || [];
+  const liability = record.termsSnapshot?.liabilityTerms || [];
+  const allowedDrivers = Array.isArray(record.approvedStudentDrivers) ? record.approvedStudentDrivers.filter(Boolean) : [];
+  return `<!doctype html>
+<html>
+<head>
+  <title>WVCS Off-Campus Lunch Permission</title>
+  <style>
+    @page { size: letter portrait; margin: 0.45in; }
+    body { font-family: Arial, sans-serif; color: #111827; margin: 0; font-size: 12px; line-height: 1.45; }
+    h1 { font-size: 22px; margin: 0 0 4px; text-align: center; }
+    h2 { font-size: 14px; margin: 18px 0 8px; border-bottom: 1px solid #d1d5db; padding-bottom: 4px; }
+    .center { text-align: center; }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 18px; }
+    .box { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; }
+    .label { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; font-weight: 700; }
+    .value { margin-top: 3px; font-weight: 700; }
+    ol { padding-left: 20px; margin: 8px 0; }
+    li { margin-bottom: 5px; }
+    .small { font-size: 10px; color: #374151; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr 140px; gap: 8px; margin-top: 12px; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <h1>Willamette Valley Christian School</h1>
+    <div>Off-Campus Lunch Permission Record</div>
+  </div>
+  <div class="meta">
+    <div class="box"><div class="label">Student</div><div class="value">${escapeHtml(permission?.studentName || "Student")}</div></div>
+    <div class="box"><div class="label">Grade</div><div class="value">${escapeHtml(permission?.studentGrade || "")}</div></div>
+    <div class="box"><div class="label">School Year</div><div class="value">${escapeHtml(permission?.schoolYear || record.schoolYear || "")}</div></div>
+  </div>
+  <h2>Permissions Selected</h2>
+  <div class="meta">
+    <div class="box"><div class="label">Leave Campus</div><div class="value">${record.permitLeaveCampusLunch ? "Yes" : "No"}</div></div>
+    <div class="box"><div class="label">Drive Self</div><div class="value">${record.permitStudentDriveSelf ? "Yes" : "No"}</div></div>
+    <div class="box"><div class="label">Drive Others</div><div class="value">${record.permitStudentDriveOthers ? "Yes" : "No"}</div></div>
+  </div>
+  <div class="box" style="margin-top:8px;"><div class="label">Permitted Student Drivers</div><div class="value">${escapeHtml(allowedDrivers.join(", ") || "None listed")}</div></div>
+  <h2>Agreement Conditions</h2>
+  <ol>${conditions.map((term) => `<li>${escapeHtml(term)}</li>`).join("") || "<li>Terms snapshot not available for this record.</li>"}</ol>
+  <h2>Terms and Conditions</h2>
+  <div class="small">${liability.map((term) => `<p><strong>${escapeHtml(term.title)}</strong><br>${escapeHtml(term.body)}</p>`).join("") || "<p>Terms snapshot not available for this record.</p>"}</div>
+  <h2>E-Signature Record</h2>
+  <div class="signatures">
+    <div class="box"><div class="label">Parent/Guardian Signature</div><div class="value">${escapeHtml(record.parentSignature)}</div></div>
+    <div class="box"><div class="label">Student Signature</div><div class="value">${escapeHtml(record.studentSignature)}</div></div>
+    <div class="box"><div class="label">Signature Date</div><div class="value">${escapeHtml(record.signatureDate)}</div></div>
+  </div>
+  <div class="box small" style="margin-top:8px;">
+    Signed electronically by ${escapeHtml(record.signedByEmail || record.parentEmail || permission?.parentEmail || "")}
+    on ${escapeHtml(record.signedAt || permission?.submittedAt || "")}. Terms version: ${escapeHtml(record.termsVersion || "")}.
+    Terms hash: ${escapeHtml(record.termsHash || "")}. Browser: ${escapeHtml(record.userAgent || "")}. IP: ${escapeHtml(record.ipAddress || "")}.
+  </div>
+  <button onclick="window.print()" style="margin-top:16px;padding:8px 12px;border:1px solid #0f172a;border-radius:6px;background:#0f172a;color:white;font-weight:700;">Print / Save PDF</button>
+</body>
+</html>`;
+}
+
 function isVerifiedDriver(application) {
   return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
 }
@@ -560,6 +631,18 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     } finally {
       setOffCampusReviewingId("");
     }
+  }
+
+  function openOffCampusLunchRecord(permission) {
+    const recordWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+    if (!recordWindow) {
+      setActionStatus("Allow pop-ups to open the signed off-campus lunch record.");
+      return;
+    }
+    recordWindow.document.open();
+    recordWindow.document.write(offCampusPermissionRecordHtml(permission));
+    recordWindow.document.close();
+    setActionStatus("");
   }
 
   function openBackgroundCheckEditor(parent, existingRecord) {
@@ -1151,6 +1234,11 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                             <button type="button" onClick={() => reviewOffCampusLunch(permission, "revoke")} disabled={offCampusReviewingId === permission.id} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Revoke</button>
                           </div>
                         )}
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <button type="button" onClick={() => openOffCampusLunchRecord(permission)} className="rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
+                            View / Print Signed Record
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

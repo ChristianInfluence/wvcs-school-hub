@@ -64,6 +64,7 @@ const studentDriverDefaults = {
 };
 const offCampusLunchDefaults = {
   schoolYear: "2026-2027",
+  termsVersion: "2026-2027-off-campus-lunch-v1",
   studentId: "",
   permitLeaveCampusLunch: true,
   permitStudentDriveSelf: false,
@@ -125,6 +126,77 @@ const offCampusLiabilityTerms = [
     body: "Off-campus privileges may be revoked at any time if the student violates WVCS expectations, this agreement, transportation requirements, or the Student Handbook.",
   },
 ];
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function offCampusPermissionRecordHtml(permission) {
+  const record = permission?.permission || {};
+  const conditions = record.termsSnapshot?.agreementConditions || offCampusLunchAgreementConditions;
+  const liability = record.termsSnapshot?.liabilityTerms || offCampusLiabilityTerms;
+  const allowedDrivers = Array.isArray(record.approvedStudentDrivers) ? record.approvedStudentDrivers.filter(Boolean) : [];
+  return `<!doctype html>
+<html>
+<head>
+  <title>WVCS Off-Campus Lunch Permission</title>
+  <style>
+    @page { size: letter portrait; margin: 0.45in; }
+    body { font-family: Arial, sans-serif; color: #111827; margin: 0; font-size: 12px; line-height: 1.45; }
+    h1 { font-size: 22px; margin: 0 0 4px; text-align: center; }
+    h2 { font-size: 14px; margin: 18px 0 8px; border-bottom: 1px solid #d1d5db; padding-bottom: 4px; }
+    .center { text-align: center; }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 18px; }
+    .box { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; }
+    .label { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; font-weight: 700; }
+    .value { margin-top: 3px; font-weight: 700; }
+    ol { padding-left: 20px; margin: 8px 0; }
+    li { margin-bottom: 5px; }
+    .small { font-size: 10px; color: #374151; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr 140px; gap: 8px; margin-top: 12px; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <h1>Willamette Valley Christian School</h1>
+    <div>Off-Campus Lunch Permission Record</div>
+  </div>
+  <div class="meta">
+    <div class="box"><div class="label">Student</div><div class="value">${escapeHtml(permission?.studentName || "Student")}</div></div>
+    <div class="box"><div class="label">Grade</div><div class="value">${escapeHtml(permission?.studentGrade || "")}</div></div>
+    <div class="box"><div class="label">School Year</div><div class="value">${escapeHtml(permission?.schoolYear || record.schoolYear || "")}</div></div>
+  </div>
+  <h2>Permissions Selected</h2>
+  <div class="meta">
+    <div class="box"><div class="label">Leave Campus</div><div class="value">${record.permitLeaveCampusLunch ? "Yes" : "No"}</div></div>
+    <div class="box"><div class="label">Drive Self</div><div class="value">${record.permitStudentDriveSelf ? "Yes" : "No"}</div></div>
+    <div class="box"><div class="label">Drive Others</div><div class="value">${record.permitStudentDriveOthers ? "Yes" : "No"}</div></div>
+  </div>
+  <div class="box" style="margin-top:8px;"><div class="label">Permitted Student Drivers</div><div class="value">${escapeHtml(allowedDrivers.join(", ") || "None listed")}</div></div>
+  <h2>Agreement Conditions</h2>
+  <ol>${conditions.map((term) => `<li>${escapeHtml(term)}</li>`).join("")}</ol>
+  <h2>Terms and Conditions</h2>
+  <div class="small">${liability.map((term) => `<p><strong>${escapeHtml(term.title)}</strong><br>${escapeHtml(term.body)}</p>`).join("")}</div>
+  <h2>E-Signature Record</h2>
+  <div class="signatures">
+    <div class="box"><div class="label">Parent/Guardian Signature</div><div class="value">${escapeHtml(record.parentSignature)}</div></div>
+    <div class="box"><div class="label">Student Signature</div><div class="value">${escapeHtml(record.studentSignature)}</div></div>
+    <div class="box"><div class="label">Signature Date</div><div class="value">${escapeHtml(record.signatureDate)}</div></div>
+  </div>
+  <div class="box small" style="margin-top:8px;">
+    Signed electronically by ${escapeHtml(record.signedByEmail || record.parentEmail || permission?.parentEmail || "")}
+    on ${escapeHtml(record.signedAt || permission?.submittedAt || "")}. Terms version: ${escapeHtml(record.termsVersion || "")}.
+    Terms hash: ${escapeHtml(record.termsHash || "")}. Browser: ${escapeHtml(record.userAgent || "")}. IP: ${escapeHtml(record.ipAddress || "")}.
+  </div>
+  <button onclick="window.print()" style="margin-top:16px;padding:8px 12px;border:1px solid #0f172a;border-radius:6px;background:#0f172a;color:white;font-weight:700;">Print / Save PDF</button>
+</body>
+</html>`;
+}
 
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -727,6 +799,18 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
         ? current.approvedStudentDrivers.filter((_, nameIndex) => nameIndex !== index)
         : [""],
     }));
+  }
+
+  function openOffCampusLunchRecord(permission) {
+    const recordWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+    if (!recordWindow) {
+      setOffCampusStatus("Allow pop-ups to open the signed off-campus lunch record.");
+      return;
+    }
+    recordWindow.document.open();
+    recordWindow.document.write(offCampusPermissionRecordHtml(permission));
+    recordWindow.document.close();
+    setOffCampusStatus("");
   }
 
   async function submitOffCampusLunchForm() {
@@ -1514,6 +1598,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                             Submitted {shortDate(permission.submittedAt)}{permission.expiresAt ? ` | Approved through ${shortDate(permission.expiresAt)}` : ""}
                           </div>
                           {permission.officeNote && <div className="mt-2 text-xs text-slate-300">Office note: {permission.officeNote}</div>}
+                          <button type="button" onClick={() => openOffCampusLunchRecord(permission)} className="mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+                            View / Print Signed Record
+                          </button>
                         </div>
                       ))}
                     </div>
