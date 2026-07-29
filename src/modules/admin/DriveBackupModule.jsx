@@ -38,6 +38,20 @@ function jobTone(status) {
   return "slate";
 }
 
+function jobSourceLabel(sourceType) {
+  const labels = {
+    permission_submission: "Permission Slip",
+    form_submission: "Form",
+    tuition_invoice: "Tuition",
+    incidental_invoice: "Invoice",
+    incidental_receipt: "Receipt",
+    volunteer_driver_application: "Volunteer Driver",
+    student_driver_registration: "Student Driver",
+    off_campus_lunch_permission: "Off-Campus Lunch",
+  };
+  return labels[sourceType] || "Backup";
+}
+
 function FolderPath({ title, children }) {
   return (
     <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2">
@@ -575,7 +589,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
                 <Database size={16} className="text-sky-300" />
                 Recent Backup Queue
               </div>
-              <div className="mt-1 text-xs text-slate-500">Signed slips, approved form PDFs, finance invoices, and receipts appear here before upload.</div>
+              <div className="mt-1 text-xs text-slate-500">Signed slips, approved form PDFs, family forms, finance invoices, and receipts appear here before upload.</div>
             </div>
             <StatusPill>{jobs.length} records</StatusPill>
           </div>
@@ -584,15 +598,7 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               jobs.map((job) => (
                 <div key={job.id} className="grid gap-3 border-b border-slate-800 px-4 py-3 last:border-b-0 lg:grid-cols-[160px_1fr_120px_130px] lg:items-center">
                   <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    {job.sourceType === "permission_submission"
-                      ? "Permission Slip"
-                      : job.sourceType === "form_submission"
-                        ? "Form"
-                        : job.sourceType === "tuition_invoice"
-                          ? "Tuition"
-                          : job.sourceType === "incidental_receipt"
-                            ? "Receipt"
-                            : "Invoice"}
+                    {jobSourceLabel(job.sourceType)}
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-white">{job.filename || job.sourceId}</div>

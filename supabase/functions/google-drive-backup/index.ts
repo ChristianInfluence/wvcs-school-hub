@@ -10,6 +10,26 @@ const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const JSON_MIME = "application/json";
 const FINANCE_SOURCE_TYPES = new Set(["tuition_invoice", "incidental_invoice", "incidental_receipt"]);
+const FAMILY_FORM_SOURCE_TYPES: Record<string, { table: string; payloadKey: string; title: string; namePrefix: string }> = {
+  volunteer_driver_application: {
+    table: "volunteer_driver_applications",
+    payloadKey: "application",
+    title: "Volunteer Driver Application",
+    namePrefix: "Volunteer-Driver-Application",
+  },
+  student_driver_registration: {
+    table: "student_driver_registrations",
+    payloadKey: "registration",
+    title: "Student Driver Vehicle Registration",
+    namePrefix: "Student-Driver-Registration",
+  },
+  off_campus_lunch_permission: {
+    table: "off_campus_lunch_permissions",
+    payloadKey: "permission",
+    title: "Off-Campus Lunch Permission",
+    namePrefix: "Off-Campus-Lunch-Permission",
+  },
+};
 
 const SNAPSHOT_DATASETS = [
   {
@@ -165,6 +185,15 @@ function financeBackupFilename(kind: string, row: Record<string, any>) {
   const datePart = shortDate(row.paid_at || row.sent_at || invoice.invoiceDate || row.updated_at || row.created_at || new Date());
   const status = sanitizeFilePart(row.payment_status || row.status || invoice.paymentStatus || invoice.status || "Saved");
   return `${familyName}_${kind}_${datePart}_${status}.pdf`;
+}
+
+function familyFormBackupFilename(sourceType: string, row: Record<string, any>) {
+  const config = FAMILY_FORM_SOURCE_TYPES[sourceType] || { namePrefix: "Family-Form" };
+  const familyName = sanitizeFilePart(row.family_name || "WVCS-Family");
+  const subject = sanitizeFilePart(row.student_name || row.parent_name || "Record");
+  const datePart = shortDate(row.submitted_at || row.updated_at || new Date());
+  const status = sanitizeFilePart(row.status || "Submitted");
+  return `${familyName}_${subject}_${config.namePrefix}_${datePart}_${status}.pdf`;
 }
 
 function concatUint8Arrays(parts: Uint8Array[]) {
@@ -392,6 +421,29 @@ function wrapText(text: string, maxChars = 88) {
   return lines.length ? lines : [""];
 }
 
+function yesNo(value: unknown) {
+  return value ? "Yes" : "No";
+}
+
+function formatList(values: unknown) {
+  if (!Array.isArray(values)) return "";
+  return values.map((value) => String(value || "").trim()).filter(Boolean).join(", ");
+}
+
+function readableLabel(key: string) {
+  return String(key || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function stringValue(value: unknown) {
+  if (typeof value === "boolean") return yesNo(value);
+  if (Array.isArray(value)) return formatList(value);
+  if (value && typeof value === "object") return "";
+  return String(value ?? "").trim();
+}
+
 function chargeTotal(invoice: Record<string, any>) {
   return Array.isArray(invoice.charges)
     ? invoice.charges.reduce((total: number, charge: Record<string, any>) => total + money(charge.amount), 0)
@@ -512,7 +564,140 @@ async function createFinancePdfBlob(row: Record<string, any>, sourceType: string
   return new Blob([bytes], { type: "application/pdf" });
 }
 
+async function createFamilyFormPdfBlob(row: Record<string, any>, sourceType: string) {
+  const config = FAMILY_FORM_SOURCE_TYPES[sourceType];
+  const payload = row[config.payloadKey] || {};
+  const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage([612, 792]);
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const margin = 48;
+  let y = 744;
+
+  function ensureSpace(amount = 40) {
+    if (y < amount) {
+      page = pdfDoc.addPage([612, 792]);
+      y = 744;
+    }
+  }
+
+  function draw(text: string, x = margin, size = 10, font = regular, color = rgb(0.15, 0.18, 0.23), maxChars = 86) {
+    for (const line of wrapText(String(text || ""), maxChars)) {
+      ensureSpace(60);
+      page.drawText(line, { x, y, size, font, color });
+      y -= size + 6;
+    }
+  }
+
+  function drawPair(label: string, value: string) {
+    ensureSpace(55);
+    page.drawText(label, { x: margin, y, size: 9, font: bold, color: rgb(0.35, 0.39, 0.46) });
+    const lines = wrapText(value || "-", 58);
+    lines.forEach((line, index) => {
+      page.drawText(line, { x: 190, y: y - index * 15, size: 9, font: regular, color: rgb(0.12, 0.14, 0.18) });
+    });
+    y -= Math.max(17, lines.length * 15);
+  }
+
+  function section(title: string) {
+    y -= 4;
+    ensureSpace(70);
+    page.drawLine({ start: { x: margin, y }, end: { x: 564, y }, thickness: 1, color: rgb(0.82, 0.85, 0.9) });
+    y -= 18;
+    page.drawText(title, { x: margin, y, size: 12, font: bold, color: rgb(0.04, 0.22, 0.36) });
+    y -= 20;
+  }
+
+  page.drawRectangle({ x: 0, y: 720, width: 612, height: 72, color: rgb(0.95, 0.98, 1) });
+  page.drawText("Willamette Valley Christian School", { x: margin, y: 760, size: 16, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  page.drawText("9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236", { x: margin, y: 740, size: 9, font: regular, color: rgb(0.28, 0.33, 0.4) });
+  page.drawText(config.title, { x: 340, y: 760, size: 12, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  y = 700;
+
+  drawPair("Family", row.family_name || "WVCS Family");
+  if (row.student_name) drawPair("Student", `${row.student_name}${row.student_grade ? `, Grade ${row.student_grade}` : ""}`);
+  if (row.parent_name) drawPair("Parent/Guardian", row.parent_name);
+  drawPair("Parent Email", row.parent_email || payload.parentEmail || payload.submittedByEmail || "");
+  drawPair("School Year", row.school_year || payload.schoolYear || "");
+  drawPair("Submitted", shortDate(row.submitted_at));
+  drawPair("Status", row.status || "Pending");
+  if (row.reviewed_at) drawPair("Reviewed", `${shortDate(row.reviewed_at)}${row.reviewed_by_email ? ` by ${row.reviewed_by_email}` : ""}`);
+  if (row.expires_at) drawPair("Expires", shortDate(row.expires_at));
+  if (row.office_note) drawPair("Office Note", row.office_note);
+
+  section("Submitted Details");
+  const hiddenKeys = new Set([
+    "studentId",
+    "schoolYear",
+    "parentEmail",
+    "submittedByEmail",
+    "termsSnapshot",
+    "minimumRequirements",
+    "termsHash",
+    "ipAddress",
+    "userAgent",
+  ]);
+  for (const [key, value] of Object.entries(payload)) {
+    if (hiddenKeys.has(key)) continue;
+    const rendered = stringValue(value);
+    if (rendered) drawPair(readableLabel(key), rendered);
+  }
+
+  if (sourceType === "off_campus_lunch_permission") {
+    const terms = payload.termsSnapshot || {};
+    if (Array.isArray(terms.agreementConditions) && terms.agreementConditions.length) {
+      section("Agreement Conditions");
+      terms.agreementConditions.forEach((condition: string, index: number) => draw(`${index + 1}. ${condition}`, margin, 8.5, regular, rgb(0.15, 0.18, 0.23), 105));
+    }
+    if (Array.isArray(terms.liabilityTerms) && terms.liabilityTerms.length) {
+      section("Terms and Conditions");
+      terms.liabilityTerms.forEach((term: Record<string, string>) => {
+        draw(term.title || "Term", margin, 9, bold, rgb(0.12, 0.14, 0.18), 96);
+        draw(term.body || "", margin, 8.2, regular, rgb(0.2, 0.23, 0.28), 110);
+        y -= 3;
+      });
+    }
+  }
+
+  if (attachments.length) {
+    section("Attachments");
+    attachments.forEach((attachment: Record<string, any>) => {
+      draw(`${attachment.label || readableLabel(attachment.kind || "Attachment")}: ${attachment.name || attachment.path || "Uploaded file"}`, margin, 9);
+    });
+  }
+
+  section("Electronic Signature Record");
+  drawPair("Parent Signature", payload.parentSignature || payload.parentName || row.parent_name || "");
+  if (payload.studentSignature) drawPair("Student Signature", payload.studentSignature);
+  drawPair("Signature Date", shortDate(payload.signatureDate || payload.signedAt || row.submitted_at));
+  drawPair("Signed By Email", payload.signedByEmail || payload.submittedByEmail || row.parent_email || "");
+  if (payload.termsVersion) drawPair("Terms Version", payload.termsVersion);
+  if (payload.termsHash) drawPair("Terms Hash", payload.termsHash);
+  if (payload.ipAddress) drawPair("IP Address", payload.ipAddress);
+  if (payload.userAgent) drawPair("Device / Browser", payload.userAgent);
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
 async function getJobBlob(supabase: ReturnType<typeof createClient>, job: Record<string, unknown>) {
+  if (FAMILY_FORM_SOURCE_TYPES[String(job.source_type)]) {
+    const config = FAMILY_FORM_SOURCE_TYPES[String(job.source_type)];
+    const { data, error } = await supabase
+      .from(config.table)
+      .select("*")
+      .eq("id", job.source_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The family form record could not be found.");
+    return {
+      blob: await createFamilyFormPdfBlob(data, String(job.source_type)),
+      filename: String(job.filename || familyFormBackupFilename(String(job.source_type), data)),
+      mimeType: "application/pdf",
+    };
+  }
+
   if (FINANCE_SOURCE_TYPES.has(String(job.source_type))) {
     const table = job.source_type === "tuition_invoice" ? "tuition_invoices" : "incidental_invoices";
     const { data, error } = await supabase

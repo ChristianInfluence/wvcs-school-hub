@@ -15,6 +15,15 @@ function safePath(value: string) {
   return String(value || "file").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "file";
 }
 
+function safeFilePart(value: string) {
+  return String(value || "WVCS")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 100) || "WVCS";
+}
+
 function dataUrlToBlob(file: Record<string, string>) {
   const content = String(file.contentBase64 || "").trim();
   if (!content) throw new Error(`Missing upload content for ${file.label || file.name || "attachment"}.`);
@@ -122,6 +131,32 @@ Deno.serve(async (request) => {
       .select("*")
       .single();
     if (insertError) throw insertError;
+
+    await supabase.from("drive_backup_jobs").upsert(
+      {
+        source_type: "volunteer_driver_application",
+        source_id: applicationId,
+        status: "pending",
+        target_folder_path: [
+          "Family Portal",
+          "Forms and Driver Records",
+          row.school_year,
+          row.family_name || "WVCS Family",
+        ],
+        filename: `${safeFilePart(row.family_name)}_${safeFilePart(row.parent_name)}_Volunteer-Driver-Application_${submittedAt.slice(0, 10)}_Submitted.pdf`,
+        metadata: {
+          familyKey: row.family_key,
+          familyName: row.family_name,
+          parentName: row.parent_name,
+          parentEmail: row.parent_email,
+          formTitle: "Volunteer Driver Application",
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "source_type,source_id,filename" },
+    ).then(({ error }) => {
+      if (error) console.warn("Drive backup queue failed:", error.message);
+    });
 
     await sendEmail(
       buildFosMessage({

@@ -42,6 +42,15 @@ function familyKeyFor(row: Record<string, any>) {
   return String([row.email1, row.email2, row.student_last_name].filter(Boolean).join("|")).replace(/\s+/g, "").toLowerCase();
 }
 
+function safeFilePart(value: string) {
+  return String(value || "WVCS")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 100) || "WVCS";
+}
+
 function requireField(permission: Record<string, any>, key: string, label: string) {
   if (!String(permission[key] || "").trim()) throw new Error(`Please complete: ${label}.`);
 }
@@ -161,6 +170,32 @@ Deno.serve(async (request) => {
       .select("*")
       .single();
     if (insertError) throw insertError;
+
+    await supabase.from("drive_backup_jobs").upsert(
+      {
+        source_type: "off_campus_lunch_permission",
+        source_id: inserted.id,
+        status: "pending",
+        target_folder_path: [
+          "Family Portal",
+          "Forms and Driver Records",
+          row.school_year,
+          row.family_name || "WVCS Family",
+        ],
+        filename: `${safeFilePart(row.family_name)}_${safeFilePart(row.student_name)}_Off-Campus-Lunch-Permission_${submittedAt.slice(0, 10)}_Submitted.pdf`,
+        metadata: {
+          familyKey: row.family_key,
+          familyName: row.family_name,
+          studentName: row.student_name,
+          parentEmail: row.parent_email,
+          formTitle: "Off-Campus Lunch Permission",
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "source_type,source_id,filename" },
+    ).then(({ error }) => {
+      if (error) console.warn("Drive backup queue failed:", error.message);
+    });
 
     await sendEmail(
       buildFosMessage({
