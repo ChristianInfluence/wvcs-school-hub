@@ -50,6 +50,24 @@ export function normalizeOfficeEmailSettings(settings = {}) {
   };
 }
 
+function normalizeFosAdjustmentRecord(record = {}) {
+  return {
+    fullTimeStaff: Boolean(record.fullTimeStaff),
+    partTimeStaff: Boolean(record.partTimeStaff),
+    partTimePercent: Math.min(Math.max(Number(record.partTimePercent || 0), 0), 100),
+    singleParentHousehold: Boolean(record.singleParentHousehold),
+  };
+}
+
+export function normalizeFosAdjustments(settings = {}) {
+  const families = settings.families || {};
+  return {
+    families: Object.fromEntries(
+      Object.entries(families).map(([familyKey, record]) => [familyKey, normalizeFosAdjustmentRecord(record)])
+    ),
+  };
+}
+
 export async function fetchFamilyPortalSettings() {
   if (!isSupabaseConfigured) return { loaded: false, settings: DEFAULT_FAMILY_PORTAL_SETTINGS, reason: "Supabase is not configured." };
 
@@ -109,6 +127,50 @@ export async function backfillEmailAuditLog() {
   const { data, error } = await supabase.functions.invoke("backfill-email-audit", { body: {} });
   if (error) throw error;
   return data || { backfilled: true };
+}
+
+export async function fetchFosAdjustmentSettings() {
+  if (!isSupabaseConfigured) return { loaded: false, settings: { families: {} }, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings,updated_by_email,updated_at")
+    .eq("id", "fos_adjustments")
+    .maybeSingle();
+
+  if (error) return { loaded: false, settings: { families: {} }, reason: "FOS adjustment settings are not available yet." };
+  return {
+    loaded: true,
+    settings: normalizeFosAdjustments(data?.settings || { families: {} }),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function saveFosAdjustmentSettings(settings, updatedByEmail = "") {
+  const normalized = normalizeFosAdjustments(settings);
+  if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .upsert(
+      {
+        id: "fos_adjustments",
+        settings: normalized,
+        updated_by_email: updatedByEmail || null,
+      },
+      { onConflict: "id" }
+    )
+    .select("settings,updated_by_email,updated_at")
+    .single();
+
+  if (error) throw error;
+  return {
+    saved: true,
+    settings: normalizeFosAdjustments(data?.settings || normalized),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
 }
 
 export async function saveFamilyPortalSettings(settings, updatedByEmail = "") {

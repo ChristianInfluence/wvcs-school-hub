@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite } from "../../lib/familyPortalData.js";
-import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
+import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
@@ -131,6 +131,14 @@ function driverTone(status) {
   return "slate";
 }
 
+function calculateFosLiabilityFromAdjustments(settings = {}) {
+  if (settings.fullTimeStaff) return 0;
+  const partTimePercent = settings.partTimeStaff ? Math.min(Math.max(Number(settings.partTimePercent || 0), 0), 100) : 0;
+  const partTimeAdjusted = FOS_BUYOUT_AMOUNT * (1 - partTimePercent / 100);
+  const singleParentAdjusted = settings.singleParentHousehold ? partTimeAdjusted * 0.5 : partTimeAdjusted;
+  return Math.round(singleParentAdjusted * 100) / 100;
+}
+
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
   const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
   const [search, setSearch] = useState("");
@@ -144,6 +152,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [backgroundDrafts, setBackgroundDrafts] = useState({});
   const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
   const [backgroundEditor, setBackgroundEditor] = useState(null);
+  const [fosAdjustmentDrafts, setFosAdjustmentDrafts] = useState({});
+  const [fosAdjustmentSavingKey, setFosAdjustmentSavingKey] = useState("");
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -154,13 +164,14 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, auditResult, driverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, adjustmentResult, auditResult, driverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
         fetchLunchAdminData(),
         fetchFosEntries(),
         fetchFamilyPortalAccessRecords(),
+        fetchFosAdjustmentSettings(),
         fetchFosAuditEvents(120),
         fetchVolunteerDriverApplications(),
         fetchParentBackgroundChecks(),
@@ -184,13 +195,14 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         permissionRecipients: permissionRecipientsResult.recipients || [],
         permissionSubmissions: permissionSubmissionsResult.submissions || [],
         formSubmissions: formSubmissionsResult.submissions || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
         inviteMap[access.familyKey] = access.contactEmails || [];
       });
       setInviteDrafts((current) => ({ ...inviteMap, ...current }));
+      setFosAdjustmentDrafts((current) => ({ ...(adjustmentResult.settings?.families || {}), ...current }));
     } catch (error) {
       setData((current) => ({ ...current, loading: false, error: error.message }));
     }
@@ -360,6 +372,65 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       setActionStatus(`Unable to send family portal invite: ${error.message}`);
     } finally {
       setPortalLoadingKey("");
+    }
+  }
+
+  function getFosAdjustmentDraft(family) {
+    return fosAdjustmentDrafts[family.familyKey] || {
+      fullTimeStaff: false,
+      partTimeStaff: false,
+      partTimePercent: 0,
+      singleParentHousehold: false,
+    };
+  }
+
+  function updateFosAdjustmentDraft(familyKey, patch) {
+    setFosAdjustmentDrafts((current) => ({
+      ...current,
+      [familyKey]: {
+        fullTimeStaff: false,
+        partTimeStaff: false,
+        partTimePercent: 0,
+        singleParentHousehold: false,
+        ...(current[familyKey] || {}),
+        ...patch,
+      },
+    }));
+    setActionStatus("");
+  }
+
+  async function saveFosAdjustment(family) {
+    const draft = getFosAdjustmentDraft(family);
+    const normalizedDraft = {
+      fullTimeStaff: Boolean(draft.fullTimeStaff),
+      partTimeStaff: Boolean(draft.partTimeStaff),
+      partTimePercent: draft.partTimeStaff ? Math.min(Math.max(Number(draft.partTimePercent || 0), 0), 100) : 0,
+      singleParentHousehold: Boolean(draft.singleParentHousehold),
+    };
+    const liabilityAmount = calculateFosLiabilityFromAdjustments(normalizedDraft);
+    try {
+      setFosAdjustmentSavingKey(family.familyKey);
+      setActionStatus(`Saving FOS adjustment for ${family.familyName}...`);
+      if (!family.access) {
+        await ensureFamilyPortalAccess(family, currentUserEmail);
+      }
+      await updateFamilyFosSettings(family.familyKey, {
+        liabilityAmount,
+        hourValue: FOS_HOUR_VALUE,
+      });
+      await saveFosAdjustmentSettings({
+        families: {
+          ...fosAdjustmentDrafts,
+          [family.familyKey]: normalizedDraft,
+        },
+      }, currentUserEmail);
+      setFosAdjustmentDrafts((current) => ({ ...current, [family.familyKey]: normalizedDraft }));
+      setActionStatus(`FOS liability saved for ${family.familyName}: ${money(liabilityAmount)}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to save FOS adjustment: ${error.message}`);
+    } finally {
+      setFosAdjustmentSavingKey("");
     }
   }
 
@@ -569,6 +640,81 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                       );
                     })}
                   </div>
+                  {(() => {
+                    const fosDraft = getFosAdjustmentDraft(selectedFamily);
+                    const adjustedLiability = calculateFosLiabilityFromAdjustments(fosDraft);
+                    return (
+                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Office FOS Adjustments</div>
+                            <div className="mt-1 text-xs text-slate-600">Office-only flags that set this family&apos;s FOS liability.</div>
+                          </div>
+                          <div className="text-sm font-black text-slate-950">FOS liability: {money(adjustedLiability)}</div>
+                        </div>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-[auto_auto_minmax(180px,240px)_auto] lg:items-center">
+                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={fosDraft.fullTimeStaff}
+                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { fullTimeStaff: event.target.checked, partTimeStaff: event.target.checked ? false : fosDraft.partTimeStaff })}
+                              className="h-4 w-4 accent-sky-600"
+                            />
+                            Full-time staff
+                          </label>
+                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={fosDraft.partTimeStaff}
+                              disabled={fosDraft.fullTimeStaff}
+                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { partTimeStaff: event.target.checked })}
+                              className="h-4 w-4 accent-sky-600 disabled:opacity-50"
+                            />
+                            Part-time staff
+                          </label>
+                          <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                            Percent of full-time
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={fosDraft.partTimePercent}
+                                disabled={!fosDraft.partTimeStaff || fosDraft.fullTimeStaff}
+                                onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { partTimePercent: event.target.value })}
+                                className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-950 outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+                              />
+                              <span className="text-sm font-bold text-slate-500">%</span>
+                            </div>
+                          </label>
+                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={fosDraft.singleParentHousehold}
+                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { singleParentHousehold: event.target.checked })}
+                              className="h-4 w-4 accent-sky-600"
+                            />
+                            Single-parent household
+                          </label>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="text-[11px] leading-4 text-slate-500">
+                            Full-time staff sets liability to $0. Part-time reduces liability by the percent entered. Single-parent household reduces the remaining liability by 50%.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => saveFosAdjustment(selectedFamily)}
+                            disabled={fosAdjustmentSavingKey === selectedFamily.familyKey}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-black text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Save size={14} />
+                            {fosAdjustmentSavingKey === selectedFamily.familyKey ? "Saving..." : "Save FOS"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 lg:w-[360px]">
                   <div className="font-bold text-slate-900">Portal Access</div>
