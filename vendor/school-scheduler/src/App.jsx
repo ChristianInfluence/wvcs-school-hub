@@ -147,6 +147,11 @@ const VERSIONS_KEY = "wvcs-master-scheduler-versions";
 
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SEMESTERS = ["Semester 1", "Semester 2"];
+const SCHEDULER_TABS = {
+  MASTER: "master",
+  ELEMENTARY_PULLOUT: "elementary-pullout",
+};
+const PULLOUT_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const GRADE_OPTIONS = ["6", "7", "8", "9", "10", "11", "12"];
 const FULL_SPAN_BLOCK_TYPES = new Set(["prep", "no-class", "professional-duties"]);
 
@@ -229,11 +234,34 @@ const initialClasses = [
   },
 ];
 
+const initialElementaryPulloutSchedule = {
+  title: "Elementary Pull-Out Schedule 2025-2026",
+  rows: [
+    { id: "8-15", time: "8:15 - 8:45", Monday: "4th PE", Tuesday: "4th Music", Wednesday: "Elem Chapel\n8:10 - 8:45", Thursday: "4th PE", Friday: "4th Music" },
+    { id: "8-45", time: "8:45 - 9:15", Monday: "5th PE", Tuesday: "5th Music", Wednesday: "", Thursday: "5th PE", Friday: "5th Music" },
+    { id: "9-15", time: "9:15 - 9:45", Monday: "2nd PE", Tuesday: "2nd Music", Wednesday: "", Thursday: "2nd PE", Friday: "2nd Music" },
+    { id: "9-45", time: "9:45 - 10:15", Monday: "1st PE", Tuesday: "1st Music", Wednesday: "", Thursday: "1st PE", Friday: "1st Music" },
+    { id: "10-15", time: "10:15 - 10:45", Monday: "K PE", Tuesday: "K Music", Wednesday: "", Thursday: "K PE", Friday: "K Music" },
+    { id: "10-45", time: "10:45 - 11:15", Monday: "2nd Computer", Tuesday: "3rd Music\n11:00 - 11:30", Wednesday: "", Thursday: "2nd Computer", Friday: "3rd Music\n11:00 - 11:30" },
+    { id: "11-25", time: "11:25 - 11:55", Monday: "3rd Computer", Tuesday: "", Wednesday: "", Thursday: "3rd Computer", Friday: "" },
+    { id: "12-00", time: "12:00 - 12:45", Monday: "Lunch/Recess", Tuesday: "Lunch/Recess", Wednesday: "Lunch/Recess", Thursday: "Lunch/Recess", Friday: "Lunch/Recess" },
+    { id: "1-00", time: "1:00 - 1:30", Monday: "5th Computer", Tuesday: "", Wednesday: "", Thursday: "5th Computer", Friday: "" },
+    { id: "1-40", time: "1:40 - 2:10", Monday: "4th Computer", Tuesday: "", Wednesday: "", Thursday: "4th Computer", Friday: "" },
+    { id: "2-15", time: "2:15 - 2:45", Monday: "3rd PE", Tuesday: "", Wednesday: "", Thursday: "3rd PE", Friday: "" },
+  ],
+  notes: {
+    recess: "M-F\n9:00 - 9:15  2/3 recess\n9:15 - 9:30  K/1 recess\n9:30 - 9:45  4/5 recess",
+    lunch: "M, T, Th, F: Lunch\n12:00  K-2 eats lunch; 3-5 recess\n12:22  3-5 eats lunch; K-2 recess\n\nW: Lunch\n12:20  K-2 eats lunch; 3-5 recess\n12:40  3-5 eats lunch; K-2 recess",
+    note: "Note: lunch periods are 20 min. + recess 20 min.",
+  },
+};
+
 const initialState = {
   teachers: initialTeachers,
   classes: initialClasses,
   scheduleBlocks: [],
   periodTimes: initialPeriodTimes,
+  elementaryPullout: initialElementaryPulloutSchedule,
   appSettings: {
     title: "WVCS Master Scheduler",
     subtitle: "Build next year’s schedule by teacher, period, room, and semester.",
@@ -260,10 +288,49 @@ const colorOptions = [
   { label: "Orange", value: "bg-orange-950 border-orange-500 text-orange-50" },
 ];
 
+function normalizeElementaryPulloutSchedule(schedule) {
+  const source = schedule || {};
+  const sourceRows = Array.isArray(source.rows) ? source.rows : [];
+  const sourceRowsById = new Map(sourceRows.map((row) => [row.id, row]));
+
+  return {
+    ...initialElementaryPulloutSchedule,
+    ...source,
+    rows: initialElementaryPulloutSchedule.rows.map((row) => ({
+      ...row,
+      ...(sourceRowsById.get(row.id) || {}),
+    })),
+    notes: {
+      ...initialElementaryPulloutSchedule.notes,
+      ...(source.notes || {}),
+    },
+  };
+}
+
+function normalizeWorkingState(data) {
+  return {
+    ...initialState,
+    ...(data || {}),
+    teachers: data?.teachers || initialTeachers,
+    classes: data?.classes || initialClasses,
+    scheduleBlocks: data?.scheduleBlocks || [],
+    periodTimes: data?.periodTimes || initialPeriodTimes,
+    elementaryPullout: normalizeElementaryPulloutSchedule(data?.elementaryPullout),
+    appSettings: {
+      ...initialState.appSettings,
+      ...(data?.appSettings || {}),
+      lunch: {
+        ...initialState.appSettings.lunch,
+        ...(data?.appSettings?.lunch || {}),
+      },
+    },
+  };
+}
+
 function getInitialWorkingState() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : initialState;
+    return saved ? normalizeWorkingState(JSON.parse(saved)) : initialState;
   } catch {
     return initialState;
   }
@@ -479,12 +546,14 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeCellPicker, setActiveCellPicker] = useState(null);
   const [dragPreview, setDragPreview] = useState(null);
+  const [activeSchedulerTab, setActiveSchedulerTab] = useState(SCHEDULER_TABS.MASTER);
   const [scheduleZoom, setScheduleZoom] = useState(0.85);
   const [updateStatus, setUpdateStatus] = useState("");
   const fileInputRef = useRef(null);
   const classImportRef = useRef(null);
 
   const { teachers, classes, scheduleBlocks, periodTimes, appSettings } = workingState;
+  const elementaryPullout = normalizeElementaryPulloutSchedule(workingState.elementaryPullout);
   const sidebarGridClass = sidebarHidden
     ? "grid min-w-0 gap-4 grid-cols-1 print:block"
     : "grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] print:block";
@@ -567,22 +636,7 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   }
 
   function normalizeVersionData(data) {
-    return {
-      ...initialState,
-      ...(data || {}),
-      teachers: data?.teachers || [],
-      classes: data?.classes || [],
-      scheduleBlocks: data?.scheduleBlocks || [],
-      periodTimes: data?.periodTimes || initialPeriodTimes,
-      appSettings: {
-        ...initialState.appSettings,
-        ...(data?.appSettings || {}),
-        lunch: {
-          ...initialState.appSettings.lunch,
-          ...(data?.appSettings?.lunch || {}),
-        },
-      },
-    };
+    return normalizeWorkingState(data);
   }
 
   function upsertVersionList(savedVersion) {
@@ -1015,7 +1069,7 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
           return;
         }
 
-        commit(() => normalizedImport);
+        commit(() => normalizeWorkingState(normalizedImport));
         alert(
           missingTeachers.length
             ? `Schedule imported successfully. Added ${missingTeachers.length} missing teacher${missingTeachers.length === 1 ? "" : "s"} from the saved schedule.`
@@ -1455,8 +1509,133 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
     return html;
   }
 
+  function buildPrintablePulloutElement() {
+    const generatedOn = new Date().toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const html = document.createElement("div");
+    html.className = "scheduler-print-sheet";
+    html.style.boxSizing = "border-box";
+    html.style.width = "10.64in";
+    html.style.height = "8.14in";
+    html.style.padding = "0.18in";
+    html.style.fontFamily = "Arial, sans-serif";
+    html.style.backgroundColor = "#ffffff";
+    html.style.color = "#111827";
+    html.style.overflow = "hidden";
+
+    const title = document.createElement("h1");
+    title.textContent = elementaryPullout.title || "Elementary Pull-Out Schedule";
+    title.style.margin = "0 0 0.08in";
+    title.style.paddingBottom = "0.06in";
+    title.style.borderBottom = "3px double #111827";
+    title.style.textAlign = "center";
+    title.style.textTransform = "uppercase";
+    title.style.fontSize = "19px";
+    title.style.letterSpacing = "0";
+    title.style.fontWeight = "800";
+    html.appendChild(title);
+
+    const table = document.createElement("table");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.style.tableLayout = "fixed";
+    table.style.fontSize = "12px";
+    table.style.border = "1.5px solid #374151";
+
+    const headerRow = document.createElement("tr");
+    ["Time", ...PULLOUT_DAYS].forEach((label, index) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      th.style.border = "1.5px solid #374151";
+      th.style.backgroundColor = "#e5e7eb";
+      th.style.color = "#111827";
+      th.style.padding = "7px 6px";
+      th.style.textAlign = "center";
+      th.style.textTransform = "uppercase";
+      th.style.fontSize = index === 0 ? "13px" : "14px";
+      th.style.fontWeight = "800";
+      th.style.width = index === 0 ? "1.45in" : "auto";
+      headerRow.appendChild(th);
+    });
+    table.appendChild(headerRow);
+
+    elementaryPullout.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.style.height = "0.45in";
+
+      const timeCell = document.createElement("td");
+      timeCell.textContent = row.time;
+      timeCell.style.border = "1px solid #4b5563";
+      timeCell.style.backgroundColor = "#f3f4f6";
+      timeCell.style.color = "#374151";
+      timeCell.style.textAlign = "center";
+      timeCell.style.fontWeight = "700";
+      timeCell.style.padding = "6px";
+      tr.appendChild(timeCell);
+
+      PULLOUT_DAYS.forEach((day) => {
+        const cell = document.createElement("td");
+        cell.textContent = row[day] || "";
+        cell.style.whiteSpace = "pre-line";
+        cell.style.border = "1px solid #4b5563";
+        cell.style.textAlign = "center";
+        cell.style.verticalAlign = "middle";
+        cell.style.padding = "5px";
+        cell.style.fontSize = "11.5px";
+        cell.style.fontWeight = "600";
+        cell.style.lineHeight = "1.2";
+        tr.appendChild(cell);
+      });
+
+      table.appendChild(tr);
+    });
+
+    html.appendChild(table);
+
+    const notes = document.createElement("div");
+    notes.style.display = "grid";
+    notes.style.gridTemplateColumns = "1fr 1.7fr 0.8fr";
+    notes.style.gap = "0.12in";
+    notes.style.marginTop = "0.12in";
+    notes.style.fontSize = "10px";
+    notes.style.lineHeight = "1.3";
+    notes.style.color = "#374151";
+
+    [
+      elementaryPullout.notes?.recess || "",
+      elementaryPullout.notes?.lunch || "",
+      elementaryPullout.notes?.note || "",
+    ].forEach((text) => {
+      const noteBlock = document.createElement("div");
+      noteBlock.textContent = text;
+      noteBlock.style.whiteSpace = "pre-line";
+      noteBlock.style.border = "1px solid #d1d5db";
+      noteBlock.style.borderRadius = "6px";
+      noteBlock.style.backgroundColor = "#f9fafb";
+      noteBlock.style.padding = "8px";
+      notes.appendChild(noteBlock);
+    });
+    html.appendChild(notes);
+
+    const footer = document.createElement("div");
+    footer.textContent = `WVCS Master Scheduler • Printed ${generatedOn}`;
+    footer.style.marginTop = "0.08in";
+    footer.style.textAlign = "right";
+    footer.style.fontSize = "7px";
+    footer.style.color = "#6b7280";
+    html.appendChild(footer);
+
+    return html;
+  }
+
   function getPrintableDocumentHtml() {
-    const printable = buildPrintableScheduleElement();
+    const printable =
+      activeSchedulerTab === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+        ? buildPrintablePulloutElement()
+        : buildPrintableScheduleElement();
     return `
       <!doctype html>
       <html>
@@ -1530,10 +1709,16 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   }
 
   async function exportPDF() {
-    const scheduleName = appSettings.title || "schedule";
+    const scheduleName =
+      activeSchedulerTab === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+        ? elementaryPullout.title || "Elementary Pull-Out Schedule"
+        : appSettings.title || "schedule";
     const timestamp = new Date().toISOString().split("T")[0];
     const filename = `${scheduleName}-${timestamp}.pdf`;
-    const html = buildPrintableScheduleElement();
+    const html =
+      activeSchedulerTab === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+        ? buildPrintablePulloutElement()
+        : buildPrintableScheduleElement();
     
     const opt = {
       margin: [0, 0, 0, 0],
@@ -1892,6 +2077,61 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
     }));
   }
 
+  function updateElementaryPulloutTitle(value) {
+    commit((state) => ({
+      ...state,
+      elementaryPullout: {
+        ...normalizeElementaryPulloutSchedule(state.elementaryPullout),
+        title: value,
+      },
+    }));
+  }
+
+  function updateElementaryPulloutRow(rowId, field, value) {
+    commit((state) => {
+      const current = normalizeElementaryPulloutSchedule(state.elementaryPullout);
+      return {
+        ...state,
+        elementaryPullout: {
+          ...current,
+          rows: current.rows.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)),
+        },
+      };
+    });
+  }
+
+  function updateElementaryPulloutNote(field, value) {
+    commit((state) => {
+      const current = normalizeElementaryPulloutSchedule(state.elementaryPullout);
+      return {
+        ...state,
+        elementaryPullout: {
+          ...current,
+          notes: {
+            ...current.notes,
+            [field]: value,
+          },
+        },
+      };
+    });
+  }
+
+  async function resetElementaryPulloutSchedule() {
+    const confirmed = await askForConfirmation(
+      "Reset the elementary pull-out schedule back to the scanned template?",
+      {
+        title: "Reset Pull-Out Schedule",
+        okLabel: "Reset",
+      }
+    );
+    if (!confirmed) return;
+
+    commit((state) => ({
+      ...state,
+      elementaryPullout: initialElementaryPulloutSchedule,
+    }));
+  }
+
   function saveSettings(updated) {
     commit((state) => ({
       ...state,
@@ -2057,6 +2297,95 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
     );
   }
 
+  function renderElementaryPulloutTab() {
+    return (
+      <main className="screen-schedule min-w-0 overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-inner">
+        <div className="border-b border-slate-700 bg-slate-950/80 px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <label className="min-w-0 flex-1 space-y-1 text-xs font-semibold uppercase text-slate-400">
+              Pull-Out Schedule Title
+              <input
+                value={elementaryPullout.title}
+                onChange={(e) => updateElementaryPulloutTitle(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base font-bold normal-case text-white outline-none focus:border-sky-400"
+              />
+            </label>
+            <Button variant="outline" onClick={resetElementaryPulloutSchedule} className="self-start py-1.5">
+              <RotateCcw size={16} className="mr-1 inline" /> Reset Template
+            </Button>
+          </div>
+        </div>
+
+        <div className="overflow-auto bg-slate-950/30 p-3">
+          <table className="min-w-[980px] w-full border-collapse overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-sm">
+            <thead>
+              <tr className="bg-slate-800 text-white">
+                <th className="w-36 border border-slate-700 px-3 py-3 text-center text-sm font-bold uppercase">
+                  Time
+                </th>
+                {PULLOUT_DAYS.map((day) => (
+                  <th key={day} className="border border-slate-700 px-3 py-3 text-center text-sm font-bold uppercase">
+                    {day}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {elementaryPullout.rows.map((row) => (
+                <tr key={row.id} className="odd:bg-slate-950 even:bg-slate-900/70">
+                  <td className="border border-slate-800 bg-slate-900 p-2 align-middle">
+                    <input
+                      value={row.time}
+                      onChange={(e) => updateElementaryPulloutRow(row.id, "time", e.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-center text-sm font-semibold text-slate-100 outline-none focus:border-sky-400"
+                    />
+                  </td>
+                  {PULLOUT_DAYS.map((day) => (
+                    <td key={`${row.id}-${day}`} className="border border-slate-800 p-2 align-middle">
+                      <textarea
+                        value={row[day] || ""}
+                        onChange={(e) => updateElementaryPulloutRow(row.id, day, e.target.value)}
+                        placeholder="Add pull-out"
+                        className="h-16 w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-center text-sm font-semibold leading-snug text-slate-100 outline-none placeholder:text-slate-600 focus:border-sky-400"
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1.7fr_0.8fr]">
+            <label className="space-y-1 text-xs font-semibold uppercase text-slate-400">
+              Recess Notes
+              <textarea
+                value={elementaryPullout.notes?.recess || ""}
+                onChange={(e) => updateElementaryPulloutNote("recess", e.target.value)}
+                className="h-28 w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium normal-case leading-relaxed text-slate-100 outline-none focus:border-sky-400"
+              />
+            </label>
+            <label className="space-y-1 text-xs font-semibold uppercase text-slate-400">
+              Lunch Notes
+              <textarea
+                value={elementaryPullout.notes?.lunch || ""}
+                onChange={(e) => updateElementaryPulloutNote("lunch", e.target.value)}
+                className="h-28 w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium normal-case leading-relaxed text-slate-100 outline-none focus:border-sky-400"
+              />
+            </label>
+            <label className="space-y-1 text-xs font-semibold uppercase text-slate-400">
+              General Note
+              <textarea
+                value={elementaryPullout.notes?.note || ""}
+                onChange={(e) => updateElementaryPulloutNote("note", e.target.value)}
+                className="h-28 w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium normal-case leading-relaxed text-slate-100 outline-none focus:border-sky-400"
+              />
+            </label>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-none space-y-4">
@@ -2139,8 +2468,33 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
           {updateStatus && <div className="text-xs text-slate-400">{updateStatus}</div>}
         </div>
 
+        <div className="no-print flex flex-wrap gap-2 rounded-2xl border border-slate-700 bg-slate-900/80 p-2 shadow-lg">
+          <button
+            type="button"
+            onClick={() => setActiveSchedulerTab(SCHEDULER_TABS.MASTER)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeSchedulerTab === SCHEDULER_TABS.MASTER
+                ? "bg-sky-500 text-white shadow-sm"
+                : "bg-slate-950 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            Master Schedule
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSchedulerTab(SCHEDULER_TABS.ELEMENTARY_PULLOUT)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeSchedulerTab === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+                ? "bg-sky-500 text-white shadow-sm"
+                : "bg-slate-950 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            Elementary Pull-Out
+          </button>
+        </div>
+
         <div className="no-print">
-          {conflictList.length > 0 && (
+          {activeSchedulerTab === SCHEDULER_TABS.MASTER && conflictList.length > 0 && (
             <Card className="border-red-500 bg-red-950/60 shadow-sm">
               <CardContent className="p-4">
                 <div className="flex items-start gap-2 text-red-100">
@@ -2168,6 +2522,7 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
           )}
         </div>
 
+        {activeSchedulerTab === SCHEDULER_TABS.MASTER && (
         <Card className="no-print shadow-xl">
           <CardContent className="p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -2243,8 +2598,9 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {sidebarHidden && (
+        {activeSchedulerTab === SCHEDULER_TABS.MASTER && sidebarHidden && (
           <button
             type="button"
             aria-label="Show sidebar"
@@ -2255,6 +2611,9 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
           </button>
         )}
 
+        {activeSchedulerTab === SCHEDULER_TABS.ELEMENTARY_PULLOUT ? (
+          renderElementaryPulloutTab()
+        ) : (
         <div className={sidebarGridClass}>
             {!sidebarHidden && (
               <aside className="no-print min-w-0 space-y-4">
@@ -2638,6 +2997,7 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
             </table>
           </div>
         </div>
+        )}
       </div>
 
       {dragPreview && (
