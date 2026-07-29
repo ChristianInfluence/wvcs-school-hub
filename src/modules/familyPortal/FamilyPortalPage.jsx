@@ -1447,10 +1447,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <Field label="Student Driver's License Image">
-                        <input type="file" accept="image/*,.pdf" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                        <input type="file" accept="image/*,.pdf" capture="environment" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
                       </Field>
                       <Field label="Proof of Insurance">
-                        <input type="file" accept="image/*,.pdf" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                        <input type="file" accept="image/*,.pdf" capture="environment" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
                       </Field>
                     </div>
                     <button type="button" onClick={submitStudentDriverForm} disabled={submittingStudentDriver} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60">
@@ -1618,10 +1618,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
 
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
                     <Field label="Driver's License Image">
-                      <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                      <input type="file" accept="image/*,.pdf" capture="environment" onChange={(event) => setDriverFiles({ ...driverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
                     </Field>
                     <Field label="Insurance Card Image">
-                      <input type="file" accept="image/*,.pdf" onChange={(event) => setDriverFiles({ ...driverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                      <input type="file" accept="image/*,.pdf" capture="environment" onChange={(event) => setDriverFiles({ ...driverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
                     </Field>
                   </div>
 
