@@ -308,23 +308,28 @@ function normalizeElementaryPulloutSchedule(schedule) {
 }
 
 function normalizeWorkingState(data) {
+  const { __schedulerVersionKind, ...cleanData } = data || {};
   return {
     ...initialState,
-    ...(data || {}),
-    teachers: data?.teachers || initialTeachers,
-    classes: data?.classes || initialClasses,
-    scheduleBlocks: data?.scheduleBlocks || [],
-    periodTimes: data?.periodTimes || initialPeriodTimes,
-    elementaryPullout: normalizeElementaryPulloutSchedule(data?.elementaryPullout),
+    ...cleanData,
+    teachers: cleanData.teachers || initialTeachers,
+    classes: cleanData.classes || initialClasses,
+    scheduleBlocks: cleanData.scheduleBlocks || [],
+    periodTimes: cleanData.periodTimes || initialPeriodTimes,
+    elementaryPullout: normalizeElementaryPulloutSchedule(cleanData.elementaryPullout),
     appSettings: {
       ...initialState.appSettings,
-      ...(data?.appSettings || {}),
+      ...(cleanData.appSettings || {}),
       lunch: {
         ...initialState.appSettings.lunch,
-        ...(data?.appSettings?.lunch || {}),
+        ...(cleanData.appSettings?.lunch || {}),
       },
     },
   };
+}
+
+function getVersionKind(version) {
+  return version?.scheduleKind || version?.data?.__schedulerVersionKind || SCHEDULER_TABS.MASTER;
 }
 
 function getInitialWorkingState() {
@@ -554,6 +559,12 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
 
   const { teachers, classes, scheduleBlocks, periodTimes, appSettings } = workingState;
   const elementaryPullout = normalizeElementaryPulloutSchedule(workingState.elementaryPullout);
+  const activeVersionKind = activeSchedulerTab;
+  const activeVersionLabel =
+    activeVersionKind === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+      ? "Elementary Pull-Out"
+      : "Master Schedule";
+  const visibleVersions = versions.filter((version) => getVersionKind(version) === activeVersionKind);
   const sidebarGridClass = sidebarHidden
     ? "grid min-w-0 gap-4 grid-cols-1 print:block"
     : "grid min-w-0 gap-4 lg:grid-cols-[180px_minmax(0,1fr)] print:block";
@@ -611,23 +622,34 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   }
 
   async function saveVersion() {
-    const name = prompt("Name this schedule version:", `Draft ${versions.length + 1}`);
+    const name = prompt(
+      `Name this ${activeVersionLabel.toLowerCase()} version:`,
+      `${activeVersionLabel} Draft ${visibleVersions.length + 1}`
+    );
     if (!name) return;
 
     setSavingVersion(true);
-    setVersionStatus("Saving shared version...");
+    setVersionStatus(`Saving shared ${activeVersionLabel.toLowerCase()} version...`);
     try {
       const result = await saveSchedulerVersion(
         {
           id: crypto.randomUUID(),
           name,
           savedAt: new Date().toISOString(),
-          data: workingState,
+          scheduleKind: activeVersionKind,
+          data: {
+            ...workingState,
+            __schedulerVersionKind: activeVersionKind,
+          },
         },
         currentUserEmail
       );
       setVersions((prev) => [result.version, ...prev.filter((version) => version.id !== result.version.id)]);
-      setVersionStatus(result.local ? "Version saved on this device. Shared scheduler table is not ready yet." : "Version saved for all scheduler users.");
+      setVersionStatus(
+        result.local
+          ? `${activeVersionLabel} version saved on this device. Shared scheduler table is not ready yet.`
+          : `${activeVersionLabel} version saved for all scheduler users.`
+      );
     } catch (error) {
       setVersionStatus(`Unable to save version: ${getErrorMessage(error)}`);
     } finally {
@@ -663,10 +685,28 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   }
 
   function loadVersion(version) {
-    if (!confirm(`Load "${version.name}"? Your current working schedule will be replaced.`)) return;
-    commit(() => normalizeVersionData(version.data));
+    const versionKind = getVersionKind(version);
+    const versionLabel =
+      versionKind === SCHEDULER_TABS.ELEMENTARY_PULLOUT
+        ? "elementary pull-out schedule"
+        : "master schedule";
+    if (!confirm(`Load "${version.name}"? This will replace the current ${versionLabel} only.`)) return;
+    commit((state) => {
+      const normalized = normalizeVersionData(version.data);
+      if (versionKind === SCHEDULER_TABS.ELEMENTARY_PULLOUT) {
+        return {
+          ...state,
+          elementaryPullout: normalizeElementaryPulloutSchedule(normalized.elementaryPullout),
+        };
+      }
+
+      return {
+        ...normalized,
+        elementaryPullout: state.elementaryPullout,
+      };
+    });
     setVersionHistoryOpen(false);
-    setVersionStatus(`Loaded "${version.name}" with ${version.data?.teachers?.length || 0} teacher${version.data?.teachers?.length === 1 ? "" : "s"}.`);
+    setVersionStatus(`Loaded "${version.name}" into ${activeVersionLabel}.`);
   }
 
   async function deleteVersion(versionId) {
@@ -692,12 +732,17 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   }
 
   async function duplicateVersion(version) {
+    const versionKind = getVersionKind(version);
     await saveExistingVersion(
       {
         id: crypto.randomUUID(),
         name: `${version.name} Copy`,
         savedAt: new Date().toISOString(),
-        data: version.data,
+        scheduleKind: versionKind,
+        data: {
+          ...(version.data || {}),
+          __schedulerVersionKind: versionKind,
+        },
       },
       "Version duplicated."
     );
@@ -3020,7 +3065,8 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
 
       {versionHistoryOpen && (
         <VersionHistoryModal
-          versions={versions}
+          versions={visibleVersions}
+          versionLabel={activeVersionLabel}
           status={versionStatus}
           saving={savingVersion}
           onClose={() => setVersionHistoryOpen(false)}
@@ -3291,14 +3337,14 @@ function SettingsModal({ settings, onClose, onSave }) {
   );
 }
 
-function VersionHistoryModal({ versions, status, saving, onClose, onRefresh, onLoad, onDelete, onRename, onDuplicate }) {
+function VersionHistoryModal({ versions, versionLabel, status, saving, onClose, onRefresh, onLoad, onDelete, onRename, onDuplicate }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <Card className="w-full max-w-3xl rounded-2xl shadow-xl">
         <CardContent className="p-5 space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-white">Version History</h2>
+              <h2 className="text-xl font-bold text-white">{versionLabel} Versions</h2>
               <div className="mt-1 text-xs text-slate-400">{status}</div>
             </div>
             <div className="flex items-center gap-2">
@@ -3313,7 +3359,7 @@ function VersionHistoryModal({ versions, status, saving, onClose, onRefresh, onL
 
           {versions.length === 0 ? (
             <div className="rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">
-              No saved versions yet. Click <strong>Save Version</strong> to create one.
+              No saved {versionLabel.toLowerCase()} versions yet. Click <strong>Save Version</strong> while this tab is open to create one.
             </div>
           ) : (
             <div className="space-y-3">

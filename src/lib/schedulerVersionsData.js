@@ -15,22 +15,28 @@ function saveLocalVersions(versions) {
 }
 
 function mapVersionFromDatabase(row) {
+  const scheduleJson = row.schedule_json || {};
   return {
     id: row.id,
     name: row.name || "Untitled Version",
     savedAt: row.saved_at || row.updated_at || row.created_at,
-    data: row.schedule_json || {},
+    data: scheduleJson,
+    scheduleKind: scheduleJson.__schedulerVersionKind || "master",
     createdByEmail: row.created_by_email || "",
     updatedByEmail: row.updated_by_email || "",
   };
 }
 
 function mapVersionToDatabase(version, updatedByEmail = "") {
+  const scheduleKind = version.scheduleKind || version.data?.__schedulerVersionKind || "master";
   return {
     id: version.id || crypto.randomUUID(),
     name: version.name || "Untitled Version",
     saved_at: version.savedAt || new Date().toISOString(),
-    schedule_json: version.data || {},
+    schedule_json: {
+      ...(version.data || {}),
+      __schedulerVersionKind: scheduleKind,
+    },
     updated_by_email: updatedByEmail || null,
     updated_at: new Date().toISOString(),
   };
@@ -71,6 +77,7 @@ export async function saveSchedulerVersion(version, updatedByEmail = "") {
       name: row.name,
       savedAt: row.saved_at,
       data: row.schedule_json,
+      scheduleKind: row.schedule_json?.__schedulerVersionKind || "master",
       updatedByEmail,
     };
     saveLocalVersions([localVersion, ...existing.filter((item) => item.id !== row.id)]);
@@ -96,6 +103,7 @@ export async function saveSchedulerVersion(version, updatedByEmail = "") {
       name: row.name,
       savedAt: row.saved_at,
       data: row.schedule_json,
+      scheduleKind: row.schedule_json?.__schedulerVersionKind || "master",
       updatedByEmail,
     };
     saveLocalVersions([localVersion, ...existing.filter((item) => item.id !== row.id)]);
