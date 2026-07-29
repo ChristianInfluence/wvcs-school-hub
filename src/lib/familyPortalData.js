@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { isSupabaseConfigured, supabase, supabaseAnonKey, supabaseUrl } from "./supabaseClient.js";
 
 export const FOS_SCHOOL_YEAR = "2026-2027";
 export const FOS_REQUIRED_HOURS = 50;
@@ -405,10 +405,19 @@ export async function updateLunchMenuOrder({ menuId, studentId, orders }) {
 
 export async function createLunchCheckout(amount) {
   if (!isSupabaseConfigured) return { created: false, reason: "Supabase is not configured." };
-  const { data, error } = await supabase.functions.invoke("create-lunch-checkout", {
-    body: { amount },
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  const response = await fetch(`${supabaseUrl}/functions/v1/create-lunch-checkout`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ amount }),
   });
-  if (error) throw error;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || data.reason || "Lunch checkout could not be opened.");
   if (data?.error) throw new Error(data.error);
   return data || { created: false };
 }

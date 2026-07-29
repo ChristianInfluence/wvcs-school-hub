@@ -38,7 +38,7 @@ Deno.serve(async (request) => {
       .contains("contact_emails", [requesterEmail])
       .maybeSingle();
     if (accessError) throw accessError;
-    if (!access) throw new Error("This email is not connected to a family portal.");
+    if (!access) throw new Error(`This login (${requesterEmail}) is not connected to an active family portal record. Ask the office to send a family portal invite to this email.`);
 
     const origin = getOrigin(request);
     const params = new URLSearchParams();

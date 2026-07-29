@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
+import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, Loader2, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
 import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
@@ -174,6 +174,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [showFosForm, setShowFosForm] = useState(false);
   const [lunchDraft, setLunchDraft] = useState({ studentId: "", menuId: "", selectedItems: {}, amount: "25.00", editing: false });
   const [lunchStatus, setLunchStatus] = useState("");
+  const [lunchPaymentStatus, setLunchPaymentStatus] = useState("");
+  const [lunchCheckoutState, setLunchCheckoutState] = useState("idle");
   const [permissionStatus, setPermissionStatus] = useState("");
   const [driverDraft, setDriverDraft] = useState(driverApplicationDefaults);
   const [driverFiles, setDriverFiles] = useState({ license: null, insurance: null });
@@ -565,13 +567,23 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   }
 
   async function addLunchFunds() {
-    setLunchStatus("Opening secure checkout...");
+    const amount = Number(lunchDraft.amount);
+    if (!Number.isFinite(amount) || amount < 0.5) {
+      setLunchPaymentStatus("Enter a lunch deposit amount of at least $0.50.");
+      return;
+    }
+    if (lunchCheckoutState === "opening") return;
+    setLunchCheckoutState("opening");
+    setLunchPaymentStatus("Opening secure checkout...");
     try {
-      const result = await createLunchCheckout(lunchDraft.amount);
-      if (result.url) window.location.href = result.url;
-      else setLunchStatus(result.reason || "Unable to create checkout.");
+      const result = await createLunchCheckout(amount.toFixed(2));
+      if (!result.url) throw new Error(result.reason || "Unable to create checkout.");
+      setLunchCheckoutState("opened");
+      setLunchPaymentStatus("Secure checkout opened.");
+      window.location.href = result.url;
     } catch (error) {
-      setLunchStatus(`Unable to open checkout: ${error.message}`);
+      setLunchPaymentStatus(`Unable to open checkout: ${error.message}`);
+      setLunchCheckoutState("idle");
     }
   }
 
@@ -900,12 +912,23 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <button
                         type="button"
                         onClick={addLunchFunds}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                        disabled={lunchCheckoutState === "opening"}
+                        aria-busy={lunchCheckoutState === "opening"}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <CreditCard size={16} />
-                        Add Funds
+                        {lunchCheckoutState === "opening" ? <Loader2 size={16} className="animate-spin" /> : lunchCheckoutState === "opened" ? <CheckCircle2 size={16} /> : <CreditCard size={16} />}
+                        {lunchCheckoutState === "opening" ? "Opening..." : lunchCheckoutState === "opened" ? "Opened" : "Add Funds"}
                       </button>
                     </div>
+                    {lunchPaymentStatus && (
+                      <div className={`mt-3 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                        lunchPaymentStatus.startsWith("Unable") || lunchPaymentStatus.startsWith("Enter")
+                          ? "border-rose-500/30 bg-rose-500/10 text-rose-100"
+                          : "border-sky-500/30 bg-sky-500/10 text-sky-100"
+                      }`}>
+                        {lunchPaymentStatus}
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
