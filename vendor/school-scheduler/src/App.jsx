@@ -2060,40 +2060,40 @@ export default function MasterSchoolSchedulerPrototype({ currentUserEmail = "" }
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-none space-y-4">
-        <div className="no-print rounded-3xl border border-slate-700 bg-slate-900/95 p-5 shadow-xl flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-5">
+        <div className="no-print rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
             {appSettings.logoUrl && (
               <img
                 src={appSettings.logoUrl}
                 alt="School Logo"
-                className="h-32 w-32 rounded-2xl object-contain shadow-sm"
+                className="h-16 w-16 rounded-xl object-contain shadow-sm"
               />
             )}
 
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-white">{appSettings.title}</h1>
-              <p className="text-sm text-slate-400">{appSettings.subtitle}</p>
+              <h1 className="text-2xl font-bold tracking-tight text-white">{appSettings.title}</h1>
+              <p className="text-xs text-slate-400">{appSettings.subtitle}</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 bg-slate-950/70 p-1 rounded-xl border border-slate-700">
-            <Button variant="outline" onClick={undo} disabled={!undoStack.length}>
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/70 p-1 rounded-xl border border-slate-700">
+            <Button variant="outline" onClick={undo} disabled={!undoStack.length} className="px-2.5 py-1.5">
               <Undo2 size={16} className="mr-1 inline" /> Undo
             </Button>
 
-            <Button variant="outline" onClick={redo} disabled={!redoStack.length}>
+            <Button variant="outline" onClick={redo} disabled={!redoStack.length} className="px-2.5 py-1.5">
               <Redo2 size={16} className="mr-1 inline" /> Redo
             </Button>
 
-            <Button variant="success" onClick={saveVersion} disabled={savingVersion}>
+            <Button variant="success" onClick={saveVersion} disabled={savingVersion} className="px-2.5 py-1.5">
               <Save size={16} className="mr-1 inline" /> {savingVersion ? "Saving..." : "Save Version"}
             </Button>
 
-            <Button variant="outline" onClick={() => setVersionHistoryOpen(true)}>
+            <Button variant="outline" onClick={() => setVersionHistoryOpen(true)} className="px-2.5 py-1.5">
               <History size={16} className="mr-1 inline" /> Versions
             </Button>
 
-            <div className="max-w-72 truncate rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300">
+            <div className="max-w-72 truncate rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300">
               {versionStatus}
             </div>
 
