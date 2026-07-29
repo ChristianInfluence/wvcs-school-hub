@@ -57,6 +57,25 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
   const [saving, setSaving] = useState(false);
   const [showSetupHelp, setShowSetupHelp] = useState(false);
   const [serverSecretConfigured, setServerSecretConfigured] = useState(true);
+  const automation = {
+    ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy.automation,
+    ...(settings.folderStrategy?.automation || {}),
+  };
+
+  function updateAutomation(nextValues) {
+    setSettings((current) => ({
+      ...current,
+      folderStrategy: {
+        ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy,
+        ...(current.folderStrategy || {}),
+        automation: {
+          ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy.automation,
+          ...((current.folderStrategy || {}).automation || {}),
+          ...nextValues,
+        },
+      },
+    }));
+  }
 
   const readyChecks = useMemo(
     () => [
@@ -352,6 +371,90 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
               </span>
             </label>
 
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                <RefreshCw size={16} className="text-sky-300" />
+                Automatic Backup Schedule
+              </div>
+              <div className="grid gap-3">
+                <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-3 text-sm font-semibold text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(automation.enabled)}
+                    onChange={(event) => updateAutomation({ enabled: event.target.checked })}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                  />
+                  <span>
+                    Run Drive backup automatically
+                    <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">
+                      Stores the schedule preference here. A scheduled trigger can use this to process pending PDFs and optional recovery snapshots.
+                    </span>
+                  </span>
+                </label>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="space-y-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Frequency
+                    <select
+                      value={automation.frequency}
+                      onChange={(event) => updateAutomation({ frequency: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekdays">Weekdays</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Run Time
+                    <input
+                      type="time"
+                      value={automation.runTime}
+                      onChange={(event) => updateAutomation({ runTime: event.target.value })}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Snapshot
+                    <select
+                      value={automation.snapshotFrequency}
+                      onChange={(event) => updateAutomation({ snapshotFrequency: event.target.value })}
+                      disabled={!automation.includeRecoverySnapshot}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-sky-400 disabled:opacity-50"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={automation.processPendingPdfs !== false}
+                      onChange={(event) => updateAutomation({ processPendingPdfs: event.target.checked })}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                    />
+                    Back up queued PDFs
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(automation.includeRecoverySnapshot)}
+                      onChange={(event) => updateAutomation({ includeRecoverySnapshot: event.target.checked })}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                    />
+                    Include recovery snapshot
+                  </label>
+                </div>
+                {(automation.lastRunAt || automation.lastRunStatus) && (
+                  <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs leading-5 text-slate-400">
+                    Last automatic run: {formatDate(automation.lastRunAt)}{automation.lastRunStatus ? ` · ${automation.lastRunStatus}` : ""}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
@@ -449,6 +552,15 @@ export default function DriveBackupModule({ currentUserEmail = "", embedded = fa
             </FolderPath>
             <FolderPath title="Family + FOS + Lunch">
               {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Family Portal
+            </FolderPath>
+            <FolderPath title="Family Forms + Driver Records">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Family Portal / Forms and Driver Records
+            </FolderPath>
+            <FolderPath title="Support + Communications">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Communications
+            </FolderPath>
+            <FolderPath title="Scheduler + Operations">
+              {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Scheduler and Operations
             </FolderPath>
             <FolderPath title="System + Audit">
               {settings.rootFolderName || "WVCS Hub Backups"} / Data Snapshots / Year / Date / Area

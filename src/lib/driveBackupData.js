@@ -10,6 +10,19 @@ export const DEFAULT_DRIVE_BACKUP_SETTINGS = {
   folderStrategy: {
     permissionSlips: ["Digital Permission Slips", "{schoolYear}", "{eventTitle}", "Signed PDFs"],
     forms: ["Forms", "{templateTitle}", "{schoolYear}", "{status}"],
+    familyForms: ["Family Portal", "Forms and Driver Records", "{schoolYear}", "{familyName}"],
+    supportRequests: ["Support Requests", "{schoolYear}", "{status}"],
+    scheduler: ["Master Scheduler", "{schoolYear}"],
+    automation: {
+      enabled: false,
+      frequency: "daily",
+      runTime: "23:00",
+      processPendingPdfs: true,
+      includeRecoverySnapshot: false,
+      snapshotFrequency: "weekly",
+      lastRunAt: "",
+      lastRunStatus: "",
+    },
   },
   connectedAt: "",
   updatedAt: "",
@@ -45,6 +58,14 @@ function writeLocalJobs(jobs) {
 
 function mapSettingsFromDatabase(row) {
   if (!row) return DEFAULT_DRIVE_BACKUP_SETTINGS;
+  const folderStrategy = {
+    ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy,
+    ...(row.folder_strategy || {}),
+    automation: {
+      ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy.automation,
+      ...((row.folder_strategy || {}).automation || {}),
+    },
+  };
   return {
     ...DEFAULT_DRIVE_BACKUP_SETTINGS,
     id: row.id || "primary",
@@ -53,7 +74,7 @@ function mapSettingsFromDatabase(row) {
     rootFolderId: row.root_folder_id || "",
     rootFolderName: row.root_folder_name || DEFAULT_DRIVE_BACKUP_SETTINGS.rootFolderName,
     serviceAccountEmail: row.service_account_email || "",
-    folderStrategy: row.folder_strategy || DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy,
+    folderStrategy,
     connectedAt: row.connected_at || "",
     updatedAt: row.updated_at || "",
     updatedByEmail: row.updated_by_email || "",
@@ -61,6 +82,14 @@ function mapSettingsFromDatabase(row) {
 }
 
 function mapSettingsToDatabase(settings, updatedByEmail = "") {
+  const folderStrategy = {
+    ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy,
+    ...(settings.folderStrategy || {}),
+    automation: {
+      ...DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy.automation,
+      ...((settings.folderStrategy || {}).automation || {}),
+    },
+  };
   return {
     id: "primary",
     enabled: Boolean(settings.enabled),
@@ -68,7 +97,7 @@ function mapSettingsToDatabase(settings, updatedByEmail = "") {
     root_folder_id: String(settings.rootFolderId || "").trim() || null,
     root_folder_name: String(settings.rootFolderName || "").trim() || DEFAULT_DRIVE_BACKUP_SETTINGS.rootFolderName,
     service_account_email: String(settings.serviceAccountEmail || "").trim() || null,
-    folder_strategy: settings.folderStrategy || DEFAULT_DRIVE_BACKUP_SETTINGS.folderStrategy,
+    folder_strategy: folderStrategy,
     connected_at: settings.enabled ? settings.connectedAt || new Date().toISOString() : null,
     updated_at: new Date().toISOString(),
     updated_by_email: updatedByEmail || settings.updatedByEmail || null,

@@ -31,6 +31,12 @@ const SNAPSHOT_DATASETS = [
     tables: ["lunch_accounts", "lunch_menus", "lunch_orders", "lunch_transactions"],
   },
   {
+    key: "family-forms-driver-records",
+    label: "Family Forms and Driver Records",
+    folder: ["Family Portal", "Forms and Driver Records"],
+    tables: ["volunteer_driver_applications", "student_driver_registrations", "off_campus_lunch_permissions", "parent_background_checks"],
+  },
+  {
     key: "office-finance",
     label: "Office and Finance",
     folder: ["Office and Finance"],
@@ -52,7 +58,13 @@ const SNAPSHOT_DATASETS = [
     key: "communications",
     label: "Communications",
     folder: ["Communications"],
-    tables: ["hub_message_threads", "hub_message_participants", "hub_message_posts", "hub_message_email_imports", "staff_suggestions"],
+    tables: ["hub_message_threads", "hub_message_participants", "hub_message_posts", "hub_message_email_imports", "staff_suggestions", "support_requests", "email_audit_log"],
+  },
+  {
+    key: "scheduler-and-operations",
+    label: "Scheduler and Operations",
+    folder: ["Scheduler and Operations"],
+    tables: ["scheduler_versions", "meeting_requests", "meeting_schedules", "important_documents"],
   },
   {
     key: "system",
