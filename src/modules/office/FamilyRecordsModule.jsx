@@ -689,6 +689,26 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
               );
             })()}
 
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-black text-slate-950">
+                    <Users size={16} className="text-sky-600" />
+                    Family Snapshot
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">One quick read across finance, portal access, lunch, FOS, forms, and volunteer records.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill tone={selectedFamily.access?.lastParentLoginAt ? "emerald" : "amber"}>{selectedFamily.access?.lastParentLoginAt ? "Portal active" : "No portal login"}</StatusPill>
+                  <StatusPill tone={selectedFamily.unpaidIncidentals.length ? "rose" : "emerald"}>{selectedFamily.unpaidIncidentals.length ? `${selectedFamily.unpaidIncidentals.length} unpaid invoice(s)` : "No unpaid incidentals"}</StatusPill>
+                  <StatusPill tone={Number(selectedFamily.lunchAccount.balance || 0) < 0 ? "amber" : "emerald"}>Lunch {money(selectedFamily.lunchAccount.balance)}</StatusPill>
+                  <StatusPill tone={selectedFamily.fos.remainingBalance > 0 ? "amber" : "emerald"}>FOS owed {money(selectedFamily.fos.remainingBalance)}</StatusPill>
+                  <StatusPill tone={selectedFamily.pendingDrivers.length ? "amber" : selectedFamily.verifiedDrivers.length ? "emerald" : "slate"}>{selectedFamily.pendingDrivers.length ? "Driver pending" : selectedFamily.verifiedDrivers.length ? "Driver verified" : "No driver record"}</StatusPill>
+                  <StatusPill tone={selectedFamily.currentBackgroundChecks.length ? "emerald" : "slate"}>{selectedFamily.currentBackgroundChecks.length ? "Background current" : "No current background check"}</StatusPill>
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><Utensils size={14} />Lunch Account</div><div className={`mt-2 text-2xl font-black ${Number(selectedFamily.lunchAccount.balance || 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{money(selectedFamily.lunchAccount.balance)}</div><div className="text-xs text-slate-500">Available lunch account balance</div></div>
@@ -1269,6 +1289,18 @@ function EmailAuditPanel() {
   const filteredEntries = state.entries.filter((entry) =>
     `${entry.module} ${entry.subject} ${(entry.recipients || []).join(" ")} ${entry.senderEmail} ${entry.actorEmail} ${entry.status}`.toLowerCase().includes(search.toLowerCase())
   );
+  const auditSummary = state.entries.reduce((summary, entry) => {
+    const status = String(entry.status || "sent").toLowerCase();
+    const module = entry.module || "Other";
+    return {
+      ...summary,
+      total: summary.total + 1,
+      noRecipients: summary.noRecipients + (status.includes("no recipient") ? 1 : 0),
+      backfilled: summary.backfilled + (status.includes("backfilled") ? 1 : 0),
+      failed: summary.failed + (status.includes("fail") || status.includes("error") ? 1 : 0),
+      modules: { ...summary.modules, [module]: (summary.modules[module] || 0) + 1 },
+    };
+  }, { total: 0, noRecipients: 0, backfilled: 0, failed: 0, modules: {} });
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -1304,6 +1336,17 @@ function EmailAuditPanel() {
       </div>
       {state.error && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{state.error}</div>}
       {state.loading && <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Loading email audit...</div>}
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Logged Emails</div><div className="mt-1 text-xl font-black text-slate-950">{auditSummary.total}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">No Recipients</div><div className="mt-1 text-xl font-black text-slate-950">{auditSummary.noRecipients}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Failures</div><div className="mt-1 text-xl font-black text-slate-950">{auditSummary.failed}</div></div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Backfilled</div><div className="mt-1 text-xl font-black text-slate-950">{auditSummary.backfilled}</div></div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        {Object.entries(auditSummary.modules).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([module, count]) => (
+          <span key={module} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-bold text-slate-700">{module}: {count}</span>
+        ))}
+      </div>
       <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
         <div className="grid grid-cols-[130px_150px_1fr_1fr_90px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
           <div>Sent</div>
@@ -1330,12 +1373,136 @@ function EmailAuditPanel() {
   );
 }
 
+function SecurityReviewPanel() {
+  const [state, setState] = useState({ loading: true, families: [], access: [], emailEntries: [], officeEmail: DEFAULT_OFFICE_EMAIL_SETTINGS, error: "" });
+
+  async function loadSecurityReview() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const [directoryResult, accessResult, auditResult, emailResult] = await Promise.all([
+        fetchOfficeFamilyDirectory(),
+        fetchFamilyPortalAccessRecords(),
+        fetchEmailAuditLog(),
+        fetchOfficeEmailSettings(),
+      ]);
+      setState({
+        loading: false,
+        families: directoryResult.families || [],
+        access: accessResult.access || [],
+        emailEntries: auditResult.entries || [],
+        officeEmail: emailResult.settings || DEFAULT_OFFICE_EMAIL_SETTINGS,
+        error: directoryResult.reason || accessResult.reason || auditResult.reason || emailResult.reason || "",
+      });
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.message }));
+    }
+  }
+
+  useEffect(() => {
+    loadSecurityReview();
+  }, []);
+
+  const accessByFamily = useMemo(() => new Map(state.access.map((record) => [record.familyKey, record])), [state.access]);
+  const missingPortalFamilies = state.families.filter((family) => !accessByFamily.has(family.familyKey));
+  const noLoginFamilies = state.access.filter((record) => !record.lastParentLoginAt);
+  const emptyPortalEmailFamilies = state.access.filter((record) => !(record.contactEmails || []).length);
+  const emailIssues = state.emailEntries.filter((entry) => {
+    const status = String(entry.status || "").toLowerCase();
+    return status.includes("fail") || status.includes("error") || status.includes("no recipient");
+  });
+  const personalSender = String(state.officeEmail.defaultSenderEmail || state.officeEmail.defaultReplyToEmail || "").toLowerCase().includes("mconniry@wvcs.org");
+  const reviewCards = [
+    {
+      label: "Portal Records Missing",
+      value: missingPortalFamilies.length,
+      tone: missingPortalFamilies.length ? "amber" : "emerald",
+      note: "Roster families without a family portal access record.",
+    },
+    {
+      label: "No Parent Login",
+      value: noLoginFamilies.length,
+      tone: noLoginFamilies.length ? "amber" : "emerald",
+      note: "Portal records that have not recorded a parent login yet.",
+    },
+    {
+      label: "No Portal Email",
+      value: emptyPortalEmailFamilies.length,
+      tone: emptyPortalEmailFamilies.length ? "rose" : "emerald",
+      note: "Portal records that do not authorize any parent email.",
+    },
+    {
+      label: "Email Audit Issues",
+      value: emailIssues.length,
+      tone: emailIssues.length ? "amber" : "emerald",
+      note: "Recent Hub emails with failure, error, or no-recipient status.",
+    },
+  ];
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+            <ShieldCheck size={16} className="text-sky-600" />
+            Security Review
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">A quick hardening check for parent access, email reliability, and sensitive office settings.</p>
+        </div>
+        <button type="button" onClick={loadSecurityReview} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
+      {state.error && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{state.error}</div>}
+      {state.loading && <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">Loading security review...</div>}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        {reviewCards.map((card) => (
+          <div key={card.label} className={`rounded-lg border p-3 ${card.tone === "rose" ? "border-rose-200 bg-rose-50" : card.tone === "amber" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+            <div className={`text-xs font-black uppercase tracking-[0.14em] ${card.tone === "rose" ? "text-rose-700" : card.tone === "amber" ? "text-amber-700" : "text-emerald-700"}`}>{card.label}</div>
+            <div className="mt-1 text-2xl font-black text-slate-950">{card.value}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-600">{card.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="text-sm font-black text-slate-950">Recommended Checks</div>
+          <div className="mt-3 grid gap-2 text-sm text-slate-700">
+            <div className="flex items-start gap-2"><StatusPill tone={personalSender ? "amber" : "emerald"}>{personalSender ? "Review" : "OK"}</StatusPill><span>Use a shared WVCS sender/reply inbox for Hub emails when possible.</span></div>
+            <div className="flex items-start gap-2"><StatusPill tone={emptyPortalEmailFamilies.length ? "rose" : "emerald"}>{emptyPortalEmailFamilies.length ? "Fix" : "OK"}</StatusPill><span>Every active family portal record should have at least one authorized parent email.</span></div>
+            <div className="flex items-start gap-2"><StatusPill tone={emailIssues.length ? "amber" : "emerald"}>{emailIssues.length ? "Review" : "OK"}</StatusPill><span>Review Email Audit entries with failures or no recipients before broad parent rollout.</span></div>
+            <div className="flex items-start gap-2"><StatusPill tone="sky">Routine</StatusPill><span>Keep Drive backup settings restricted to superusers and test backup after major module changes.</span></div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="text-sm font-black text-slate-950">Items To Review</div>
+          <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white">
+            {[...missingPortalFamilies.slice(0, 8).map((family) => ({ id: `missing-${family.familyKey}`, label: family.familyName, note: "No portal access record" })),
+              ...emptyPortalEmailFamilies.slice(0, 8).map((record) => ({ id: `empty-${record.familyKey}`, label: record.familyName, note: "No authorized portal email" })),
+              ...emailIssues.slice(0, 8).map((entry) => ({ id: `email-${entry.id}`, label: entry.subject || entry.module || "Email audit issue", note: entry.status || "Email issue" })),
+            ].slice(0, 16).map((item) => (
+              <div key={item.id} className="border-b border-slate-100 px-3 py-2 text-sm last:border-b-0">
+                <div className="font-bold text-slate-900">{item.label}</div>
+                <div className="text-xs text-slate-500">{item.note}</div>
+              </div>
+            ))}
+            {!missingPortalFamilies.length && !emptyPortalEmailFamilies.length && !emailIssues.length && <div className="p-4 text-sm text-slate-500">No immediate review items found.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
   const [settingsView, setSettingsView] = useState("portal");
   const settingsViews = [
     ["portal", "Family Portal Settings"],
     ["email", "Email Replies"],
     ["email-audit", "Email Audit"],
+    ["security", "Security Review"],
     ["audit", "Parent Access Audit"],
     ["rollover", "Yearly Rollover"],
   ];
@@ -1358,6 +1525,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
       <div className="mt-4">{settingsView === "portal" && <FamilyPortalSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "email" && <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "email-audit" && <EmailAuditPanel />}</div>
+      <div className="mt-4">{settingsView === "security" && <SecurityReviewPanel />}</div>
       <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel />}</div>
       <div className="mt-4">{settingsView === "rollover" && <OfficeRolloverModule embedded />}</div>
     </section>

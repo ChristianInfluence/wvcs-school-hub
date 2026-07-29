@@ -20,6 +20,14 @@ function sanitizeHeader(value: unknown) {
   return String(value || "").replace(/[\r\n]/g, " ").trim();
 }
 
+function escapeHtml(value: unknown) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 function encodeBase64Url(value: string) {
   return btoa(unescape(encodeURIComponent(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
@@ -78,6 +86,7 @@ async function getAccessToken() {
 function buildMessage(ticket: Record<string, any>, senderEmail: string, recipientEmail: string) {
   const subject = `WVCS Support Request: ${ticket.title || "New request"}`;
   const requesterEmail = normalizeEmail(ticket.submitter_email);
+  const submittedAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "";
   const body = [
     "A new support request was submitted from WVCS School Hub.",
     "",
@@ -90,6 +99,45 @@ function buildMessage(ticket: Record<string, any>, senderEmail: string, recipien
     "",
     "Open the Hub Support Requests admin area to update the ticket.",
   ].join("\r\n");
+  const detailsHtml = escapeHtml(ticket.body || "").replace(/\r?\n/g, "<br>");
+  const boundary = `wvcs-support-${crypto.randomUUID()}`;
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;background:#f1f5f9;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+      <tr>
+        <td style="background:#0f172a;padding:22px 24px;color:#ffffff;">
+          <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#7dd3fc;font-weight:700;">WVCS School Hub</div>
+          <div style="font-size:24px;line-height:1.25;font-weight:800;margin-top:6px;">New Support Request</div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:24px;">
+          <div style="font-size:20px;font-weight:800;margin-bottom:14px;">${escapeHtml(ticket.title || "New request")}</div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:18px;">
+            <tr>
+              <td style="padding:10px;border:1px solid #e2e8f0;background:#f8fafc;font-size:12px;font-weight:700;color:#475569;">Category</td>
+              <td style="padding:10px;border:1px solid #e2e8f0;font-size:14px;">${escapeHtml(ticket.category || "")}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px;border:1px solid #e2e8f0;background:#f8fafc;font-size:12px;font-weight:700;color:#475569;">Submitted by</td>
+              <td style="padding:10px;border:1px solid #e2e8f0;font-size:14px;">${escapeHtml(ticket.submitter_email || "")}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px;border:1px solid #e2e8f0;background:#f8fafc;font-size:12px;font-weight:700;color:#475569;">Submitted</td>
+              <td style="padding:10px;border:1px solid #e2e8f0;font-size:14px;">${escapeHtml(submittedAt || ticket.created_at || "")}</td>
+            </tr>
+          </table>
+          <div style="font-size:13px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Request Details</div>
+          <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;padding:14px;font-size:14px;line-height:1.6;color:#1e293b;">${detailsHtml}</div>
+          <div style="margin-top:20px;padding:14px;border-radius:10px;background:#e0f2fe;border:1px solid #bae6fd;color:#075985;font-size:14px;line-height:1.5;">
+            Replying to this email will reply to ${escapeHtml(ticket.submitter_email || "the requester")}. Open the Hub Support Requests admin area to update the ticket status.
+          </div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
   return [
     `From: WVCS School Hub <${senderEmail}>`,
@@ -97,9 +145,19 @@ function buildMessage(ticket: Record<string, any>, senderEmail: string, recipien
     ...(requesterEmail ? [`Reply-To: ${requesterEmail}`] : []),
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "",
     body,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "",
+    html,
+    "",
+    `--${boundary}--`,
   ].join("\r\n");
 }
 

@@ -546,6 +546,7 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
   const [settingsStatus, setSettingsStatus] = useState("Loading notification settings...");
   const [drafts, setDrafts] = useState({});
   const [filter, setFilter] = useState("All");
+  const [supportView, setSupportView] = useState("active");
   const [savingId, setSavingId] = useState("");
 
   useEffect(() => {
@@ -571,9 +572,17 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
     () => suggestions.filter((item) => isSupportRequest(item)),
     [suggestions]
   );
+  const archivedSupportRequests = useMemo(
+    () => supportRequests.filter((item) => ["resolved", "declined"].includes(item.status)),
+    [supportRequests]
+  );
+  const activeSupportRequests = useMemo(
+    () => supportRequests.filter((item) => !["resolved", "declined"].includes(item.status)),
+    [supportRequests]
+  );
   const filteredRequests = useMemo(
-    () => supportRequests.filter((item) => filter === "All" || item.category === filter),
-    [supportRequests, filter]
+    () => (supportView === "archive" ? archivedSupportRequests : activeSupportRequests).filter((item) => filter === "All" || item.category === filter),
+    [activeSupportRequests, archivedSupportRequests, filter, supportView]
   );
 
   function getDraft(request) {
@@ -642,10 +651,20 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
               Manage IT, maintenance, facilities, and supplies requests from staff.
             </p>
           </div>
-          <select value={filter} onChange={(event) => setFilter(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-white outline-none focus:border-sky-400">
-            <option>All</option>
-            {SUPPORT_REQUEST_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
-          </select>
+          <div className="flex flex-wrap gap-2">
+            <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-1">
+              <button type="button" onClick={() => setSupportView("active")} className={`rounded-md px-3 py-1.5 text-sm font-bold ${supportView === "active" ? "bg-sky-500 text-white" : "text-slate-300 hover:bg-slate-800"}`}>
+                Active ({activeSupportRequests.length})
+              </button>
+              <button type="button" onClick={() => setSupportView("archive")} className={`rounded-md px-3 py-1.5 text-sm font-bold ${supportView === "archive" ? "bg-sky-500 text-white" : "text-slate-300 hover:bg-slate-800"}`}>
+                Archive ({archivedSupportRequests.length})
+              </button>
+            </div>
+            <select value={filter} onChange={(event) => setFilter(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-white outline-none focus:border-sky-400">
+              <option>All</option>
+              {SUPPORT_REQUEST_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="mb-5 grid gap-3 md:grid-cols-5">
@@ -713,7 +732,7 @@ export function AdminSupportRequestsModule({ currentUserEmail = "" }) {
             })}
             {!filteredRequests.length && (
               <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-400">
-                No support requests match this view.
+                {supportView === "archive" ? "No completed or closed support requests are archived yet." : "No active support requests match this view."}
               </div>
             )}
           </main>
