@@ -154,6 +154,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [backgroundEditor, setBackgroundEditor] = useState(null);
   const [fosAdjustmentDrafts, setFosAdjustmentDrafts] = useState({});
   const [fosAdjustmentSavingKey, setFosAdjustmentSavingKey] = useState("");
+  const [fosAdjustmentOpen, setFosAdjustmentOpen] = useState({});
   const savedViewLabels = {
     unpaid: "families with unpaid incidental invoices",
     fos: "families with FOS balances or pending FOS hours",
@@ -643,38 +644,49 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                   {(() => {
                     const fosDraft = getFosAdjustmentDraft(selectedFamily);
                     const adjustedLiability = calculateFosLiabilityFromAdjustments(fosDraft);
+                    const isOpen = Boolean(fosAdjustmentOpen[selectedFamily.familyKey]);
                     return (
-                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setFosAdjustmentOpen((current) => ({ ...current, [selectedFamily.familyKey]: !current[selectedFamily.familyKey] }))}
+                          className="flex w-full items-center justify-between gap-3 text-left"
+                        >
                           <div>
-                            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Office FOS Adjustments</div>
-                            <div className="mt-1 text-xs text-slate-600">Office-only flags that set this family&apos;s FOS liability.</div>
+                            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">FOS Adjustments</div>
+                            <div className="mt-0.5 text-[11px] text-slate-600">
+                              {fosDraft.fullTimeStaff || fosDraft.partTimeStaff || fosDraft.singleParentHousehold ? "Office-only adjustment active" : "Collapsed by default"}
+                            </div>
                           </div>
-                          <div className="text-sm font-black text-slate-950">FOS liability: {money(adjustedLiability)}</div>
-                        </div>
-                        <div className="mt-3 grid gap-3 lg:grid-cols-[auto_auto_minmax(180px,240px)_auto] lg:items-center">
-                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={fosDraft.fullTimeStaff}
-                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { fullTimeStaff: event.target.checked, partTimeStaff: event.target.checked ? false : fosDraft.partTimeStaff })}
-                              className="h-4 w-4 accent-sky-600"
-                            />
-                            Full-time staff
-                          </label>
-                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={fosDraft.partTimeStaff}
-                              disabled={fosDraft.fullTimeStaff}
-                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { partTimeStaff: event.target.checked })}
-                              className="h-4 w-4 accent-sky-600 disabled:opacity-50"
-                            />
-                            Part-time staff
-                          </label>
-                          <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                            Percent of full-time
-                            <div className="flex items-center gap-2">
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800">{money(adjustedLiability)}</span>
+                            <span className="text-xs font-black text-sky-700">{isOpen ? "Hide" : "Edit"}</span>
+                          </div>
+                        </button>
+                        {isOpen && (
+                          <div className="mt-3 border-t border-slate-200 pt-3">
+                            <div className="grid gap-2 lg:grid-cols-[auto_auto_minmax(150px,190px)_auto_auto] lg:items-center">
+                              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={fosDraft.fullTimeStaff}
+                                  onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { fullTimeStaff: event.target.checked, partTimeStaff: event.target.checked ? false : fosDraft.partTimeStaff })}
+                                  className="h-4 w-4 accent-sky-600"
+                                />
+                                Full-time
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={fosDraft.partTimeStaff}
+                                  disabled={fosDraft.fullTimeStaff}
+                                  onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { partTimeStaff: event.target.checked })}
+                                  className="h-4 w-4 accent-sky-600 disabled:opacity-50"
+                                />
+                                Part-time
+                              </label>
+                              <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                <span className="shrink-0">Percent</span>
                               <input
                                 type="number"
                                 min="0"
@@ -683,35 +695,32 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                                 value={fosDraft.partTimePercent}
                                 disabled={!fosDraft.partTimeStaff || fosDraft.fullTimeStaff}
                                 onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { partTimePercent: event.target.value })}
-                                className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-950 outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  className="w-20 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-950 outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
                               />
-                              <span className="text-sm font-bold text-slate-500">%</span>
+                                <span>%</span>
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={fosDraft.singleParentHousehold}
+                                  onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { singleParentHousehold: event.target.checked })}
+                                  className="h-4 w-4 accent-sky-600"
+                                />
+                                Single parent
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => saveFosAdjustment(selectedFamily)}
+                                disabled={fosAdjustmentSavingKey === selectedFamily.familyKey}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-sky-600 bg-sky-600 px-2.5 py-1.5 text-xs font-black text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Save size={13} />
+                                {fosAdjustmentSavingKey === selectedFamily.familyKey ? "Saving..." : "Save"}
+                              </button>
                             </div>
-                          </label>
-                          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={fosDraft.singleParentHousehold}
-                              onChange={(event) => updateFosAdjustmentDraft(selectedFamily.familyKey, { singleParentHousehold: event.target.checked })}
-                              className="h-4 w-4 accent-sky-600"
-                            />
-                            Single-parent household
-                          </label>
-                        </div>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="text-[11px] leading-4 text-slate-500">
-                            Full-time staff sets liability to $0. Part-time reduces liability by the percent entered. Single-parent household reduces the remaining liability by 50%.
+                            <div className="mt-2 text-[11px] leading-4 text-slate-500">Full-time: $0. Part-time: percent reduction. Single parent: 50% reduction after staff adjustment.</div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => saveFosAdjustment(selectedFamily)}
-                            disabled={fosAdjustmentSavingKey === selectedFamily.familyKey}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-xs font-black text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Save size={14} />
-                            {fosAdjustmentSavingKey === selectedFamily.familyKey ? "Saving..." : "Save FOS"}
-                          </button>
-                        </div>
+                        )}
                       </div>
                     );
                   })()}
