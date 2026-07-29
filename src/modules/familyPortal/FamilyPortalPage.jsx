@@ -57,10 +57,26 @@ const studentDriverDefaults = {
   insuranceCompany: "",
   policyNumber: "",
   policyAcknowledged: false,
+  policyTermsVersion: "2026-2027",
   parentSignature: "",
   studentSignature: "",
   signatureDate: today,
 };
+
+const studentDriverPolicyTerms = [
+  "WVCS policy does not permit student drivers to drive other students to school-sponsored activities during or after school hours if the trip originates from the school.",
+  "Students may drive themselves to school-sponsored activities only with a prior permission/waiver release form from their parents turned in to the office before the student leaves school premises.",
+  "For athletic transportation, students must be transported to school-sponsored sporting events by school-approved drivers or their parents.",
+  "Parent drivers must have a volunteer driver form completed and on file in the school office.",
+  "Any student who drives a vehicle to school must register the vehicle with the school office and comply with the WVCS Student Driver Policy.",
+  "Students may not drive off campus during school hours, currently 8:00 a.m. to 3:05 p.m.",
+  "Students may not be in or by vehicles during school hours.",
+  "Students may not transport another student in their vehicle without completed waiver permission from both parties' parents.",
+  "Student parking is along the north side of the building, not in front of the dumpster.",
+  "Students must have a valid Oregon driver's license.",
+  "WVCS administration reserves the right to revoke student driving privileges when students do not comply with the WVCS Student Driver Policy.",
+  "The student driver's license and insurance card must be submitted with this registration for office review.",
+];
 
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -1405,10 +1421,25 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                       <Field label="Insurance Company"><Input value={studentDriverDraft.insuranceCompany} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, insuranceCompany: event.target.value })} /></Field>
                       <Field label="Policy #"><Input value={studentDriverDraft.policyNumber} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, policyNumber: event.target.value })} /></Field>
                     </div>
-                    <label className="mt-4 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
-                      <input type="checkbox" checked={studentDriverDraft.policyAcknowledged} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, policyAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
-                      <span>We have read and agree to follow the WVCS Student Driver Policy, including no off-campus driving during school hours and no transporting other students without completed permission from both parties&apos; parents.</span>
-                    </label>
+                    <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                      <div className="flex items-center gap-2 text-sm font-bold text-white">
+                        <Info size={16} className="text-sky-300" />
+                        Student Driver Policy Terms
+                      </div>
+                      <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <ol className="grid gap-2 pl-5 text-sm leading-6 text-slate-300">
+                          {studentDriverPolicyTerms.map((term) => (
+                            <li key={term} className="list-decimal">
+                              {term}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                      <label className="mt-3 flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm font-semibold text-sky-100">
+                        <input type="checkbox" checked={studentDriverDraft.policyAcknowledged} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, policyAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                        <span>We have read, understand, and agree to follow the WVCS Student Driver Policy terms above. We understand driving privileges may be revoked if the student does not comply.</span>
+                      </label>
+                    </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_180px]">
                       <Field label="Parent/guardian e-signature"><Input value={studentDriverDraft.parentSignature} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, parentSignature: event.target.value })} placeholder="Type full name" /></Field>
                       <Field label="Student e-signature"><Input value={studentDriverDraft.studentSignature} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, studentSignature: event.target.value })} placeholder="Type full name" /></Field>
