@@ -689,26 +689,6 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
               );
             })()}
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-sm font-black text-slate-950">
-                    <Users size={16} className="text-sky-600" />
-                    Family Snapshot
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">One quick read across finance, portal access, lunch, FOS, forms, and volunteer records.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <StatusPill tone={selectedFamily.access?.lastParentLoginAt ? "emerald" : "amber"}>{selectedFamily.access?.lastParentLoginAt ? "Portal active" : "No portal login"}</StatusPill>
-                  <StatusPill tone={selectedFamily.unpaidIncidentals.length ? "rose" : "emerald"}>{selectedFamily.unpaidIncidentals.length ? `${selectedFamily.unpaidIncidentals.length} unpaid invoice(s)` : "No unpaid incidentals"}</StatusPill>
-                  <StatusPill tone={Number(selectedFamily.lunchAccount.balance || 0) < 0 ? "amber" : "emerald"}>Lunch {money(selectedFamily.lunchAccount.balance)}</StatusPill>
-                  <StatusPill tone={selectedFamily.fos.remainingBalance > 0 ? "amber" : "emerald"}>FOS owed {money(selectedFamily.fos.remainingBalance)}</StatusPill>
-                  <StatusPill tone={selectedFamily.pendingDrivers.length ? "amber" : selectedFamily.verifiedDrivers.length ? "emerald" : "slate"}>{selectedFamily.pendingDrivers.length ? "Driver pending" : selectedFamily.verifiedDrivers.length ? "Driver verified" : "No driver record"}</StatusPill>
-                  <StatusPill tone={selectedFamily.currentBackgroundChecks.length ? "emerald" : "slate"}>{selectedFamily.currentBackgroundChecks.length ? "Background current" : "No current background check"}</StatusPill>
-                </div>
-              </div>
-            </div>
-
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><DollarSign size={14} />Incidentals</div><div className="mt-2 text-2xl font-black text-slate-950">{money(selectedFamily.unpaidIncidentals.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0))}</div><div className="text-xs text-slate-500">{selectedFamily.unpaidIncidentals.length} unpaid invoice(s)</div></div>
               <div className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500"><Utensils size={14} />Lunch Account</div><div className={`mt-2 text-2xl font-black ${Number(selectedFamily.lunchAccount.balance || 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{money(selectedFamily.lunchAccount.balance)}</div><div className="text-xs text-slate-500">Available lunch account balance</div></div>
