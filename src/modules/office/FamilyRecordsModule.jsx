@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileSignature, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchStudentDriverRegistrations, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewStudentDriverRegistration, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
+import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchOffCampusLunchPermissions, fetchParentBackgroundChecks, fetchStudentDriverRegistrations, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewOffCampusLunchPermission, reviewStudentDriverRegistration, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
@@ -139,6 +139,10 @@ function studentDriverTone(status) {
   return "slate";
 }
 
+function offCampusPermissionTone(status) {
+  return studentDriverTone(status);
+}
+
 function calculateFosLiabilityFromAdjustments(settings = {}) {
   if (settings.fullTimeStaff) return 0;
   const partTimePercent = settings.partTimeStaff ? Math.min(Math.max(Number(settings.partTimePercent || 0), 0), 100) : 0;
@@ -148,7 +152,7 @@ function calculateFosLiabilityFromAdjustments(settings = {}) {
 }
 
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
-  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], studentDriverRegistrations: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
+  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], studentDriverRegistrations: [], offCampusLunchPermissions: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
@@ -159,6 +163,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [driverReviewingId, setDriverReviewingId] = useState("");
   const [studentDriverReviewDrafts, setStudentDriverReviewDrafts] = useState({});
   const [studentDriverReviewingId, setStudentDriverReviewingId] = useState("");
+  const [offCampusReviewDrafts, setOffCampusReviewDrafts] = useState({});
+  const [offCampusReviewingId, setOffCampusReviewingId] = useState("");
   const [backgroundDrafts, setBackgroundDrafts] = useState({});
   const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
   const [backgroundEditor, setBackgroundEditor] = useState(null);
@@ -175,7 +181,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, adjustmentResult, auditResult, driverResult, studentDriverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, adjustmentResult, auditResult, driverResult, studentDriverResult, offCampusLunchResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
@@ -186,6 +192,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fetchFosAuditEvents(120),
         fetchVolunteerDriverApplications(),
         fetchStudentDriverRegistrations(),
+        fetchOffCampusLunchPermissions(),
         fetchParentBackgroundChecks(),
         fetchPermissionEvents(),
         fetchPermissionRecipients(),
@@ -203,12 +210,13 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         audit: auditResult.events || [],
         driverApplications: driverResult.applications || [],
         studentDriverRegistrations: studentDriverResult.registrations || [],
+        offCampusLunchPermissions: offCampusLunchResult.permissions || [],
         backgroundChecks: backgroundResult.backgroundChecks || [],
         permissionEvents: permissionEventsResult.events || [],
         permissionRecipients: permissionRecipientsResult.recipients || [],
         permissionSubmissions: permissionSubmissionsResult.submissions || [],
         formSubmissions: formSubmissionsResult.submissions || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || studentDriverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || studentDriverResult.reason || offCampusLunchResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
@@ -251,6 +259,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       const studentDriverRegistrations = data.studentDriverRegistrations.filter((registration) => registration.familyKey === family.familyKey || familyNamesMatch(registration.familyName, family.familyName));
       const approvedStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Approved" && (!registration.expiresAt || registration.expiresAt.slice(0, 10) >= today));
       const pendingStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Pending" || registration.status === "Needs Correction");
+      const offCampusLunchPermissions = data.offCampusLunchPermissions.filter((permission) => permission.familyKey === family.familyKey || familyNamesMatch(permission.familyName, family.familyName));
+      const pendingOffCampusLunchPermissions = offCampusLunchPermissions.filter((permission) => permission.status === "Pending" || permission.status === "Needs Correction");
       const backgroundChecks = data.backgroundChecks.filter((record) => record.familyKey === family.familyKey || familyNamesMatch(record.familyName, family.familyName));
       const currentBackgroundChecks = backgroundChecks.filter(isCurrentBackgroundCheck);
       const permissionRecipients = data.permissionRecipients.filter((recipient) => studentIds.has(recipient.studentId) || emailsMatchAny(recipient.parentEmail, parentEmails));
@@ -299,6 +309,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         studentDriverRegistrations,
         approvedStudentDrivers,
         pendingStudentDrivers,
+        offCampusLunchPermissions,
+        pendingOffCampusLunchPermissions,
         backgroundChecks,
         currentBackgroundChecks,
         familyDocuments,
@@ -522,6 +534,31 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       setActionStatus(`Unable to review student driver registration: ${error.message}`);
     } finally {
       setStudentDriverReviewingId("");
+    }
+  }
+
+  async function reviewOffCampusLunch(permission, action) {
+    const labels = {
+      approve: "Approve",
+      deny: "Deny",
+      correction: "Request correction for",
+      revoke: "Revoke",
+    };
+    const confirmed = window.confirm(`${labels[action] || "Review"} off-campus lunch permission for ${permission.studentName || "this student"}?`);
+    if (!confirmed) return;
+    try {
+      setOffCampusReviewingId(permission.id);
+      setActionStatus(`${labels[action] || "Reviewing"} off-campus lunch permission...`);
+      const result = await reviewOffCampusLunchPermission(permission.id, {
+        action,
+        officeNote: offCampusReviewDrafts[permission.id] || "",
+      });
+      setActionStatus(`Off-campus lunch permission marked ${result.permission?.status || "reviewed"}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to review off-campus lunch permission: ${error.message}`);
+    } finally {
+      setOffCampusReviewingId("");
     }
   }
 
@@ -1058,6 +1095,66 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                     </div>
                   ))}
                   {!selectedFamily.studentDriverRegistrations.length && <div className="text-sm text-slate-500">No student driver registrations yet.</div>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><FileText size={16} className="text-sky-600" />Off-Campus Lunch Permissions</div>
+                <div className="mt-3 grid gap-2">
+                  {selectedFamily.offCampusLunchPermissions.map((permission) => {
+                    const allowedDrivers = Array.isArray(permission.permission?.approvedStudentDrivers)
+                      ? permission.permission.approvedStudentDrivers.filter(Boolean)
+                      : [];
+                    return (
+                      <div key={permission.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-bold text-slate-900">{permission.studentName || "Student"}</div>
+                              <StatusPill tone={offCampusPermissionTone(permission.status)}>{permission.status}</StatusPill>
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-slate-500">
+                              Grade {permission.studentGrade || "not listed"} · Submitted {formatDate(permission.submittedAt)}{permission.expiresAt ? ` · Expires ${formatDate(permission.expiresAt)}` : ""}
+                            </div>
+                            {permission.officeNote && <div className="mt-1 text-xs text-slate-600">Office note: {permission.officeNote}</div>}
+                            <div className="mt-3 grid gap-2 text-xs text-slate-600 md:grid-cols-3">
+                              <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                <div className="font-bold text-slate-900">Leave campus</div>
+                                <div className="mt-1">{permission.permission?.permitLeaveCampusLunch ? "Permitted" : "Not permitted"}</div>
+                              </div>
+                              <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                <div className="font-bold text-slate-900">Student driving</div>
+                                <div className="mt-1">Drive self: {permission.permission?.permitStudentDriveSelf ? "Yes" : "No"}</div>
+                                <div>Drive others: {permission.permission?.permitStudentDriveOthers ? "Yes" : "No"}</div>
+                              </div>
+                              <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                <div className="font-bold text-slate-900">May ride with</div>
+                                <div className="mt-1">{allowedDrivers.length ? allowedDrivers.join(", ") : "No student drivers listed"}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        {permission.status === "Pending" || permission.status === "Needs Correction" ? (
+                          <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 xl:grid-cols-[1fr_auto_auto_auto]">
+                            <input
+                              value={offCampusReviewDrafts[permission.id] || ""}
+                              onChange={(event) => setOffCampusReviewDrafts((current) => ({ ...current, [permission.id]: event.target.value }))}
+                              placeholder="Optional office note"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
+                            />
+                            <button type="button" onClick={() => reviewOffCampusLunch(permission, "approve")} disabled={offCampusReviewingId === permission.id} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">Approve</button>
+                            <button type="button" onClick={() => reviewOffCampusLunch(permission, "correction")} disabled={offCampusReviewingId === permission.id} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-60">Correction</button>
+                            <button type="button" onClick={() => reviewOffCampusLunch(permission, "deny")} disabled={offCampusReviewingId === permission.id} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Deny</button>
+                          </div>
+                        ) : permission.status === "Approved" && (
+                          <div className="mt-3 border-t border-slate-200 pt-3">
+                            <button type="button" onClick={() => reviewOffCampusLunch(permission, "revoke")} disabled={offCampusReviewingId === permission.id} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Revoke</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!selectedFamily.offCampusLunchPermissions.length && <div className="text-sm text-slate-500">No off-campus lunch permissions yet.</div>}
                 </div>
               </div>
 

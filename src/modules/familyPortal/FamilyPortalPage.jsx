@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, Loader2, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
-import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitStudentDriverRegistration, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
+import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitOffCampusLunchPermission, submitStudentDriverRegistration, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
@@ -62,6 +62,19 @@ const studentDriverDefaults = {
   studentSignature: "",
   signatureDate: today,
 };
+const offCampusLunchDefaults = {
+  schoolYear: "2026-2027",
+  studentId: "",
+  permitLeaveCampusLunch: true,
+  permitStudentDriveSelf: false,
+  permitStudentDrivenByOthers: false,
+  approvedStudentDrivers: [""],
+  permitStudentDriveOthers: false,
+  parentSignature: "",
+  studentSignature: "",
+  signatureDate: today,
+  termsAcknowledged: false,
+};
 
 const studentDriverPolicyTerms = [
   "WVCS policy does not permit student drivers to drive other students to school-sponsored activities during or after school hours if the trip originates from the school.",
@@ -76,6 +89,14 @@ const studentDriverPolicyTerms = [
   "Students must have a valid Oregon driver's license.",
   "WVCS administration reserves the right to revoke student driving privileges when students do not comply with the WVCS Student Driver Policy.",
   "The student driver's license and insurance card must be submitted with this registration for office review.",
+];
+const offCampusLunchTerms = [
+  "This permission applies only to off-campus lunch privileges approved by WVCS and may be limited or revoked by school administration.",
+  "The student must follow all WVCS expectations while off campus, return to campus on time, and remain responsible for school attendance and behavior requirements.",
+  "If the student drives, the student must have a valid driver's license, current insurance, and an approved WVCS Student Driver Vehicle Registration on file.",
+  "Students may not transport other students unless permission has been granted by the parents or guardians of both students and the arrangement is permissible by law.",
+  "Students riding with another student may only ride with the student drivers specifically listed on this form.",
+  "Parents/guardians understand that transportation by student drivers is a family permission decision and is not school-provided transportation.",
 ];
 
 function money(value) {
@@ -178,6 +199,11 @@ function isApprovedStudentDriver(registration) {
   return registration?.status === "Approved" && (!registration.expiresAt || registration.expiresAt.slice(0, 10) >= today);
 }
 
+function isUpperGradeStudent(student) {
+  const grade = String(student?.grade || "").trim().toLowerCase();
+  return grade === "11" || grade === "11th" || grade === "12" || grade === "12th";
+}
+
 async function fileToAttachment(file, kind, label) {
   const contentBase64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -221,6 +247,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [studentDriverFiles, setStudentDriverFiles] = useState({ license: null, insurance: null });
   const [studentDriverStatus, setStudentDriverStatus] = useState("");
   const [submittingStudentDriver, setSubmittingStudentDriver] = useState(false);
+  const [offCampusDraft, setOffCampusDraft] = useState(offCampusLunchDefaults);
+  const [offCampusStatus, setOffCampusStatus] = useState("");
+  const [submittingOffCampus, setSubmittingOffCampus] = useState(false);
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
 
@@ -250,6 +279,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setStudentDriverDraft((current) => ({
         ...current,
         studentId: current.studentId || result.family?.students?.[0]?.id || "",
+      }));
+      setOffCampusDraft((current) => ({
+        ...current,
+        studentId: current.studentId || (result.family?.students || []).find(isUpperGradeStudent)?.id || "",
       }));
     } catch (error) {
       setPortal({ loading: false, error: error.message, data: null });
@@ -311,6 +344,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const studentDriverRegistrations = portal.data?.studentDrivers?.registrations || [];
   const approvedStudentDriverRegistrations = studentDriverRegistrations.filter(isApprovedStudentDriver);
   const latestStudentDriverRegistration = studentDriverRegistrations[0] || null;
+  const offCampusEligibleStudents = (portal.data?.family?.students || []).filter(isUpperGradeStudent);
+  const offCampusLunchPermissions = portal.data?.offCampusLunch?.permissions || [];
+  const latestOffCampusLunchPermission = offCampusLunchPermissions[0] || null;
   const portalSettings = portal.data?.familyPortalSettings || {};
   const announcement = portalSettings.announcement || {};
   const help = portalSettings.help || {};
@@ -643,6 +679,65 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setStudentDriverStatus(`Unable to submit student driver registration: ${error.message}`);
     } finally {
       setSubmittingStudentDriver(false);
+    }
+  }
+
+  function updatePermittedStudentDriverName(index, value) {
+    setOffCampusDraft((current) => ({
+      ...current,
+      approvedStudentDrivers: current.approvedStudentDrivers.map((name, nameIndex) => nameIndex === index ? value : name),
+    }));
+  }
+
+  function addPermittedStudentDriverName() {
+    setOffCampusDraft((current) => ({ ...current, approvedStudentDrivers: [...current.approvedStudentDrivers, ""] }));
+  }
+
+  function removePermittedStudentDriverName(index) {
+    setOffCampusDraft((current) => ({
+      ...current,
+      approvedStudentDrivers: current.approvedStudentDrivers.length > 1
+        ? current.approvedStudentDrivers.filter((_, nameIndex) => nameIndex !== index)
+        : [""],
+    }));
+  }
+
+  async function submitOffCampusLunchForm() {
+    if (!offCampusDraft.studentId) {
+      setOffCampusStatus("Choose an 11th or 12th grade student this permission applies to.");
+      return;
+    }
+    if (!offCampusDraft.permitLeaveCampusLunch) {
+      setOffCampusStatus("Confirm that you are permitting off-campus lunch before submitting.");
+      return;
+    }
+    if (offCampusDraft.permitStudentDriveSelf && !approvedStudentDriverRegistrations.some((registration) => String(registration.studentId) === String(offCampusDraft.studentId))) {
+      setOffCampusStatus("This student needs an approved Student Driver Vehicle Registration before they can be permitted to drive themselves.");
+      return;
+    }
+    const permittedDrivers = (offCampusDraft.approvedStudentDrivers || []).map((name) => name.trim()).filter(Boolean);
+    if (offCampusDraft.permitStudentDrivenByOthers && !permittedDrivers.length) {
+      setOffCampusStatus("List at least one student driver your student may ride with.");
+      return;
+    }
+    if (!offCampusDraft.termsAcknowledged || !offCampusDraft.parentSignature.trim() || !offCampusDraft.studentSignature.trim() || !offCampusDraft.signatureDate) {
+      setOffCampusStatus("Acknowledge the terms and complete both e-signatures before submitting.");
+      return;
+    }
+    setSubmittingOffCampus(true);
+    setOffCampusStatus("Submitting off-campus lunch permission...");
+    try {
+      await submitOffCampusLunchPermission({
+        ...offCampusDraft,
+        approvedStudentDrivers: permittedDrivers,
+      });
+      setOffCampusStatus("Off-campus lunch permission submitted. It is pending office review.");
+      setOffCampusDraft({ ...offCampusLunchDefaults, studentId: offCampusEligibleStudents[0]?.id || "" });
+      await loadPortal();
+    } catch (error) {
+      setOffCampusStatus(`Unable to submit off-campus lunch permission: ${error.message}`);
+    } finally {
+      setSubmittingOffCampus(false);
     }
   }
 
@@ -1359,11 +1454,128 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                     </button>
                   </div>
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Future Forms</div>
-                    <div className="mt-2 text-lg font-bold text-white">Off-Campus Permission</div>
-                    <div className="mt-1 text-xs leading-5 text-slate-500">This Forms area is ready for the next family form.</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Off-Campus Lunch</div>
+                    <div className="mt-2 text-lg font-bold text-white">{latestOffCampusLunchPermission?.status || "Not Submitted"}</div>
+                    <button type="button" onClick={() => setActivePortalForm(activePortalForm === "off-campus-lunch" ? "" : "off-campus-lunch")} className="mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+                      {activePortalForm === "off-campus-lunch" ? "Close Form" : "Open Off-Campus Lunch Form"}
+                    </button>
                   </div>
                 </div>
+
+                {offCampusLunchPermissions.length > 0 && (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CheckCircle2 size={16} className="text-sky-300" />
+                      Off-Campus Lunch Permissions
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {offCampusLunchPermissions.map((permission) => (
+                        <div key={permission.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="font-bold text-white">{permission.studentName || "Student"}</div>
+                            <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${
+                              permission.status === "Approved"
+                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                                : permission.status === "Pending" || permission.status === "Needs Correction"
+                                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                            }`}>
+                              {permission.status}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            Submitted {shortDate(permission.submittedAt)}{permission.expiresAt ? ` | Approved through ${shortDate(permission.expiresAt)}` : ""}
+                          </div>
+                          {permission.officeNote && <div className="mt-2 text-xs text-slate-300">Office note: {permission.officeNote}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {activePortalForm === "off-campus-lunch" && (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <FileText size={16} className="text-sky-300" />
+                      Off-Campus Lunch Permission
+                    </div>
+                    <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-100">
+                      Complete one form per eligible 11th or 12th grade student. Student driving options are reviewed with the WVCS Student Driver Vehicle Registration on file.
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <Field label="School Year"><Input value={offCampusDraft.schoolYear} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, schoolYear: event.target.value })} /></Field>
+                      <Field label="Student">
+                        <select value={offCampusDraft.studentId} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, studentId: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Choose student</option>
+                          {offCampusEligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name} {student.grade ? `(Grade ${student.grade})` : ""}</option>)}
+                        </select>
+                        {!offCampusEligibleStudents.length && <div className="mt-1 text-xs text-amber-200">No 11th or 12th grade students are connected to this family portal.</div>}
+                      </Field>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm font-semibold text-slate-200">
+                        <input type="checkbox" checked={offCampusDraft.permitLeaveCampusLunch} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, permitLeaveCampusLunch: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                        <span>I permit this student to leave campus for approved off-campus lunch privileges.</span>
+                      </label>
+                      <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm font-semibold text-slate-200">
+                        <input type="checkbox" checked={offCampusDraft.permitStudentDriveSelf} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, permitStudentDriveSelf: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                        <span>I permit this student to drive themself for off-campus lunch, provided WVCS has approved the required Student Driver Vehicle Registration.</span>
+                      </label>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <label className="flex items-start gap-2 text-sm font-semibold text-slate-200">
+                          <input type="checkbox" checked={offCampusDraft.permitStudentDrivenByOthers} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, permitStudentDrivenByOthers: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                          <span>I permit this student to be driven by the student driver(s) listed below.</span>
+                        </label>
+                        {offCampusDraft.permitStudentDrivenByOthers && (
+                          <div className="mt-3 grid gap-2">
+                            {(offCampusDraft.approvedStudentDrivers || [""]).map((name, index) => (
+                              <div key={index} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                <Input value={name} onChange={(event) => updatePermittedStudentDriverName(index, event.target.value)} placeholder="Permitted student driver name" />
+                                <button type="button" onClick={() => removePermittedStudentDriverName(index)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800">
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                            <button type="button" onClick={addPermittedStudentDriverName} className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+                              + Add another student driver
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <label className="flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm font-semibold text-slate-200">
+                        <input type="checkbox" checked={offCampusDraft.permitStudentDriveOthers} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, permitStudentDriveOthers: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                        <span>I permit this student to drive other students for off-campus lunch only when it is permissible by law and all required parent permissions are on file.</span>
+                      </label>
+                    </div>
+                    <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                      <div className="flex items-center gap-2 text-sm font-bold text-white">
+                        <Info size={16} className="text-sky-300" />
+                        Off-Campus Lunch Terms
+                      </div>
+                      <div className="mt-3 max-h-60 overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <ol className="grid gap-2 pl-5 text-sm leading-6 text-slate-300">
+                          {offCampusLunchTerms.map((term) => (
+                            <li key={term} className="list-decimal">{term}</li>
+                          ))}
+                        </ol>
+                      </div>
+                      <label className="mt-3 flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm font-semibold text-sky-100">
+                        <input type="checkbox" checked={offCampusDraft.termsAcknowledged} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, termsAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                        <span>We have read, understand, and agree to the off-campus lunch terms above.</span>
+                      </label>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_180px]">
+                      <Field label="Parent/guardian e-signature"><Input value={offCampusDraft.parentSignature} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, parentSignature: event.target.value })} placeholder="Type full name" /></Field>
+                      <Field label="Student e-signature"><Input value={offCampusDraft.studentSignature} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, studentSignature: event.target.value })} placeholder="Type full name" /></Field>
+                      <Field label="Date"><Input type="date" value={offCampusDraft.signatureDate} onChange={(event) => setOffCampusDraft({ ...offCampusDraft, signatureDate: event.target.value })} /></Field>
+                    </div>
+                    <button type="button" onClick={submitOffCampusLunchForm} disabled={submittingOffCampus} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Send size={16} />
+                      {submittingOffCampus ? "Submitting..." : "Submit Off-Campus Lunch Permission"}
+                    </button>
+                    {offCampusStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{offCampusStatus}</div>}
+                  </div>
+                )}
 
                 {studentDriverRegistrations.length > 0 && (
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">

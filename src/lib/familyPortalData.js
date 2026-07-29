@@ -139,6 +139,28 @@ function mapStudentDriverRegistration(row) {
   };
 }
 
+function mapOffCampusLunchPermission(row) {
+  return {
+    id: row.id,
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    schoolYear: row.school_year || "",
+    studentId: row.student_id || "",
+    studentName: row.student_name || "",
+    studentGrade: row.student_grade || "",
+    parentEmail: row.parent_email || "",
+    status: row.status || "Pending",
+    permission: row.permission || {},
+    attachments: row.attachments || [],
+    submittedAt: row.submitted_at || "",
+    reviewedAt: row.reviewed_at || "",
+    reviewedByEmail: row.reviewed_by_email || "",
+    expiresAt: row.expires_at || "",
+    officeNote: row.office_note || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function mapBackgroundCheck(row) {
   return {
     id: row.id,
@@ -271,6 +293,17 @@ export async function fetchStudentDriverRegistrations() {
     .order("submitted_at", { ascending: false });
   if (error) return { loaded: false, registrations: [], reason: "Student driver registrations table is not installed yet." };
   return { loaded: true, registrations: (data || []).map(mapStudentDriverRegistration) };
+}
+
+export async function fetchOffCampusLunchPermissions() {
+  if (!isSupabaseConfigured) return { loaded: false, permissions: [], reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("off_campus_lunch_permissions")
+    .select("*")
+    .order("submitted_at", { ascending: false });
+  if (error) return { loaded: false, permissions: [], reason: "Off-campus lunch permissions table is not installed yet." };
+  return { loaded: true, permissions: (data || []).map(mapOffCampusLunchPermission) };
 }
 
 export async function fetchParentBackgroundChecks() {
@@ -416,6 +449,16 @@ export async function submitStudentDriverRegistration(registration, attachments 
   return data || { submitted: false };
 }
 
+export async function submitOffCampusLunchPermission(permission, attachments = []) {
+  if (!isSupabaseConfigured) return { submitted: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("submit-off-campus-lunch-permission", {
+    body: { permission, attachments },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { submitted: false };
+}
+
 export async function reviewVolunteerDriverApplication(applicationId, review) {
   if (!isSupabaseConfigured) return { reviewed: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("review-volunteer-driver-application", {
@@ -430,6 +473,16 @@ export async function reviewStudentDriverRegistration(registrationId, review) {
   if (!isSupabaseConfigured) return { reviewed: false, reason: "Supabase is not configured." };
   const { data, error } = await supabase.functions.invoke("review-student-driver-registration", {
     body: { registrationId, review },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || { reviewed: false };
+}
+
+export async function reviewOffCampusLunchPermission(permissionId, review) {
+  if (!isSupabaseConfigured) return { reviewed: false, reason: "Supabase is not configured." };
+  const { data, error } = await supabase.functions.invoke("review-off-campus-lunch-permission", {
+    body: { permissionId, review },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
