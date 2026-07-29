@@ -127,6 +127,28 @@ function mapDriverApplication(row: Record<string, any>) {
   };
 }
 
+function mapStudentDriverRegistration(row: Record<string, any>) {
+  return {
+    id: row.id,
+    familyKey: row.family_key || "",
+    familyName: row.family_name || "",
+    schoolYear: row.school_year || "",
+    studentId: row.student_id || "",
+    studentName: row.student_name || "",
+    studentGrade: row.student_grade || "",
+    parentEmail: row.parent_email || "",
+    status: row.status || "Pending",
+    registration: row.registration || {},
+    attachments: row.attachments || [],
+    submittedAt: row.submitted_at || "",
+    reviewedAt: row.reviewed_at || "",
+    reviewedByEmail: row.reviewed_by_email || "",
+    expiresAt: row.expires_at || "",
+    officeNote: row.office_note || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function mapPermissionEvent(row: Record<string, any>) {
   return {
     id: row.id,
@@ -232,7 +254,7 @@ Deno.serve(async (request) => {
     const nameTerms = familyNameTerms(access.family_name);
     const familyNameFilter = nameTerms.map((term) => `family_name.ilike.%${term.replaceAll(",", "\\,")}%`).join(",");
 
-    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: tuitionNameRows, error: tuitionNameError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: driverRows, error: driverError }, { data: portalSettingsRow }] =
+    const [{ data: directoryRows, error: directoryError }, { data: fosRows, error: fosError }, { data: incidentalRows, error: incidentalError }, { data: incidentalNameRows, error: incidentalNameError }, { data: tuitionRows, error: tuitionError }, { data: tuitionNameRows, error: tuitionNameError }, { data: lunchAccount, error: lunchAccountError }, { data: lunchMenus, error: lunchMenusError }, { data: lunchOrders, error: lunchOrdersError }, { data: lunchTransactions, error: lunchTransactionsError }, { data: driverRows, error: driverError }, { data: studentDriverRows, error: studentDriverError }, { data: portalSettingsRow }] =
       await Promise.all([
         supabase.from("student_directory").select("*").eq("active", true),
         supabase.from("fos_hour_entries").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }),
@@ -249,6 +271,7 @@ Deno.serve(async (request) => {
         supabase.from("lunch_orders").select("*").eq("family_key", access.family_key).order("order_date", { ascending: false }).order("created_at", { ascending: false }).limit(120),
         supabase.from("lunch_transactions").select("*").eq("family_key", access.family_key).order("created_at", { ascending: false }).limit(120),
         supabase.from("volunteer_driver_applications").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }).limit(20),
+        supabase.from("student_driver_registrations").select("*").eq("family_key", access.family_key).order("submitted_at", { ascending: false }).limit(20),
         supabase.from("office_finance_settings").select("settings").eq("id", "family_portal").maybeSingle(),
       ]);
 
@@ -265,6 +288,10 @@ Deno.serve(async (request) => {
     if (driverError) {
       const message = String(driverError.message || "");
       if (!/does not exist|schema cache|relation/i.test(message)) throw driverError;
+    }
+    if (studentDriverError) {
+      const message = String(studentDriverError.message || "");
+      if (!/does not exist|schema cache|relation/i.test(message)) throw studentDriverError;
     }
 
     const students = (directoryRows || []).filter((row) => familyKeyFor(row) === access.family_key).map(mapStudent);
@@ -395,6 +422,9 @@ Deno.serve(async (request) => {
         },
         volunteerDrivers: {
           applications: (driverRows || []).map(mapDriverApplication),
+        },
+        studentDrivers: {
+          registrations: (studentDriverRows || []).map(mapStudentDriverRegistration),
         },
         familyPortalSettings: normalizeFamilyPortalSettings(portalSettingsRow?.settings),
         permissionSlips,

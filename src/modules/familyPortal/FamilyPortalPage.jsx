@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, FileSignature, FileText, Info, Loader2, ReceiptText, RefreshCw, Send, Users, Utensils } from "lucide-react";
-import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
+import { createLunchCheckout, fetchFamilyPortalData, sendFamilyLoginLink, submitFosHours, submitLunchOrders, submitStudentDriverRegistration, submitVolunteerDriverApplication, updateLunchMenuOrder } from "../../lib/familyPortalData.js";
 import { createParentPermissionPdfUrl } from "../../lib/permissionSlipsData.js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient.js";
 
@@ -45,6 +45,21 @@ const driverApplicationDefaults = {
   signatureDate: today,
   requirementsAcknowledged: false,
   truthAcknowledged: false,
+};
+const studentDriverDefaults = {
+  schoolYear: "2026-2027",
+  studentId: "",
+  driverLicenseNumber: "",
+  vehicleMake: "",
+  vehicleModel: "",
+  vehicleColor: "",
+  licensePlate: "",
+  insuranceCompany: "",
+  policyNumber: "",
+  policyAcknowledged: false,
+  parentSignature: "",
+  studentSignature: "",
+  signatureDate: today,
 };
 
 function money(value) {
@@ -143,6 +158,10 @@ function isVerifiedDriver(application) {
   return application?.status === "Verified" && (!application.expiresAt || application.expiresAt.slice(0, 10) >= today);
 }
 
+function isApprovedStudentDriver(registration) {
+  return registration?.status === "Approved" && (!registration.expiresAt || registration.expiresAt.slice(0, 10) >= today);
+}
+
 async function fileToAttachment(file, kind, label) {
   const contentBase64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -181,6 +200,11 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const [driverFiles, setDriverFiles] = useState({ license: null, insurance: null });
   const [driverStatus, setDriverStatus] = useState("");
   const [submittingDriver, setSubmittingDriver] = useState(false);
+  const [activePortalForm, setActivePortalForm] = useState("");
+  const [studentDriverDraft, setStudentDriverDraft] = useState(studentDriverDefaults);
+  const [studentDriverFiles, setStudentDriverFiles] = useState({ license: null, insurance: null });
+  const [studentDriverStatus, setStudentDriverStatus] = useState("");
+  const [submittingStudentDriver, setSubmittingStudentDriver] = useState(false);
 
   const authRequired = Boolean(secureLogin || previewFamilyKey);
 
@@ -206,6 +230,10 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
       setDriverDraft((current) => ({
         ...current,
         parentName: current.parentName || familySession.user?.user_metadata?.full_name || "",
+      }));
+      setStudentDriverDraft((current) => ({
+        ...current,
+        studentId: current.studentId || result.family?.students?.[0]?.id || "",
       }));
     } catch (error) {
       setPortal({ loading: false, error: error.message, data: null });
@@ -264,6 +292,9 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
   const driverApplications = portal.data?.volunteerDrivers?.applications || [];
   const verifiedDriverApplication = driverApplications.find(isVerifiedDriver);
   const latestDriverApplication = driverApplications[0] || null;
+  const studentDriverRegistrations = portal.data?.studentDrivers?.registrations || [];
+  const approvedStudentDriverRegistrations = studentDriverRegistrations.filter(isApprovedStudentDriver);
+  const latestStudentDriverRegistration = studentDriverRegistrations[0] || null;
   const portalSettings = portal.data?.familyPortalSettings || {};
   const announcement = portalSettings.announcement || {};
   const help = portalSettings.help || {};
@@ -549,6 +580,56 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
     }
   }
 
+  async function submitStudentDriverForm() {
+    if (!studentDriverDraft.studentId) {
+      setStudentDriverStatus("Choose the student who will be driving.");
+      return;
+    }
+    const requiredFields = [
+      ["driverLicenseNumber", "Oregon driver's license number"],
+      ["vehicleMake", "Vehicle make"],
+      ["vehicleModel", "Vehicle model"],
+      ["vehicleColor", "Vehicle color"],
+      ["licensePlate", "License plate"],
+      ["insuranceCompany", "Insurance company"],
+      ["policyNumber", "Insurance policy number"],
+      ["parentSignature", "Parent/guardian signature"],
+      ["studentSignature", "Student signature"],
+      ["signatureDate", "Signature date"],
+    ];
+    const missing = requiredFields.filter(([key]) => !String(studentDriverDraft[key] || "").trim()).map(([, label]) => label);
+    if (missing.length) {
+      setStudentDriverStatus(`Complete these fields before submitting: ${missing.join(", ")}.`);
+      return;
+    }
+    if (!studentDriverDraft.policyAcknowledged) {
+      setStudentDriverStatus("Acknowledge the WVCS Student Driver Policy before submitting.");
+      return;
+    }
+    if (!studentDriverFiles.license || !studentDriverFiles.insurance) {
+      setStudentDriverStatus("Attach the student's driver's license and proof of insurance before submitting.");
+      return;
+    }
+
+    setSubmittingStudentDriver(true);
+    setStudentDriverStatus("Submitting student driver registration...");
+    try {
+      const attachments = [
+        await fileToAttachment(studentDriverFiles.license, "student_driver_license", "Student Driver's License"),
+        await fileToAttachment(studentDriverFiles.insurance, "student_insurance_card", "Proof of Insurance"),
+      ];
+      await submitStudentDriverRegistration(studentDriverDraft, attachments);
+      setStudentDriverStatus("Student driver registration submitted. It is pending office review.");
+      setStudentDriverFiles({ license: null, insurance: null });
+      setStudentDriverDraft({ ...studentDriverDefaults, studentId: portal.data?.family?.students?.[0]?.id || "" });
+      await loadPortal();
+    } catch (error) {
+      setStudentDriverStatus(`Unable to submit student driver registration: ${error.message}`);
+    } finally {
+      setSubmittingStudentDriver(false);
+    }
+  }
+
   function startLunchEdit(summary) {
     const selectedItems = {};
     lunchItems.forEach((item) => {
@@ -685,7 +766,7 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                 ["invoices", "Invoices", ReceiptText],
                 ["permissions", "Permission Slips", FileSignature],
                 ["lunch", "Lunch", Utensils],
-                ["driver", "Volunteer Driver", CheckCircle2],
+                ["forms", "Forms", FileText],
                 ["fos", "FOS Hours", Clock],
               ].map(([id, label, Icon]) => (
                 <button
@@ -1244,7 +1325,112 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
               </div>
             )}
 
-            {activeTab === "driver" && (
+            {activeTab === "forms" && (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Volunteer Driver</div>
+                    <div className="mt-2 text-lg font-bold text-white">{verifiedDriverApplication ? "Verified" : latestDriverApplication?.status || "Not Submitted"}</div>
+                    <button type="button" onClick={() => setActivePortalForm(activePortalForm === "volunteer-driver" ? "" : "volunteer-driver")} className="mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+                      {activePortalForm === "volunteer-driver" ? "Close Form" : "Open Volunteer Driver Form"}
+                    </button>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Student Driver</div>
+                    <div className="mt-2 text-lg font-bold text-white">{approvedStudentDriverRegistrations.length ? `${approvedStudentDriverRegistrations.length} Approved` : latestStudentDriverRegistration?.status || "Not Submitted"}</div>
+                    <button type="button" onClick={() => setActivePortalForm(activePortalForm === "student-driver" ? "" : "student-driver")} className="mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+                      {activePortalForm === "student-driver" ? "Close Form" : "Open Student Driver Form"}
+                    </button>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Future Forms</div>
+                    <div className="mt-2 text-lg font-bold text-white">Off-Campus Permission</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">This Forms area is ready for the next family form.</div>
+                  </div>
+                </div>
+
+                {studentDriverRegistrations.length > 0 && (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <CheckCircle2 size={16} className="text-sky-300" />
+                      Student Driver Registrations
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {studentDriverRegistrations.map((registration) => (
+                        <div key={registration.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="font-bold text-white">{registration.studentName || "Student"}</div>
+                            <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${
+                              registration.status === "Approved"
+                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                                : registration.status === "Pending" || registration.status === "Needs Correction"
+                                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                            }`}>
+                              {registration.status}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            Submitted {shortDate(registration.submittedAt)}{registration.expiresAt ? ` | Approved through ${shortDate(registration.expiresAt)}` : ""}
+                          </div>
+                          {registration.officeNote && <div className="mt-2 text-xs text-slate-300">Office note: {registration.officeNote}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {activePortalForm === "student-driver" && (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-white">
+                      <FileText size={16} className="text-sky-300" />
+                      Student Driver Vehicle Registration
+                    </div>
+                    <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-100">
+                      WVCS policy does not permit student drivers to drive other students to school-sponsored activities. Student drivers must have this registration and required documents on file with the school office.
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <Field label="School Year"><Input value={studentDriverDraft.schoolYear} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, schoolYear: event.target.value })} /></Field>
+                      <Field label="Student">
+                        <select value={studentDriverDraft.studentId} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, studentId: event.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400">
+                          <option value="">Choose student</option>
+                          {(portal.data.family?.students || []).map((student) => <option key={student.id} value={student.id}>{student.name} {student.grade ? `(Grade ${student.grade})` : ""}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Oregon Driver License #"><Input value={studentDriverDraft.driverLicenseNumber} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, driverLicenseNumber: event.target.value })} /></Field>
+                      <Field label="License Plate #"><Input value={studentDriverDraft.licensePlate} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, licensePlate: event.target.value })} /></Field>
+                      <Field label="Vehicle Make"><Input value={studentDriverDraft.vehicleMake} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, vehicleMake: event.target.value })} /></Field>
+                      <Field label="Vehicle Model"><Input value={studentDriverDraft.vehicleModel} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, vehicleModel: event.target.value })} /></Field>
+                      <Field label="Vehicle Color"><Input value={studentDriverDraft.vehicleColor} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, vehicleColor: event.target.value })} /></Field>
+                      <Field label="Insurance Company"><Input value={studentDriverDraft.insuranceCompany} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, insuranceCompany: event.target.value })} /></Field>
+                      <Field label="Policy #"><Input value={studentDriverDraft.policyNumber} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, policyNumber: event.target.value })} /></Field>
+                    </div>
+                    <label className="mt-4 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+                      <input type="checkbox" checked={studentDriverDraft.policyAcknowledged} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, policyAcknowledged: event.target.checked })} className="mt-1 h-4 w-4 accent-sky-500" />
+                      <span>We have read and agree to follow the WVCS Student Driver Policy, including no off-campus driving during school hours and no transporting other students without completed permission from both parties&apos; parents.</span>
+                    </label>
+                    <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_180px]">
+                      <Field label="Parent/guardian e-signature"><Input value={studentDriverDraft.parentSignature} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, parentSignature: event.target.value })} placeholder="Type full name" /></Field>
+                      <Field label="Student e-signature"><Input value={studentDriverDraft.studentSignature} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, studentSignature: event.target.value })} placeholder="Type full name" /></Field>
+                      <Field label="Date"><Input type="date" value={studentDriverDraft.signatureDate} onChange={(event) => setStudentDriverDraft({ ...studentDriverDraft, signatureDate: event.target.value })} /></Field>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <Field label="Student Driver's License Image">
+                        <input type="file" accept="image/*,.pdf" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, license: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                      </Field>
+                      <Field label="Proof of Insurance">
+                        <input type="file" accept="image/*,.pdf" onChange={(event) => setStudentDriverFiles({ ...studentDriverFiles, insurance: event.target.files?.[0] || null })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" />
+                      </Field>
+                    </div>
+                    <button type="button" onClick={submitStudentDriverForm} disabled={submittingStudentDriver} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-sm font-bold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Send size={16} />
+                      {submittingStudentDriver ? "Submitting..." : "Submit Student Driver Registration"}
+                    </button>
+                    {studentDriverStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{studentDriverStatus}</div>}
+                  </div>
+                )}
+
+                {activePortalForm === "volunteer-driver" && (
               <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
                 <div className="space-y-4">
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -1414,6 +1600,8 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
                   </button>
                   {driverStatus && <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-100">{driverStatus}</div>}
                 </div>
+              </div>
+                )}
               </div>
             )}
 

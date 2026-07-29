@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
-import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
+import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileSignature, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
+import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchParentBackgroundChecks, fetchStudentDriverRegistrations, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewStudentDriverRegistration, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
@@ -131,6 +131,14 @@ function driverTone(status) {
   return "slate";
 }
 
+function studentDriverTone(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "approved") return "emerald";
+  if (value === "pending" || value === "needs correction") return "amber";
+  if (value === "denied" || value === "revoked" || value === "expired") return "rose";
+  return "slate";
+}
+
 function calculateFosLiabilityFromAdjustments(settings = {}) {
   if (settings.fullTimeStaff) return 0;
   const partTimePercent = settings.partTimeStaff ? Math.min(Math.max(Number(settings.partTimePercent || 0), 0), 100) : 0;
@@ -140,7 +148,7 @@ function calculateFosLiabilityFromAdjustments(settings = {}) {
 }
 
 function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }) {
-  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
+  const [data, setData] = useState({ loading: true, families: [], tuition: [], incidentals: [], lunch: null, fosEntries: [], access: [], audit: [], driverApplications: [], studentDriverRegistrations: [], backgroundChecks: [], permissionEvents: [], permissionRecipients: [], permissionSubmissions: [], formSubmissions: [], error: "" });
   const [search, setSearch] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [savedView, setSavedView] = useState(initialSavedView || "all");
@@ -149,6 +157,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [actionStatus, setActionStatus] = useState("");
   const [driverReviewDrafts, setDriverReviewDrafts] = useState({});
   const [driverReviewingId, setDriverReviewingId] = useState("");
+  const [studentDriverReviewDrafts, setStudentDriverReviewDrafts] = useState({});
+  const [studentDriverReviewingId, setStudentDriverReviewingId] = useState("");
   const [backgroundDrafts, setBackgroundDrafts] = useState({});
   const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
   const [backgroundEditor, setBackgroundEditor] = useState(null);
@@ -165,7 +175,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   async function loadData(message = "") {
     setData((current) => ({ ...current, loading: true, error: message }));
     try {
-      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, adjustmentResult, auditResult, driverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
+      const [directoryResult, tuitionResult, incidentalResult, lunchResult, fosResult, accessResult, adjustmentResult, auditResult, driverResult, studentDriverResult, backgroundResult, permissionEventsResult, permissionRecipientsResult, permissionSubmissionsResult, formSubmissionsResult] = await Promise.all([
         fetchOfficeFamilyDirectory(),
         fetchTuitionInvoices(),
         fetchIncidentalInvoices(),
@@ -175,6 +185,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         fetchFosAdjustmentSettings(),
         fetchFosAuditEvents(120),
         fetchVolunteerDriverApplications(),
+        fetchStudentDriverRegistrations(),
         fetchParentBackgroundChecks(),
         fetchPermissionEvents(),
         fetchPermissionRecipients(),
@@ -191,12 +202,13 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         access: accessResult.access || [],
         audit: auditResult.events || [],
         driverApplications: driverResult.applications || [],
+        studentDriverRegistrations: studentDriverResult.registrations || [],
         backgroundChecks: backgroundResult.backgroundChecks || [],
         permissionEvents: permissionEventsResult.events || [],
         permissionRecipients: permissionRecipientsResult.recipients || [],
         permissionSubmissions: permissionSubmissionsResult.submissions || [],
         formSubmissions: formSubmissionsResult.submissions || [],
-        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
+        error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || studentDriverResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
       });
       const inviteMap = {};
       (accessResult.access || []).forEach((access) => {
@@ -236,6 +248,9 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       const driverApplications = data.driverApplications.filter((application) => application.familyKey === family.familyKey || familyNamesMatch(application.familyName, family.familyName));
       const verifiedDrivers = driverApplications.filter(isVerifiedDriver);
       const pendingDrivers = driverApplications.filter((application) => application.status === "Pending");
+      const studentDriverRegistrations = data.studentDriverRegistrations.filter((registration) => registration.familyKey === family.familyKey || familyNamesMatch(registration.familyName, family.familyName));
+      const approvedStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Approved" && (!registration.expiresAt || registration.expiresAt.slice(0, 10) >= today));
+      const pendingStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Pending" || registration.status === "Needs Correction");
       const backgroundChecks = data.backgroundChecks.filter((record) => record.familyKey === family.familyKey || familyNamesMatch(record.familyName, family.familyName));
       const currentBackgroundChecks = backgroundChecks.filter(isCurrentBackgroundCheck);
       const permissionRecipients = data.permissionRecipients.filter((recipient) => studentIds.has(recipient.studentId) || emailsMatchAny(recipient.parentEmail, parentEmails));
@@ -281,6 +296,9 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         driverApplications,
         verifiedDrivers,
         pendingDrivers,
+        studentDriverRegistrations,
+        approvedStudentDrivers,
+        pendingStudentDrivers,
         backgroundChecks,
         currentBackgroundChecks,
         familyDocuments,
@@ -482,6 +500,31 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
   }
 
+  async function reviewStudentDriver(registration, action) {
+    const labels = {
+      approve: "Approve",
+      deny: "Deny",
+      correction: "Request correction for",
+      revoke: "Revoke",
+    };
+    const confirmed = window.confirm(`${labels[action] || "Review"} student driver registration for ${registration.studentName || "this student"}?`);
+    if (!confirmed) return;
+    try {
+      setStudentDriverReviewingId(registration.id);
+      setActionStatus(`${labels[action] || "Reviewing"} student driver registration...`);
+      const result = await reviewStudentDriverRegistration(registration.id, {
+        action,
+        officeNote: studentDriverReviewDrafts[registration.id] || "",
+      });
+      setActionStatus(`Student driver registration marked ${result.registration?.status || "reviewed"}.`);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to review student driver registration: ${error.message}`);
+    } finally {
+      setStudentDriverReviewingId("");
+    }
+  }
+
   function openBackgroundCheckEditor(parent, existingRecord) {
     if (!selectedFamily || !parent?.email) return;
     const email = String(parent.email).toLowerCase();
@@ -600,6 +643,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                   {Number(family.lunchAccount.balance || 0) < 0 && <StatusPill tone="amber">Lunch {money(family.lunchAccount.balance)}</StatusPill>}
                   {family.pendingDrivers.length > 0 && <StatusPill tone="amber">{family.pendingDrivers.length} driver pending</StatusPill>}
                   {family.verifiedDrivers.length > 0 && <StatusPill tone="emerald">Driver verified</StatusPill>}
+                  {family.pendingStudentDrivers.length > 0 && <StatusPill tone="amber">{family.pendingStudentDrivers.length} student driver</StatusPill>}
+                  {family.approvedStudentDrivers.length > 0 && <StatusPill tone="emerald">Student driver approved</StatusPill>}
                 </div>
               </button>
             ))}
@@ -945,6 +990,74 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                     </div>
                   ))}
                   {!selectedFamily.driverApplications.length && <div className="text-sm text-slate-500">No volunteer driver applications yet.</div>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-950"><FileSignature size={16} className="text-sky-600" />Student Drivers</div>
+                <div className="mt-3 grid gap-2">
+                  {selectedFamily.studentDriverRegistrations.map((registration) => (
+                    <div key={registration.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-bold text-slate-900">{registration.studentName || "Student Driver"}</div>
+                            <StatusPill tone={studentDriverTone(registration.status)}>{registration.status}</StatusPill>
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            Grade {registration.studentGrade || "not listed"} · Submitted {formatDate(registration.submittedAt)}{registration.expiresAt ? ` · Expires ${formatDate(registration.expiresAt)}` : ""}
+                          </div>
+                          {registration.officeNote && <div className="mt-1 text-xs text-slate-600">Office note: {registration.officeNote}</div>}
+                          <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                              <div className="font-bold text-slate-900">Vehicle</div>
+                              <div className="mt-1">License: {registration.registration?.driverLicenseNumber || "Not listed"}</div>
+                              <div>Vehicle: {[registration.registration?.vehicleColor, registration.registration?.vehicleMake, registration.registration?.vehicleModel].filter(Boolean).join(" ") || "Not listed"}</div>
+                              <div>Plate: {registration.registration?.licensePlate || "Not listed"}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                              <div className="font-bold text-slate-900">Insurance & signatures</div>
+                              <div className="mt-1">Insurance: {registration.registration?.insuranceCompany || "Not listed"}</div>
+                              <div>Policy #: {registration.registration?.policyNumber || "Not listed"}</div>
+                              <div>Parent signed: {registration.registration?.parentSignature || "No"}</div>
+                              <div>Student signed: {registration.registration?.studentSignature || "No"}</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(registration.attachments || []).map((attachment) => (
+                            <button
+                              key={attachment.path || attachment.name}
+                              type="button"
+                              onClick={() => openDriverAttachment(attachment)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-50"
+                            >
+                              <ExternalLink size={13} />
+                              {attachment.label || "Document"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {registration.status === "Pending" || registration.status === "Needs Correction" ? (
+                        <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 xl:grid-cols-[1fr_auto_auto_auto]">
+                          <input
+                            value={studentDriverReviewDrafts[registration.id] || ""}
+                            onChange={(event) => setStudentDriverReviewDrafts((current) => ({ ...current, [registration.id]: event.target.value }))}
+                            placeholder="Optional office note"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500"
+                          />
+                          <button type="button" onClick={() => reviewStudentDriver(registration, "approve")} disabled={studentDriverReviewingId === registration.id} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">Approve</button>
+                          <button type="button" onClick={() => reviewStudentDriver(registration, "correction")} disabled={studentDriverReviewingId === registration.id} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-60">Correction</button>
+                          <button type="button" onClick={() => reviewStudentDriver(registration, "deny")} disabled={studentDriverReviewingId === registration.id} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Deny</button>
+                        </div>
+                      ) : registration.status === "Approved" && (
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <button type="button" onClick={() => reviewStudentDriver(registration, "revoke")} disabled={studentDriverReviewingId === registration.id} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Revoke</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!selectedFamily.studentDriverRegistrations.length && <div className="text-sm text-slate-500">No student driver registrations yet.</div>}
                 </div>
               </div>
 
