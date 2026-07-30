@@ -48,6 +48,7 @@ function jobSourceLabel(sourceType) {
     volunteer_driver_application: "Volunteer Driver",
     student_driver_registration: "Student Driver",
     off_campus_lunch_permission: "Off-Campus Lunch",
+    staff_contract: "Staff Contract",
   };
   return labels[sourceType] || "Backup";
 }

@@ -10,6 +10,7 @@ const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const JSON_MIME = "application/json";
 const FINANCE_SOURCE_TYPES = new Set(["tuition_invoice", "incidental_invoice", "incidental_receipt"]);
+const STAFF_CONTRACT_SOURCE_TYPE = "staff_contract";
 const FAMILY_FORM_SOURCE_TYPES: Record<string, { table: string; payloadKey: string; title: string; namePrefix: string }> = {
   volunteer_driver_application: {
     table: "volunteer_driver_applications",
@@ -194,6 +195,12 @@ function familyFormBackupFilename(sourceType: string, row: Record<string, any>) 
   const datePart = shortDate(row.submitted_at || row.updated_at || new Date());
   const status = sanitizeFilePart(row.status || "Submitted");
   return `${familyName}_${subject}_${config.namePrefix}_${datePart}_${status}.pdf`;
+}
+
+function staffContractBackupFilename(row: Record<string, any>) {
+  const staffName = sanitizeFilePart(row.staff_name || "Staff-Member");
+  const schoolYear = sanitizeFilePart(row.school_year || "School-Year");
+  return `${staffName}_Staff-Contract-Packet_${schoolYear}_Fully-Signed.pdf`;
 }
 
 function concatUint8Arrays(parts: Uint8Array[]) {
@@ -681,7 +688,108 @@ async function createFamilyFormPdfBlob(row: Record<string, any>, sourceType: str
   return new Blob([bytes], { type: "application/pdf" });
 }
 
+async function createStaffContractPdfBlob(row: Record<string, any>) {
+  const compensation = row.compensation || {};
+  const custom = Array.isArray(row.custom_adjustments) ? row.custom_adjustments : [];
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage([612, 792]);
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const margin = 48;
+  let y = 744;
+
+  function ensureSpace(amount = 45) {
+    if (y < amount) {
+      page = pdfDoc.addPage([612, 792]);
+      y = 744;
+    }
+  }
+
+  function draw(text: string, x = margin, size = 9, font = regular, color = rgb(0.15, 0.18, 0.23), maxChars = 102) {
+    for (const line of wrapText(String(text || ""), maxChars)) {
+      ensureSpace(60);
+      page.drawText(line, { x, y, size, font, color });
+      y -= size + 5;
+    }
+  }
+
+  function pair(label: string, value: string) {
+    ensureSpace(50);
+    page.drawText(label, { x: margin, y, size: 9, font: bold, color: rgb(0.35, 0.39, 0.46) });
+    page.drawText(value || "-", { x: 215, y, size: 9, font: regular, color: rgb(0.12, 0.14, 0.18) });
+    y -= 17;
+  }
+
+  function section(title: string) {
+    y -= 4;
+    ensureSpace(70);
+    page.drawLine({ start: { x: margin, y }, end: { x: 564, y }, thickness: 1, color: rgb(0.82, 0.85, 0.9) });
+    y -= 18;
+    page.drawText(title, { x: margin, y, size: 12, font: bold, color: rgb(0.04, 0.22, 0.36) });
+    y -= 20;
+  }
+
+  page.drawRectangle({ x: 0, y: 720, width: 612, height: 72, color: rgb(0.95, 0.98, 1) });
+  page.drawText("Willamette Valley Christian School", { x: margin, y: 760, size: 16, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  page.drawText("Staff Contract Packet", { x: 410, y: 760, size: 12, font: bold, color: rgb(0.04, 0.22, 0.36) });
+  page.drawText("9075 Pueblo Ave. NE, Brooks, OR 97305 | 503-393-5236", { x: margin, y: 740, size: 9, font: regular, color: rgb(0.28, 0.33, 0.4) });
+  y = 700;
+
+  pair("Staff Member", row.staff_name || "");
+  pair("Email", row.staff_email || "");
+  pair("School Year", row.school_year || "");
+  pair("Position", row.position_title || "Teacher");
+  pair("Contract Period", `${row.contract_start || ""} - ${row.contract_end || ""}`);
+  pair("Status", row.status || "");
+
+  section("Compensation Agreement");
+  pair("Base Salary", currency(compensation.baseSalary ?? row.base_salary));
+  pair("FTE", `${Math.round(Number(row.fte || 1) * 100)}%`);
+  pair("Prorated Base", currency(compensation.proratedBase));
+  pair("Loyalty Years", `${row.years_at_wvcs || 0} years / ${currency(compensation.loyalty)}`);
+  pair("Master's Degree", currency(compensation.masters));
+  pair("State Certification / Endorsement", currency(compensation.certification));
+  custom.forEach((item: Record<string, any>) => pair(item.label || "Custom Adjustment", currency(item.amount)));
+  pair("Total Annual Salary", currency(compensation.annualSalary));
+  pair("Monthly Payment", currency(compensation.monthlyPayment));
+  draw("The total annual salary shall be paid in 12 equal monthly payments, September through August. Paychecks will be issued on the 30th day of each month.", margin, 9);
+
+  section("Teacher Contract Summary");
+  draw(`Believing that God has led in this decision, the school board of Willamette Valley Christian School has appointed ${row.staff_name || "the staff member"} as ${row.position_title || "teacher"} for the ${row.school_year || ""} school year. This contract begins ${row.contract_start || ""} and ends ${row.contract_end || ""}, depending on satisfactory performance of assigned duties.`, margin, 9);
+  draw("The teacher acknowledges that this contract is for a limited duration and that all rights and privileges terminate upon the expiration date of this contract unless voided earlier under the contract terms.", margin, 9);
+  draw("The teacher agrees to the Conditions of Employment, including the Statement of Faith, Educational Philosophy and Objectives, Teacher Job Description, Faculty and Student Handbooks, confidentiality expectations, dispute resolution terms, reporting obligations, resignation and termination provisions, adequate enrollment contingency, and orientation period provisions.", margin, 9);
+
+  section("Electronic Signatures");
+  const signatures = [
+    ["Administrator", row.admin_signature],
+    ["Teacher", row.staff_signature],
+    ["Board Chairman", row.board_signature],
+  ];
+  signatures.forEach(([label, signature]) => {
+    const sig = signature || {};
+    pair(String(label), sig.name ? `${sig.name}${sig.email ? ` (${sig.email})` : ""} on ${shortDate(sig.signedAt)}` : "Pending");
+  });
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
 async function getJobBlob(supabase: ReturnType<typeof createClient>, job: Record<string, unknown>) {
+  if (String(job.source_type) === STAFF_CONTRACT_SOURCE_TYPE) {
+    const { data, error } = await supabase
+      .from("staff_contracts")
+      .select("*")
+      .eq("id", job.source_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The staff contract record could not be found.");
+    return {
+      blob: await createStaffContractPdfBlob(data),
+      filename: String(job.filename || staffContractBackupFilename(data)),
+      mimeType: "application/pdf",
+    };
+  }
+
   if (FAMILY_FORM_SOURCE_TYPES[String(job.source_type)]) {
     const config = FAMILY_FORM_SOURCE_TYPES[String(job.source_type)];
     const { data, error } = await supabase

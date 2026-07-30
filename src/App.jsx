@@ -44,6 +44,7 @@ import StructuredRecessModule from "./modules/recess/StructuredRecessModule.jsx"
 import SuggestionsModule, { AdminSuggestionsModule, AdminSupportRequestsModule, SupportRequestsModule } from "./modules/suggestions/SuggestionsModule.jsx";
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
+import StaffContractsModule, { StaffContractSigningPage } from "./modules/staffContracts/StaffContractsModule.jsx";
 import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
 import { calculateFosBalance, fetchFamilyPortalAccessRecords, fetchFosEntries, fetchVolunteerDriverApplications } from "./lib/familyPortalData.js";
@@ -135,6 +136,15 @@ const modules = [
     description: "View parent volunteers who are currently verified to drive.",
     color: "emerald",
     callout: "Verified drivers",
+  },
+  {
+    id: "staff-contracts",
+    label: "Staff Contracts",
+    icon: FileSignature,
+    description: "Private staff contract generation and signature workflow.",
+    color: "violet",
+    callout: "Private",
+    topLevelOnly: true,
   },
   {
     id: "support-requests",
@@ -339,6 +349,23 @@ function getRouteFromHash(hash = window.location.hash) {
     };
   }
 
+  const staffContractSigningMatch = hash.match(/^#\/staff-contract-sign\/(.+)$/);
+  if (staffContractSigningMatch) {
+    return {
+      incidentalPaymentToken: "",
+      parentSigningToken: "",
+      formApprovalToken: "",
+      formShareToken: "",
+      publicFormsDirectory: false,
+      familyPortalToken: "",
+      familyPortalLogin: false,
+      familyPortalPreviewKey: "",
+      staffContractSigningToken: decodeURIComponent(staffContractSigningMatch[1]),
+      moduleId: "dashboard",
+      structuredRecessView: "full",
+    };
+  }
+
   const moduleMatch = hash.match(/^#\/([^/?#]+)$/);
   const moduleId = moduleMatch?.[1];
   return {
@@ -350,6 +377,7 @@ function getRouteFromHash(hash = window.location.hash) {
     familyPortalToken: "",
     familyPortalLogin: false,
     familyPortalPreviewKey: "",
+    staffContractSigningToken: "",
     moduleId: moduleIds.has(moduleId) ? moduleId : "dashboard",
     structuredRecessView: moduleId === "structured-recess" ? "full" : "full",
   };
@@ -1681,6 +1709,7 @@ export default function App() {
   const [familyPortalToken, setFamilyPortalToken] = useState(initialRoute.familyPortalToken);
   const [familyPortalLogin, setFamilyPortalLogin] = useState(initialRoute.familyPortalLogin);
   const [familyPortalPreviewKey, setFamilyPortalPreviewKey] = useState(initialRoute.familyPortalPreviewKey);
+  const [staffContractSigningToken, setStaffContractSigningToken] = useState(initialRoute.staffContractSigningToken || "");
   const [officeFinanceTarget, setOfficeFinanceTarget] = useState(null);
   const active = useMemo(
     () => modules.find((module) => module.id === activeModule) || modules[0],
@@ -1699,6 +1728,7 @@ export default function App() {
       setFamilyPortalToken(route.familyPortalToken);
       setFamilyPortalLogin(route.familyPortalLogin);
       setFamilyPortalPreviewKey(route.familyPortalPreviewKey);
+      setStaffContractSigningToken(route.staffContractSigningToken || "");
       setActiveModule(route.moduleId);
       setStructuredRecessView(route.structuredRecessView);
     }
@@ -1717,6 +1747,7 @@ export default function App() {
     setFamilyPortalToken("");
     setFamilyPortalLogin(false);
     setFamilyPortalPreviewKey("");
+    setStaffContractSigningToken("");
     if (!options.keepOfficeFinanceTarget) setOfficeFinanceTarget(null);
     setModuleHash(moduleId, "full");
   }
@@ -1735,6 +1766,7 @@ export default function App() {
     setFamilyPortalToken("");
     setFamilyPortalLogin(false);
     setFamilyPortalPreviewKey("");
+    setStaffContractSigningToken("");
     setModuleHash("structured-recess", "aide");
   }
 
@@ -1770,6 +1802,10 @@ export default function App() {
     return <FamilyPortalPage previewFamilyKey={familyPortalPreviewKey} />;
   }
 
+  if (staffContractSigningToken) {
+    return <StaffContractSigningPage token={staffContractSigningToken} />;
+  }
+
   return (
     <AuthGate>
       {({ user, access, signOut }) => (
@@ -1791,6 +1827,7 @@ export default function App() {
                 (module.id === "scheduler" && access.canUseScheduler) ||
                 (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
                 (module.id === "office-finance" && access.canUseOfficePayroll) ||
+                (module.id === "staff-contracts" && user.email?.toLowerCase() === "mconniry@wvcs.org") ||
                 (module.id === "admin" && access.canUseAdmin)
               )
               .map((module) => {
@@ -1881,6 +1918,10 @@ export default function App() {
 
       {activeModule === "office-finance" && access.canUseOfficePayroll && (
         <OfficePayrollWorkspace currentUserEmail={user.email} officeFinanceTarget={officeFinanceTarget} />
+      )}
+
+      {activeModule === "staff-contracts" && user.email?.toLowerCase() === "mconniry@wvcs.org" && (
+        <StaffContractsModule currentUserEmail={user.email} />
       )}
 
       {activeModule === "look-of-the-week" && (
