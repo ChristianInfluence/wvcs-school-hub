@@ -457,6 +457,12 @@ function percentValue(value: unknown) {
   return `${percent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
 }
 
+function hoursValue(value: unknown) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return "0 hours";
+  return `${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} hours`;
+}
+
 function chargeTotal(invoice: Record<string, any>) {
   return Array.isArray(invoice.charges)
     ? invoice.charges.reduce((total: number, charge: Record<string, any>) => total + money(charge.amount), 0)
@@ -697,6 +703,7 @@ async function createFamilyFormPdfBlob(row: Record<string, any>, sourceType: str
 async function createStaffContractPdfBlob(row: Record<string, any>) {
   const compensation = row.compensation || {};
   const custom = Array.isArray(row.custom_adjustments) ? row.custom_adjustments : [];
+  const workDayBreakdown = Array.isArray(compensation.workDayBreakdown) ? compensation.workDayBreakdown : [];
   const pdfDoc = await PDFDocument.create();
   let page = pdfDoc.addPage([612, 792]);
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -759,6 +766,13 @@ async function createStaffContractPdfBlob(row: Record<string, any>) {
   pair("Total Annual Salary", currency(compensation.annualSalary));
   pair("Monthly Payment", currency(compensation.monthlyPayment));
   draw("The total annual salary shall be paid in 12 equal monthly payments, September through August. Paychecks will be issued on the 30th day of each month.", margin, 9);
+
+  section("Paid Days and Time Off");
+  workDayBreakdown.forEach((item: Record<string, any>) => {
+    pair(item.category || "Paid Day Category", `${item.count || 0} ${item.unit || "days"}${item.datesIncluded ? ` - ${item.datesIncluded}` : ""}`);
+  });
+  pair("Sick / Emergency Time", `${hoursValue(compensation.sickHours)} at ${percentValue(row.fte || 1)} FTE`);
+  pair("Personal Time", `${hoursValue(compensation.personalHours)} at ${percentValue(row.fte || 1)} FTE`);
 
   section("Teacher Contract Summary");
   draw(`Believing that God has led in this decision, the school board of Willamette Valley Christian School has appointed ${row.staff_name || "the staff member"} as ${row.position_title || "teacher"} for the ${row.school_year || ""} school year. This contract begins ${row.contract_start || ""} and ends ${row.contract_end || ""}, depending on satisfactory performance of assigned duties.`, margin, 9);

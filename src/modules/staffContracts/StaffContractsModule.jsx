@@ -4,7 +4,9 @@ import {
   calculateStaffCompensation,
   currency,
   DEFAULT_STAFF_CONTRACT,
+  DEFAULT_WORK_DAY_BREAKDOWN,
   fetchStaffContracts,
+  formatHours,
   saveStaffContract,
   staffContractAction,
   STAFF_CONTRACT_ADMIN_EMAIL,
@@ -62,9 +64,18 @@ function formatFtePercent(value) {
   return percent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+function normalizedWorkDayBreakdown(contract) {
+  return Array.isArray(contract.workDayBreakdown) && contract.workDayBreakdown.length
+    ? contract.workDayBreakdown
+    : Array.isArray(contract.compensation?.workDayBreakdown) && contract.compensation.workDayBreakdown.length
+      ? contract.compensation.workDayBreakdown
+      : DEFAULT_WORK_DAY_BREAKDOWN;
+}
+
 export function buildStaffContractHtml(contract) {
   const compensation = calculateStaffCompensation(contract);
   const customRows = (contract.customAdjustments || []).filter((item) => item.label || Number(item.amount));
+  const workDayBreakdown = normalizedWorkDayBreakdown(contract);
   return `<!doctype html>
 <html>
   <head>
@@ -108,6 +119,14 @@ export function buildStaffContractHtml(contract) {
       <p class="lead">Believing that God has led in this decision, the school board of Willamette Valley Christian School has appointed <span class="fill">${contract.staffName || "________________"}</span> as ${contract.positionTitle || "teacher"} for the <span class="fill">${contract.schoolYear || "2026-2027"}</span> school year. This contract begins <span class="fill">${contract.contractStart || "__________"}</span>, and ends <span class="fill">${contract.contractEnd || "__________"}</span>, depending on satisfactory performance of assigned duties. In so doing, we recognize and affirm the ministry of teaching as a God-ordained vocation.</p>
       <p>By accepting this appointment, said teacher specifically acknowledges that this contract is for a limited duration and that all rights and privileges herein shall terminate upon the expiration date of this contract, unless voided earlier pursuant to the provisions below. No rights of tenure or presumption of continued employment are conferred or implied.</p>
       <p>Gross salary for this period of employment will be <span class="fill">${currency(compensation.annualSalary)}</span>, payable in equal monthly installments on the 30th of each month.</p>
+      <h2>Paid Days and Time Off</h2>
+      <table>
+        <thead><tr><th>Category</th><th>Count</th><th>Dates Included</th></tr></thead>
+        <tbody>
+          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${item.count || 0} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <p>Annual paid time off is prorated by FTE. At ${formatFtePercent(compensation.fte)}% FTE, this contract includes <span class="fill">${formatHours(compensation.sickHours)} hours</span> of sick/emergency time and <span class="fill">${formatHours(compensation.personalHours)} hours</span> of personal time.</p>
       <h2>Conditions of Employment</h2>
       <ol>${conditionItems.map((item) => `<li>${item}</li>`).join("")}</ol>
       <p>I have read and understand the duties, responsibilities, salary, and terms and conditions of this contract.</p>
@@ -143,6 +162,14 @@ export function buildStaffContractHtml(contract) {
           ${customRows.map((item) => `<tr><td>${item.label || "Custom adjustment"}</td><td class="amount">${currency(item.amount)}</td></tr>`).join("")}
           <tr class="total"><td>Total Annual Salary / Compensation</td><td class="amount">${currency(compensation.annualSalary)}</td></tr>
           <tr><td>Monthly Payment (12 equal payments)</td><td class="amount">${currency(compensation.monthlyPayment)}</td></tr>
+        </tbody>
+      </table>
+      <h2>Paid Days / Leave Hours</h2>
+      <table>
+        <tbody>
+          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${item.count || 0} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
+          <tr class="total"><td>Sick / Emergency Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.sickHours)} hours</td><td>40 hours annually at 100% FTE, prorated by FTE.</td></tr>
+          <tr class="total"><td>Personal Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.personalHours)} hours</td><td>16 hours annually at 100% FTE, prorated by FTE.</td></tr>
         </tbody>
       </table>
       <h2>Method of Payment</h2>
@@ -291,6 +318,12 @@ export default function StaffContractsModule({ currentUserEmail = "" }) {
     setDraft({ ...draft, customAdjustments });
   }
 
+  function updateWorkDayBreakdown(index, patch) {
+    const workDayBreakdown = [...normalizedWorkDayBreakdown(draft)];
+    workDayBreakdown[index] = { ...workDayBreakdown[index], ...patch };
+    setDraft({ ...draft, workDayBreakdown });
+  }
+
   if (!isAllowed) {
     return (
       <section className="mx-auto max-w-3xl px-5 py-8">
@@ -375,6 +408,41 @@ export default function StaffContractsModule({ currentUserEmail = "" }) {
                 </button>
               </div>
             </div>
+
+            <details className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <summary className="cursor-pointer text-sm font-bold text-white">Paid Days & Time Off</summary>
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
+                Sick and personal time are calculated from FTE and saved with the contract for future time-off tracking.
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Sick / Emergency</div>
+                  <div className="mt-1 text-2xl font-bold text-white">{formatHours(compensation.sickHours)} hours</div>
+                  <div className="text-xs text-slate-500">40 hours at 100% FTE</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Personal Time</div>
+                  <div className="mt-1 text-2xl font-bold text-white">{formatHours(compensation.personalHours)} hours</div>
+                  <div className="text-xs text-slate-500">16 hours at 100% FTE</div>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {normalizedWorkDayBreakdown(draft).map((item, index) => (
+                  <div key={`${item.category}-${index}`} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 lg:grid-cols-[1.2fr_100px_2fr]">
+                    <TextInput value={item.category || ""} onChange={(event) => updateWorkDayBreakdown(index, { category: event.target.value })} />
+                    <TextInput type="number" value={item.count || 0} onChange={(event) => updateWorkDayBreakdown(index, { count: Number(event.target.value || 0) })} />
+                    <TextInput value={item.datesIncluded || ""} onChange={(event) => updateWorkDayBreakdown(index, { datesIncluded: event.target.value })} />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, workDayBreakdown: DEFAULT_WORK_DAY_BREAKDOWN })}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800"
+                >
+                  Reset to 2026-2027 breakdown
+                </button>
+              </div>
+            </details>
           </div>
 
           <aside className="space-y-4">
@@ -395,6 +463,19 @@ export default function StaffContractsModule({ currentUserEmail = "" }) {
                     <span className="font-bold text-white">{currency(value)}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="text-sm font-bold text-white">Leave Preview</div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs text-slate-500">Sick</div>
+                  <div className="text-lg font-bold text-white">{formatHours(compensation.sickHours)} hrs</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-xs text-slate-500">Personal</div>
+                  <div className="text-lg font-bold text-white">{formatHours(compensation.personalHours)} hrs</div>
+                </div>
               </div>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">

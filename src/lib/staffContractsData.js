@@ -2,6 +2,45 @@ import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 
 export const STAFF_CONTRACT_ADMIN_EMAIL = "mconniry@wvcs.org";
 
+export const DEFAULT_WORK_DAY_BREAKDOWN = [
+  {
+    category: "In-Service Days",
+    count: 8,
+    unit: "days",
+    datesIncluded: "Sept 1-3, Oct 9, Nov 23-24, Feb 11-12",
+  },
+  {
+    category: "Work / Grading / Conference Days",
+    count: 8,
+    unit: "days",
+    datesIncluded: "Sept 8, Oct 16, Jan 4, Jan 29, Apr 9, Apr 16, June 10-11",
+  },
+  {
+    category: "Official Holidays / Thanksgiving Break",
+    count: 8,
+    unit: "days",
+    datesIncluded: "Sept 7 (Labor Day), Nov 11, Nov 25-27, Jan 18, Feb 15, May 31",
+  },
+  {
+    category: "Student Contact Days",
+    count: 163,
+    unit: "days",
+    datesIncluded: "Sept 9 - June 9 (excluding breaks, holidays, and staff days)",
+  },
+  {
+    category: "Total Staff Work Days",
+    count: 179,
+    unit: "days",
+    datesIncluded: "Student Contact Days (163) + In-Service (8) + Work/Conference (8)",
+  },
+  {
+    category: "Total Paid Staff Employment Days",
+    count: 187,
+    unit: "days",
+    datesIncluded: "Staff Work Days (179) + Paid Holidays (8)",
+  },
+];
+
 export const DEFAULT_STAFF_CONTRACT = {
   staffName: "",
   staffEmail: "",
@@ -16,6 +55,7 @@ export const DEFAULT_STAFF_CONTRACT = {
   hasMasters: false,
   hasStateCertification: false,
   customAdjustments: [],
+  workDayBreakdown: DEFAULT_WORK_DAY_BREAKDOWN,
   status: "Draft",
   adminSignature: {},
   staffSignature: {},
@@ -35,6 +75,12 @@ export function currency(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(money(value));
 }
 
+export function formatHours(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return "0";
+  return amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 export function calculateStaffCompensation(contract = {}) {
   const fte = Math.min(Math.max(Number(contract.fte ?? 1), 0), 1);
   const baseSalary = money(contract.baseSalary || 32000);
@@ -46,6 +92,13 @@ export function calculateStaffCompensation(contract = {}) {
   const customTotal = custom.reduce((sum, item) => sum + money(item.amount), 0);
   const additionalTotal = loyalty + masters + certification + customTotal;
   const annualSalary = proratedBase + additionalTotal;
+  const workDayBreakdown = Array.isArray(contract.workDayBreakdown)
+    ? contract.workDayBreakdown
+    : Array.isArray(contract.compensation?.workDayBreakdown)
+      ? contract.compensation.workDayBreakdown
+      : DEFAULT_WORK_DAY_BREAKDOWN;
+  const sickHours = 40 * fte;
+  const personalHours = 16 * fte;
   return {
     fte,
     baseSalary,
@@ -57,6 +110,11 @@ export function calculateStaffCompensation(contract = {}) {
     additionalTotal,
     annualSalary,
     monthlyPayment: annualSalary / 12,
+    sickHours,
+    personalHours,
+    workDayBreakdown,
+    totalPaidStaffEmploymentDays: workDayBreakdown.find((item) => item.category === "Total Paid Staff Employment Days")?.count || 187,
+    totalStaffWorkDays: workDayBreakdown.find((item) => item.category === "Total Staff Work Days")?.count || 179,
   };
 }
 
@@ -78,6 +136,7 @@ function mapRow(row) {
     hasStateCertification: Boolean(row.has_state_certification),
     customAdjustments: row.custom_adjustments || [],
     compensation: row.compensation || {},
+    workDayBreakdown: row.compensation?.workDayBreakdown || DEFAULT_WORK_DAY_BREAKDOWN,
     adminSignature: row.admin_signature || {},
     staffSignature: row.staff_signature || {},
     boardSignature: row.board_signature || {},
