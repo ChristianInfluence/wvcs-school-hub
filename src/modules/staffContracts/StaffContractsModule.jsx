@@ -56,6 +56,12 @@ function signedLine(signature, fallback = "") {
   return `${signature.name}${signature.email ? ` (${signature.email})` : fallback ? ` (${fallback})` : ""} on ${new Date(signature.signedAt || Date.now()).toLocaleDateString()}`;
 }
 
+function formatFtePercent(value) {
+  const percent = Number(value || 0) * 100;
+  if (!Number.isFinite(percent)) return "0";
+  return percent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 export function buildStaffContractHtml(contract) {
   const compensation = calculateStaffCompensation(contract);
   const customRows = (contract.customAdjustments || []).filter((item) => item.label || Number(item.amount));
@@ -122,7 +128,7 @@ export function buildStaffContractHtml(contract) {
       <table>
         <tbody>
           <tr><th>Name</th><td>${contract.staffName || ""}</td><th>Email</th><td>${contract.staffEmail || ""}</td></tr>
-          <tr><th>Position</th><td>${contract.positionTitle || "Teacher"}</td><th>FTE</th><td>${Math.round(compensation.fte * 100)}%</td></tr>
+          <tr><th>Position</th><td>${contract.positionTitle || "Teacher"}</td><th>FTE</th><td>${formatFtePercent(compensation.fte)}%</td></tr>
           <tr><th>Employment Begins</th><td>${contract.contractStart || ""}</td><th>Employment Ends</th><td>${contract.contractEnd || ""}</td></tr>
         </tbody>
       </table>
@@ -130,7 +136,7 @@ export function buildStaffContractHtml(contract) {
       <table>
         <tbody>
           <tr><td>Base Salary</td><td class="amount">${currency(compensation.baseSalary)}</td></tr>
-          <tr><td>Full-time / Part-time Adjustment (${Math.round(compensation.fte * 100)}%)</td><td class="amount">${currency(compensation.proratedBase)}</td></tr>
+          <tr><td>Full-time / Part-time Adjustment (${formatFtePercent(compensation.fte)}%)</td><td class="amount">${currency(compensation.proratedBase)}</td></tr>
           <tr><td>Loyalty years at WVCS (${contract.yearsAtWvcs || 0} x $100)</td><td class="amount">${currency(compensation.loyalty)}</td></tr>
           <tr><td>Master's Degree</td><td class="amount">${currency(compensation.masters)}</td></tr>
           <tr><td>State Certification / Endorsement</td><td class="amount">${currency(compensation.certification)}</td></tr>
@@ -342,7 +348,7 @@ export default function StaffContractsModule({ currentUserEmail = "" }) {
               <Field label="Contract Ends"><TextInput value={draft.contractEnd} onChange={(event) => setDraft({ ...draft, contractEnd: event.target.value })} /></Field>
               <Field label="Board Meeting Date"><TextInput value={draft.boardMeetingDate} onChange={(event) => setDraft({ ...draft, boardMeetingDate: event.target.value })} /></Field>
               <Field label="FTE Percent">
-                <input type="number" min="0" max="100" step="1" value={Math.round(Number(draft.fte || 0) * 100)} onChange={(event) => setDraft({ ...draft, fte: Number(event.target.value || 0) / 100 })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400" />
+                <input type="number" min="0" max="100" step="0.01" value={formatFtePercent(draft.fte)} onChange={(event) => setDraft({ ...draft, fte: Number(event.target.value || 0) / 100 })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400" />
               </Field>
             </div>
 

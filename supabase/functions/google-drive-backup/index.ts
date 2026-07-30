@@ -451,6 +451,12 @@ function stringValue(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function percentValue(value: unknown) {
+  const percent = Number(value || 0) * 100;
+  if (!Number.isFinite(percent)) return "0%";
+  return `${percent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
+}
+
 function chargeTotal(invoice: Record<string, any>) {
   return Array.isArray(invoice.charges)
     ? invoice.charges.reduce((total: number, charge: Record<string, any>) => total + money(charge.amount), 0)
@@ -744,7 +750,7 @@ async function createStaffContractPdfBlob(row: Record<string, any>) {
 
   section("Compensation Agreement");
   pair("Base Salary", currency(compensation.baseSalary ?? row.base_salary));
-  pair("FTE", `${Math.round(Number(row.fte || 1) * 100)}%`);
+  pair("FTE", percentValue(row.fte || 1));
   pair("Prorated Base", currency(compensation.proratedBase));
   pair("Loyalty Years", `${row.years_at_wvcs || 0} years / ${currency(compensation.loyalty)}`);
   pair("Master's Degree", currency(compensation.masters));
