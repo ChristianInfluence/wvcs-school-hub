@@ -208,7 +208,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   );
 }
 
-export default function StaffContractsModule({ currentUserEmail = "" }) {
+export default function StaffContractsModule({ currentUserEmail = "", payrollContractSeed = null }) {
   const isAllowed = currentUserEmail.toLowerCase() === STAFF_CONTRACT_ADMIN_EMAIL;
   const [contracts, setContracts] = useState([]);
   const [selectedId, setSelectedId] = useState("");
@@ -230,6 +230,14 @@ export default function StaffContractsModule({ currentUserEmail = "" }) {
   useEffect(() => {
     load().catch((error) => setStatus(error.message));
   }, [isAllowed]);
+
+  useEffect(() => {
+    if (!payrollContractSeed?.nonce) return;
+    const { nonce, ...seed } = payrollContractSeed;
+    setSelectedId("");
+    setDraft({ ...DEFAULT_STAFF_CONTRACT, customAdjustments: [], ...seed });
+    setStatus(`Pulled payroll details for ${seed.staffName || "staff member"}. Review and save the contract packet.`);
+  }, [payrollContractSeed?.nonce]);
 
   function selectContract(contract) {
     setSelectedId(contract.id);
