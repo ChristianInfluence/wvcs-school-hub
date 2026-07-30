@@ -76,6 +76,8 @@ function buildPayrollExportHtml(worksheet = {}) {
       <td class="num">${currency(calc.responsibility)}</td>
       <td class="num strong">${currency(calc.totalSalary)}</td>
       <td class="num">${currency(calc.monthlyPay)}</td>
+      <td class="num">${row.importedTotalSalary ? currency(row.importedTotalSalary) : ""}</td>
+      <td class="num">${row.importedMonthlyPay ? currency(row.importedMonthlyPay) : ""}</td>
       <td>${row.payType || ""}</td>
       <td>${row.notes || ""}</td>
     </tr>`;
@@ -118,8 +120,8 @@ function buildPayrollExportHtml(worksheet = {}) {
         <div class="muted">Generated ${new Date().toLocaleDateString()}</div>
       </div>
       <table>
-        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>FTE</th><th>Base / Hourly Pay</th><th>Years</th><th>Certification</th><th>Responsibility</th><th>Total Salary</th><th>Monthly</th><th>Pay</th><th>Notes</th></tr></thead>
-        <tbody>${rowHtml || `<tr><td colspan="12">No employees entered.</td></tr>`}</tbody>
+        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>FTE</th><th>Base / Hourly Pay</th><th>Years</th><th>Certification</th><th>Responsibility</th><th>Hub Total</th><th>Hub Monthly</th><th>Sheet Total</th><th>Sheet Monthly</th><th>Pay</th><th>Notes</th></tr></thead>
+        <tbody>${rowHtml || `<tr><td colspan="14">No employees entered.</td></tr>`}</tbody>
       </table>
       <section class="summary">
         <table><thead><tr><th>Category</th><th>Total</th></tr></thead><tbody>${categoryHtml}<tr class="total"><td>Employee Rows</td><td class="num">${currency(summary.rowTotal)}</td></tr>${adjustmentHtml}<tr class="total"><td>Total Salaries</td><td class="num">${currency(summary.totalSalaries)}</td></tr></tbody></table>
@@ -293,7 +295,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             <table className="min-w-[1180px] w-full border-collapse text-left text-xs">
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
-                  {["Employee", "Category", "Position", "FTE", "Base/Rate", "Years", "Cert.", "Responsibility", "Annual Hrs", "Total", "Monthly", "Pay", "Notes", ""].map((heading) => (
+                  {["Employee", "Category", "Position", "FTE", "Base/Rate", "Years", "Cert.", "Responsibility", "Annual Hrs", "Total", "Monthly", "Sheet", "Pay", "Notes", ""].map((heading) => (
                     <th key={heading} className="border-b border-slate-800 px-2 py-2 font-semibold">{heading}</th>
                   ))}
                 </tr>
@@ -312,8 +314,18 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                       <td className="w-[92px] px-2 py-2"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
                       <td className="w-[110px] px-2 py-2"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
                       <td className="w-[98px] px-2 py-2"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
-                      <td className="whitespace-nowrap px-2 py-3 font-bold text-white">{currency(calc.totalSalary)}</td>
-                      <td className="whitespace-nowrap px-2 py-3 text-slate-200">{currency(calc.monthlyPay)}</td>
+                      <td className="whitespace-nowrap px-2 py-3 font-bold text-white">
+                        <div>{currency(calc.totalSalary)}</div>
+                        {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3 text-slate-200">
+                        <div>{currency(calc.monthlyPay)}</div>
+                        {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3 text-slate-400">
+                        {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
+                        {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
+                      </td>
                       <td className="w-[82px] px-2 py-2"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
                       <td className="w-[170px] px-2 py-2"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
                       <td className="w-[118px] px-2 py-2">
@@ -325,7 +337,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                     </tr>
                   );
                 })}
-                {!visibleRows.length && <tr><td colSpan="14" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
+                {!visibleRows.length && <tr><td colSpan="15" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
               </tbody>
             </table>
           </div>

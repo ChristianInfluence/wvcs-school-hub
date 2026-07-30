@@ -13,6 +13,7 @@ export const DEFAULT_PAYROLL_ROW = {
   responsibilityAmount: 0,
   hourlyRate: 0,
   annualHours: 0,
+  salaryBaseIsProrated: false,
   payType: "DD",
   notes: "",
 };
@@ -47,7 +48,8 @@ export function calculatePayrollRow(row = {}, worksheet = {}) {
   const yearsPay = Math.max(Number.parseInt(row.yearsAtWvcs || 0, 10) || 0, 0) * 100;
   const certification = money(row.certificationAmount);
   const responsibility = money(row.responsibilityAmount);
-  const salaryBase = category === "Classified" || category === "Childcare" ? hourlyRate * annualHours : baseSalary * fte;
+  const useHourlyBase = (category === "Classified" || category === "Childcare") && hourlyRate > 0 && annualHours > 0;
+  const salaryBase = row.salaryBaseIsProrated ? baseSalary : useHourlyBase ? hourlyRate * annualHours : baseSalary * fte;
   const totalSalary = salaryBase + yearsPay + certification + responsibility;
   const monthlyPay = totalSalary / 12;
   const quarterlyHours = 2080 * fte / 4;
