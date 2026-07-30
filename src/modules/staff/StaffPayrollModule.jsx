@@ -31,18 +31,18 @@ function hydrateWorksheet(worksheet = {}) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   );
 }
 
 function TextInput(props) {
-  return <input {...props} className={`w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white outline-none focus:border-sky-400 ${props.className || ""}`} />;
+  return <input {...props} className={`w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white outline-none focus:border-sky-400 ${props.className || ""}`} />;
 }
 
 function SelectInput(props) {
-  return <select {...props} className={`w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white outline-none focus:border-sky-400 ${props.className || ""}`} />;
+  return <select {...props} className={`w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white outline-none focus:border-sky-400 ${props.className || ""}`} />;
 }
 
 function ActionButton({ children, tone = "slate", className = "", ...props }) {
@@ -53,7 +53,7 @@ function ActionButton({ children, tone = "slate", className = "", ...props }) {
     slate: "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800",
   };
   return (
-    <button {...props} className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]} ${className}`}>
+    <button {...props} className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]} ${className}`}>
       {children}
     </button>
   );
@@ -234,25 +234,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
   }
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[220px_1fr]">
-      <aside className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="text-sm font-bold text-white">Payroll Saves</div>
-          <button type="button" onClick={load} className="rounded-md border border-slate-700 bg-slate-950 p-2 text-slate-200 hover:bg-slate-800"><RefreshCw size={14} /></button>
-        </div>
-        <ActionButton onClick={newWorksheet} className="w-full"><Plus size={15} /> New</ActionButton>
-        <div className="mt-3 max-h-[68vh] space-y-2 overflow-auto pr-1">
-          {worksheets.map((worksheet) => (
-            <button key={worksheet.id} type="button" onClick={() => openWorksheet(worksheet.id)} className={`w-full rounded-lg border p-2 text-left transition ${selectedId === worksheet.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:bg-slate-800"}`}>
-              <div className="truncate text-sm font-bold text-white">{worksheet.title}</div>
-              <div className="text-xs text-slate-500">{worksheet.schoolYear}</div>
-            </button>
-          ))}
-          {!worksheets.length && <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">No payroll worksheets saved yet.</div>}
-        </div>
-      </aside>
-
-      <div className="space-y-4">
+    <section className="space-y-3">
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-lg font-bold text-white"><FileSpreadsheet size={20} className="text-sky-300" /> Staff Payroll</div>
@@ -262,16 +244,28 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
               <ActionButton onClick={exportXls}><Download size={15} /> XLS</ActionButton>
             </div>
           </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_140px_130px]">
+          <div className="mt-3 grid gap-2 md:grid-cols-[minmax(220px,1.1fr)_minmax(250px,1.4fr)_110px_110px_auto]">
+            <Field label="Saved Worksheet">
+              <SelectInput value={selectedId} onChange={(event) => openWorksheet(event.target.value)}>
+                <option value="">New unsaved worksheet</option>
+                {worksheets.map((worksheet) => (
+                  <option key={worksheet.id} value={worksheet.id}>{worksheet.title} ({worksheet.schoolYear})</option>
+                ))}
+              </SelectInput>
+            </Field>
             <Field label="Title"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></Field>
             <Field label="School Year"><TextInput value={draft.schoolYear} onChange={(event) => setDraft({ ...draft, schoolYear: event.target.value })} /></Field>
             <Field label="Hourly Rate"><TextInput type="number" step="0.01" value={draft.hourlyRate} onChange={(event) => setDraft({ ...draft, hourlyRate: Number(event.target.value || 0) })} /></Field>
+            <div className="flex items-end gap-2">
+              <ActionButton onClick={load} className="px-2" title="Refresh saved worksheets"><RefreshCw size={14} /></ActionButton>
+              <ActionButton onClick={newWorksheet} className="px-2"><Plus size={14} /> New</ActionButton>
+            </div>
           </div>
         </div>
 
         {status && <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200">{status}</div>}
 
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-5">
           {[
             ["Employees", sortedRows.length],
             ["Total salaries", currency(summary.totalSalaries)],
@@ -279,24 +273,24 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             ["Annual total", currency(summary.totalAnnual)],
             ["Monthly est.", currency(summary.monthlyTotal)],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</div>
-              <div className="mt-1 text-lg font-bold text-white">{value}</div>
+            <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
+              <div className="mt-0.5 text-sm font-bold text-white">{value}</div>
             </div>
           ))}
         </div>
 
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-          <div className="mb-3 grid gap-2 md:grid-cols-[1fr_auto]">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
+          <div className="mb-2 grid gap-2 md:grid-cols-[1fr_auto]">
             <TextInput placeholder="Search employees..." value={search} onChange={(event) => setSearch(event.target.value)} />
             <ActionButton tone="emerald" onClick={addEmployee}><Plus size={15} /> Add Employee</ActionButton>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full border-collapse text-left text-xs">
+            <table className="min-w-[1120px] w-full table-fixed border-collapse text-left text-[11px]">
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
                   {["Employee", "Category", "Position", "FTE", "Base/Rate", "Years", "Cert.", "Responsibility", "Annual Hrs", "Total", "Monthly", "Sheet", "Pay", "Notes", ""].map((heading) => (
-                    <th key={heading} className="border-b border-slate-800 px-2 py-2 font-semibold">{heading}</th>
+                    <th key={heading} className="border-b border-slate-800 px-1.5 py-1.5 font-semibold">{heading}</th>
                   ))}
                 </tr>
               </thead>
@@ -305,33 +299,33 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                   const calc = calculatePayrollRow(row, draft);
                   return (
                     <tr key={row.id} className="border-b border-slate-800 align-top">
-                      <td className="w-[170px] px-2 py-2"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
-                      <td className="w-[120px] px-2 py-2"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                      <td className="w-[145px] px-2 py-2"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
-                      <td className="w-[78px] px-2 py-2"><TextInput type="number" min="0" max="150" step="0.01" value={Number(row.fte || 0) * 100} onChange={(event) => updateRow(row.id, { fte: Number(event.target.value || 0) / 100 })} /></td>
-                      <td className="w-[110px] px-2 py-2"><TextInput type="number" step="0.01" value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onChange={(event) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: Number(event.target.value || 0) } : { baseSalary: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[76px] px-2 py-2"><TextInput type="number" value={row.yearsAtWvcs || 0} onChange={(event) => updateRow(row.id, { yearsAtWvcs: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[92px] px-2 py-2"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[110px] px-2 py-2"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[98px] px-2 py-2"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
-                      <td className="whitespace-nowrap px-2 py-3 font-bold text-white">
+                      <td className="w-[150px] px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
+                      <td className="w-[98px] px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                      <td className="w-[115px] px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
+                      <td className="w-[62px] px-1 py-1"><TextInput type="number" min="0" max="150" step="0.01" value={Number(row.fte || 0) * 100} onChange={(event) => updateRow(row.id, { fte: Number(event.target.value || 0) / 100 })} /></td>
+                      <td className="w-[86px] px-1 py-1"><TextInput type="number" step="0.01" value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onChange={(event) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: Number(event.target.value || 0) } : { baseSalary: Number(event.target.value || 0) })} /></td>
+                      <td className="w-[56px] px-1 py-1"><TextInput type="number" value={row.yearsAtWvcs || 0} onChange={(event) => updateRow(row.id, { yearsAtWvcs: Number(event.target.value || 0) })} /></td>
+                      <td className="w-[72px] px-1 py-1"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
+                      <td className="w-[86px] px-1 py-1"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
+                      <td className="w-[76px] px-1 py-1"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
+                      <td className="w-[88px] whitespace-nowrap px-1.5 py-2 font-bold text-white">
                         <div>{currency(calc.totalSalary)}</div>
                         {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-3 text-slate-200">
+                      <td className="w-[82px] whitespace-nowrap px-1.5 py-2 text-slate-200">
                         <div>{currency(calc.monthlyPay)}</div>
                         {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-3 text-slate-400">
+                      <td className="w-[70px] whitespace-nowrap px-1.5 py-2 text-slate-400">
                         {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
                         {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
                       </td>
-                      <td className="w-[82px] px-2 py-2"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                      <td className="w-[170px] px-2 py-2"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
-                      <td className="w-[118px] px-2 py-2">
+                      <td className="w-[66px] px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                      <td className="w-[130px] px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
+                      <td className="w-[92px] px-1 py-1">
                         <div className="flex gap-1">
-                          <button type="button" title="Use in contract" onClick={() => onCreateContractFromPayroll?.(payrollRowToContract(row, draft))} className="rounded-md border border-sky-500/50 bg-sky-500/10 px-2 py-2 font-bold text-sky-100 hover:bg-sky-500/20">Contract</button>
-                          <button type="button" title="Remove employee" onClick={() => removeEmployee(row)} className="rounded-md border border-rose-500/50 bg-rose-500/10 px-2 py-2 text-rose-100 hover:bg-rose-500/20"><Trash2 size={14} /></button>
+                          <button type="button" title="Use in contract" onClick={() => onCreateContractFromPayroll?.(payrollRowToContract(row, draft))} className="rounded-md border border-sky-500/50 bg-sky-500/10 px-1.5 py-1 text-[10px] font-bold text-sky-100 hover:bg-sky-500/20">Contract</button>
+                          <button type="button" title="Remove employee" onClick={() => removeEmployee(row)} className="rounded-md border border-rose-500/50 bg-rose-500/10 px-1.5 py-1 text-rose-100 hover:bg-rose-500/20"><Trash2 size={12} /></button>
                         </div>
                       </td>
                     </tr>
@@ -362,7 +356,6 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             ))}
           </div>
         </details>
-      </div>
     </section>
   );
 }
