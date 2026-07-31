@@ -253,6 +253,107 @@ function PrimaryButton({ children, className = "", ...props }) {
   );
 }
 
+function MobileContractReview({ contract }) {
+  const compensation = calculateStaffCompensation(contract);
+  const customRows = (contract.customAdjustments || []).filter((item) => item.label || Number(item.amount));
+  const workDayBreakdown = normalizedWorkDayBreakdown(contract);
+  const detailRows = [
+    ["Staff Member", contract.staffName || ""],
+    ["Position", contract.positionTitle || "Teacher"],
+    ["School Year", contract.schoolYear || "2026-2027"],
+    ["Contract Dates", `${contract.contractStart || ""} - ${contract.contractEnd || ""}`],
+    ["FTE", `${formatFtePercent(compensation.fte)}%`],
+    ["Annual Salary", currency(compensation.annualSalary)],
+    ["Monthly Payment", currency(compensation.monthlyPayment)],
+  ];
+  const payRows = [
+    ["Base Salary", currency(compensation.baseSalary)],
+    [`Prorated Base (${formatFtePercent(compensation.fte)}%)`, currency(compensation.proratedBase)],
+    [`Loyalty (${contract.yearsAtWvcs || 0} x $100)`, currency(compensation.loyalty)],
+    ["Master's Degree", currency(compensation.masters)],
+    ["State Certification / Endorsement", currency(compensation.certification)],
+    ...customRows.map((item) => [item.label || "Custom adjustment", currency(item.amount)]),
+  ];
+  return (
+    <div className="space-y-4 md:hidden">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <div className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Mobile Contract Review</div>
+        <h2 className="mt-1 text-xl font-black text-slate-950">Staff Contract Packet</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Review this mobile-friendly copy, then sign below. The official printable packet remains available on desktop or by using the print/save PDF button in the contract preview.
+        </p>
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Agreement Summary</h3>
+        <div className="mt-3 divide-y divide-slate-100">
+          {detailRows.map(([label, value]) => (
+            <div key={label} className="grid grid-cols-[115px_1fr] gap-3 py-2 text-sm">
+              <div className="font-bold text-slate-500">{label}</div>
+              <div className="font-semibold text-slate-950">{value || "-"}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Teacher Contract</h3>
+        <p className="mt-3 text-sm leading-6 text-slate-700">
+          Believing that God has led in this decision, Willamette Valley Christian School appoints {contract.staffName || "the staff member"} as {contract.positionTitle || "teacher"} for the {contract.schoolYear || "2026-2027"} school year.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          This contract is for a limited duration and does not create tenure or a presumption of continued employment beyond the contract period.
+        </p>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Compensation</h3>
+        <div className="mt-3 divide-y divide-slate-100">
+          {payRows.map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <div className="text-slate-600">{label}</div>
+              <div className="font-black text-slate-950">{value}</div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3 bg-sky-50 px-2 py-2 text-sm">
+            <div className="font-black text-sky-950">Total Annual Salary</div>
+            <div className="font-black text-sky-950">{currency(compensation.annualSalary)}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Paid Days & Leave</h3>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-emerald-50 p-3">
+            <div className="text-xs font-bold text-emerald-700">Sick / Emergency</div>
+            <div className="mt-1 text-lg font-black text-emerald-950">{formatHours(compensation.sickHours)} hrs</div>
+          </div>
+          <div className="rounded-lg bg-violet-50 p-3">
+            <div className="text-xs font-bold text-violet-700">Personal Time</div>
+            <div className="mt-1 text-lg font-black text-violet-950">{formatHours(compensation.personalHours)} hrs</div>
+          </div>
+        </div>
+        <div className="mt-3 space-y-2">
+          {workDayBreakdown.map((item, index) => (
+            <div key={`${item.category}-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm">
+              <div className="font-black text-slate-950">{item.category}</div>
+              <div className="mt-1 text-slate-600">{item.count || 0} {item.unit || "days"} | {item.datesIncluded || ""}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4 text-slate-950">
+        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-500">Conditions of Employment</h3>
+        <ol className="mt-3 space-y-2 pl-5 text-sm leading-6 text-slate-700">
+          {conditionItems.map((item) => <li key={item} className="list-decimal">{item}</li>)}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
 export default function StaffContractsModule({ currentUserEmail = "", payrollContractSeed = null }) {
   const isAllowed = currentUserEmail.toLowerCase() === STAFF_CONTRACT_ADMIN_EMAIL;
   const [contracts, setContracts] = useState([]);
@@ -632,7 +733,7 @@ export function StaffContractSigningPage({ token = "" }) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-5 py-6 text-slate-100">
+    <main className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-5 sm:py-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Willamette Valley Christian School</div>
@@ -640,10 +741,11 @@ export function StaffContractSigningPage({ token = "" }) {
           <p className="mt-2 text-sm text-slate-400">Review the contract packet below, then sign electronically.</p>
         </div>
         {status && <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200">{status}</div>}
-        <div className="rounded-lg border border-slate-800 bg-white p-3 text-slate-950">
+        <MobileContractReview contract={record} />
+        <div className="hidden rounded-lg border border-slate-800 bg-white p-3 text-slate-950 md:block">
           <iframe title="Contract preview" srcDoc={buildStaffContractHtml(record)} className="h-[720px] w-full rounded-md border border-slate-200" />
         </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="sticky bottom-0 z-10 rounded-lg border border-sky-500/30 bg-slate-900/95 p-4 shadow-2xl shadow-slate-950/60 backdrop-blur">
           <label className="text-sm font-bold text-white">Typed Signature</label>
           <TextInput value={name} onChange={(event) => setName(event.target.value)} placeholder="Type your full legal name" className="mt-2" />
           <label className="mt-3 flex items-start gap-2 text-sm text-slate-300">
