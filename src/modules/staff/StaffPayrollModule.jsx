@@ -148,9 +148,9 @@ function buildPayrollExportHtml(worksheet = {}) {
       const calc = calculatePayrollRow(row, worksheet);
       const addons = categoryAddonAccess(row.category);
       return `<tr>
-        <td>${row.staffName || ""}</td>
+        <td class="employee-name">${row.staffName || ""}</td>
         <td>${row.position || ""}</td>
-        <td>${row.category || ""}</td>
+        <td class="category-name">${row.category || ""}</td>
         <td>${calc.isHourly ? "Hourly" : "Salary"}</td>
         <td class="num">${(calc.fte * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%</td>
         <td class="num">${calc.isHourly ? currency(calc.hourlyRate) : currency(calc.baseSalary)}</td>
@@ -179,9 +179,10 @@ function buildPayrollExportHtml(worksheet = {}) {
       .top { display: flex; justify-content: space-between; gap: 16px; border-bottom: 3px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
       h1 { margin: 0; font-size: 20px; }
       .muted { color: #64748b; font-size: 11px; }
-      table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.8px; }
       th { background: #e2e8f0; color: #0f172a; text-align: left; }
-      th, td { border: 1px solid #cbd5e1; padding: 4px 5px; vertical-align: top; }
+      th, td { border: 1px solid #cbd5e1; padding: 3px 4px; vertical-align: top; overflow-wrap: normal; }
+      .employee-name, .category-name { white-space: nowrap; }
       .section td { background: #0f172a; color: white; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
       .subtotal td { background: #f8fafc; font-weight: 800; }
       .num { text-align: right; white-space: nowrap; }
@@ -206,7 +207,22 @@ function buildPayrollExportHtml(worksheet = {}) {
         <div class="muted">Generated ${new Date().toLocaleDateString()}</div>
       </div>
       <table>
-        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>Basis</th><th>FTE</th><th>Salary / Rate</th><th>Annual Hours</th><th>Years</th><th>Certification</th><th>Responsibility</th><th>Hub Total</th><th>Hub Monthly</th><th>Notes</th></tr></thead>
+        <colgroup>
+          <col style="width: 15.5%;" />
+          <col style="width: 11%;" />
+          <col style="width: 9.5%;" />
+          <col style="width: 5.5%;" />
+          <col style="width: 4.5%;" />
+          <col style="width: 7.5%;" />
+          <col style="width: 5%;" />
+          <col style="width: 5.5%;" />
+          <col style="width: 6.5%;" />
+          <col style="width: 7.5%;" />
+          <col style="width: 7.5%;" />
+          <col style="width: 7%;" />
+          <col style="width: 7%;" />
+        </colgroup>
+        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>Basis</th><th>FTE</th><th>Salary / Rate</th><th>Annual Hrs</th><th>Years</th><th>Cert.</th><th>Responsibility</th><th>Total</th><th>Monthly</th><th>Notes</th></tr></thead>
         <tbody>${rowHtml || `<tr><td colspan="13">No employees entered.</td></tr>`}</tbody>
       </table>
       <section class="summary">
