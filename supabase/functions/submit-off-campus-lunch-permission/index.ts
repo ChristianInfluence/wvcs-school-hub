@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requestIp, typedSignatureRecord } from "../_shared/eSignature.ts";
 import { buildFosMessage, corsHeaders, normalizeEmail, requiredEnv, sendEmail } from "../_shared/fosEmail.ts";
 
 const termsVersion = "2026-2027-off-campus-lunch-v1";
@@ -134,10 +135,7 @@ Deno.serve(async (request) => {
     const submittedAt = new Date().toISOString();
     const termsSnapshot = { agreementConditions, liabilityTerms };
     const termsHash = await sha256Hex(JSON.stringify({ termsVersion, termsSnapshot }));
-    const ipAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("x-real-ip") ||
-      "";
+    const ipAddress = requestIp(request);
     const userAgent = request.headers.get("user-agent") || "";
     const row = {
       family_key: access.family_key,
@@ -159,6 +157,23 @@ Deno.serve(async (request) => {
         userAgent,
         parentEmail: requesterEmail,
         submittedByEmail: requesterEmail,
+        signatures: {
+          parent: typedSignatureRecord({
+            name: permission.parentSignature || "",
+            email: requesterEmail,
+            role: "Parent/Guardian",
+            signedAt: submittedAt,
+            agreementText: "I have reviewed the off-campus lunch conditions and terms and agree that typing my name records my electronic signature.",
+            request,
+          }),
+          student: typedSignatureRecord({
+            name: permission.studentSignature || "",
+            role: "Student",
+            signedAt: submittedAt,
+            agreementText: "I have reviewed the off-campus lunch conditions and terms and agree that typing my name records my electronic signature.",
+            request,
+          }),
+        },
       },
       submitted_at: submittedAt,
       updated_at: submittedAt,

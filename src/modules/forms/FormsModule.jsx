@@ -504,8 +504,34 @@ function getApproverLabel(submission, template) {
 
 function getSignatureName(signature) {
   if (!signature) return "";
+  if (signature.name) return signature.name;
   if (signature.signerName) return signature.signerName;
   return String(signature.value || "").replace(/\s*<[^>]+>\s*$/, "");
+}
+
+function signatureDateTime(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function createTypedSignatureRecord({ name, email, role, signedAt, agreementText }) {
+  return {
+    type: "typed",
+    value: formatApproverIdentity(name, email),
+    name,
+    signedAt,
+    signerName: name,
+    signerEmail: email || "",
+    email: email || "",
+    signerRole: role || "Administration",
+    role: role || "Administration",
+    method: "typed electronic signature",
+    signatureStyle: "script typed name",
+    agreementText,
+    userAgent: navigator.userAgent || "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    signatureId: crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  };
 }
 
 function getApprovalBaseUrl() {
@@ -1817,22 +1843,28 @@ function SubmissionPdf({ submission, template, settings }) {
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "10px" }}>
           <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "5px", fontSize: "10px", color: "#475569" }}>
-            <div style={{ fontFamily: "Georgia, serif", fontSize: "15px", color: "#020617" }}>
+            <div style={{ fontFamily: '"Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive', fontSize: "22px", lineHeight: 1.05, color: "#020617", whiteSpace: "nowrap" }}>
               {getSignatureName(submission.approvalSignature)}
             </div>
-            <div>Electronic Signature</div>
+            <div style={{ marginTop: "3px" }}>
+              Digitally signed by {getSignatureName(submission.approvalSignature) || "Approver"}
+            </div>
             {submission.approvalSignature?.signerEmail && (
               <div style={{ marginTop: "3px" }}>{submission.approvalSignature.signerEmail}</div>
             )}
             {submission.approvalSignature?.signerRole && (
               <div style={{ marginTop: "3px" }}>{submission.approvalSignature.signerRole}</div>
             )}
+            <div style={{ marginTop: "3px" }}>{submission.approvalSignature?.method || "typed electronic signature"}</div>
           </div>
           <div style={{ borderTop: "1px solid #94a3b8", paddingTop: "5px", fontSize: "10px", color: "#475569" }}>
             <div style={{ fontSize: "11px", color: "#020617" }}>
-              {formatDate(submission.approvalSignature?.signedAt || submission.reviewedAt)}
+              {signatureDateTime(submission.approvalSignature?.signedAt || submission.reviewedAt) || formatDate(submission.approvalSignature?.signedAt || submission.reviewedAt)}
             </div>
             <div>Date Signed</div>
+            {submission.approvalSignature?.signatureId && (
+              <div style={{ marginTop: "5px", wordBreak: "break-all" }}>Signature ID: {submission.approvalSignature.signatureId}</div>
+            )}
           </div>
         </div>
       </div>
@@ -2942,14 +2974,13 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
       generatedPdfAt: status === "Approved" ? signedAt : selected.generatedPdfAt,
       approvalSignature:
         status === "Approved"
-          ? {
-              type: "typed",
-              value: formatApproverIdentity(trimmedSignature, currentUserEmail),
+          ? createTypedSignatureRecord({
+              name: trimmedSignature,
+              email: currentUserEmail || "",
+              role: template?.approver || "Administration",
               signedAt,
-              signerName: trimmedSignature,
-              signerEmail: currentUserEmail || "",
-              signerRole: template?.approver || "Administration",
-            }
+              agreementText: "I reviewed this form submission and agree that this approval action records my electronic signature.",
+            })
           : selected.approvalSignature,
     };
     let storedPdfPatch = {};
@@ -3210,9 +3241,9 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                 </label>
                 <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
                   <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Signature Preview</div>
-                  <div className="mt-1 font-serif text-2xl text-white">{signatureName || "Your Name"}</div>
+                  <div className="mt-1 font-['Brush_Script_MT','Segoe_Script','Lucida_Handwriting',cursive] text-3xl text-white">{signatureName || "Your Name"}</div>
                   <div className="mt-1 text-xs text-slate-400">
-                    This typed signature will be added to the generated approval PDF.
+                    This typed signature will be stored with timestamp, method, browser context, and signature ID on the approval record.
                   </div>
                 </div>
               </div>

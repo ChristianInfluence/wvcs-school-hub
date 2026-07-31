@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { typedSignatureRecord } from "../_shared/eSignature.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -189,9 +190,16 @@ Deno.serve(async (request) => {
     const approvalSignature =
       loaded.action.action === "Approved"
         ? {
+            ...typedSignatureRecord({
+              name: approverName || approverEmail,
+              email: approverEmail,
+              role: loaded.template?.approver || "Administration",
+              signedAt: reviewedAt,
+              agreementText: "I reviewed this form submission and agree that this approval action records my electronic signature.",
+              request,
+            }),
             type: "email-action",
             value: approverIdentity,
-            signedAt: reviewedAt,
             signerName: approverName || null,
             signerEmail: approverEmail,
             signerRole: loaded.template?.approver || "Administration",

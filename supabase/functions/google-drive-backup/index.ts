@@ -180,6 +180,22 @@ function shortDate(value: unknown) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function shortDateTime(value: unknown) {
+  if (!value) return "";
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function signatureSummary(signature: Record<string, any> | null | undefined, fallbackName = "", fallbackEmail = "") {
+  const sig = signature || {};
+  const name = sig.name || fallbackName || "";
+  if (!name) return "Pending";
+  const email = sig.email || fallbackEmail || "";
+  const when = shortDateTime(sig.signedAt);
+  return `${name}${email ? ` (${email})` : ""}${when ? ` on ${when}` : ""} | ${sig.method || "typed electronic signature"}${sig.signatureId ? ` | ID: ${sig.signatureId}` : ""}`;
+}
+
 function financeBackupFilename(kind: string, row: Record<string, any>) {
   const invoice = row.invoice_json || {};
   const familyName = sanitizeFilePart(row.family_name || invoice.familyName || "WVCS-Family");
@@ -687,8 +703,9 @@ async function createFamilyFormPdfBlob(row: Record<string, any>, sourceType: str
   }
 
   section("Electronic Signature Record");
-  drawPair("Parent Signature", payload.parentSignature || payload.parentName || row.parent_name || "");
-  if (payload.studentSignature) drawPair("Student Signature", payload.studentSignature);
+  const signatures = payload.signatures || {};
+  drawPair("Parent Signature", signatureSummary(signatures.parent || signatures.driver, payload.parentSignature || payload.electronicSignature || payload.parentName || row.parent_name || "", payload.parentEmail || payload.submittedByEmail || row.parent_email || ""));
+  if (payload.studentSignature || signatures.student) drawPair("Student Signature", signatureSummary(signatures.student, payload.studentSignature || "", ""));
   drawPair("Signature Date", shortDate(payload.signatureDate || payload.signedAt || row.submitted_at));
   drawPair("Signed By Email", payload.signedByEmail || payload.submittedByEmail || row.parent_email || "");
   if (payload.termsVersion) drawPair("Terms Version", payload.termsVersion);
@@ -787,7 +804,7 @@ async function createStaffContractPdfBlob(row: Record<string, any>) {
   ];
   signatures.forEach(([label, signature]) => {
     const sig = signature || {};
-    pair(String(label), sig.name ? `${sig.name}${sig.email ? ` (${sig.email})` : ""} on ${shortDate(sig.signedAt)}` : "Pending");
+    pair(String(label), signatureSummary(sig));
   });
 
   const bytes = await pdfDoc.save();

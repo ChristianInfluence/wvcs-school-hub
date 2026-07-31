@@ -135,8 +135,29 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function signatureTimestamp(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function signatureRecordHtml(signature, fallbackName = "", fallbackEmail = "") {
+  const name = signature?.name || fallbackName || "";
+  if (!name) return `<span style="color:#9ca3af;font-style:italic;">Not signed</span>`;
+  const email = signature?.email || fallbackEmail || "";
+  const timestamp = signatureTimestamp(signature?.signedAt);
+  return `
+    <div class="script-signature">${escapeHtml(name)}</div>
+    <div class="signature-meta">
+      Digitally signed by ${escapeHtml(name)}${email ? ` (${escapeHtml(email)})` : ""}<br>
+      ${timestamp ? `${escapeHtml(timestamp)} | ` : ""}${escapeHtml(signature?.method || "typed electronic signature")}
+      ${signature?.signatureId ? `<br>Signature ID: ${escapeHtml(signature.signatureId)}` : ""}
+    </div>
+  `;
+}
+
 function offCampusPermissionRecordHtml(permission) {
   const record = permission?.permission || {};
+  const signatures = record.signatures || {};
   const conditions = record.termsSnapshot?.agreementConditions || offCampusLunchAgreementConditions;
   const liability = record.termsSnapshot?.liabilityTerms || offCampusLiabilityTerms;
   const allowedDrivers = Array.isArray(record.approvedStudentDrivers) ? record.approvedStudentDrivers.filter(Boolean) : [];
@@ -157,7 +178,9 @@ function offCampusPermissionRecordHtml(permission) {
     ol { padding-left: 20px; margin: 8px 0; }
     li { margin-bottom: 5px; }
     .small { font-size: 10px; color: #374151; }
-    .signatures { display: grid; grid-template-columns: 1fr 1fr 140px; gap: 8px; margin-top: 12px; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .script-signature { font-family: "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive; font-size: 23px; line-height: 1.05; color: #111827; white-space: nowrap; }
+    .signature-meta { margin-top: 3px; color: #4b5563; font-size: 9px; line-height: 1.3; word-break: break-word; }
     @media print { button { display: none; } }
   </style>
 </head>
@@ -184,13 +207,12 @@ function offCampusPermissionRecordHtml(permission) {
   <div class="small">${liability.map((term) => `<p><strong>${escapeHtml(term.title)}</strong><br>${escapeHtml(term.body)}</p>`).join("")}</div>
   <h2>E-Signature Record</h2>
   <div class="signatures">
-    <div class="box"><div class="label">Parent/Guardian Signature</div><div class="value">${escapeHtml(record.parentSignature)}</div></div>
-    <div class="box"><div class="label">Student Signature</div><div class="value">${escapeHtml(record.studentSignature)}</div></div>
-    <div class="box"><div class="label">Signature Date</div><div class="value">${escapeHtml(record.signatureDate)}</div></div>
+    <div class="box"><div class="label">Parent/Guardian Signature</div><div class="value">${signatureRecordHtml(signatures.parent, record.parentSignature, record.parentEmail || permission?.parentEmail || "")}</div></div>
+    <div class="box"><div class="label">Student Signature</div><div class="value">${signatureRecordHtml(signatures.student, record.studentSignature)}</div></div>
   </div>
   <div class="box small" style="margin-top:8px;">
-    Signed electronically by ${escapeHtml(record.signedByEmail || record.parentEmail || permission?.parentEmail || "")}
-    on ${escapeHtml(record.signedAt || permission?.submittedAt || "")}. Terms version: ${escapeHtml(record.termsVersion || "")}.
+    Signature date: ${escapeHtml(record.signatureDate || "")}. Submitted by ${escapeHtml(record.signedByEmail || record.parentEmail || permission?.parentEmail || "")}
+    on ${escapeHtml(signatureTimestamp(record.signedAt || permission?.submittedAt) || record.signedAt || permission?.submittedAt || "")}. Terms version: ${escapeHtml(record.termsVersion || "")}.
     Terms hash: ${escapeHtml(record.termsHash || "")}. Browser: ${escapeHtml(record.userAgent || "")}. IP: ${escapeHtml(record.ipAddress || "")}.
   </div>
   <button onclick="window.print()" style="margin-top:16px;padding:8px 12px;border:1px solid #0f172a;border-radius:6px;background:#0f172a;color:white;font-weight:700;">Print / Save PDF</button>

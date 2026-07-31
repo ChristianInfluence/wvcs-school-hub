@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { typedSignatureRecord } from "../_shared/eSignature.ts";
 import { buildFosMessage, corsHeaders, normalizeEmail, requiredEnv, sendEmail } from "../_shared/fosEmail.ts";
 
 const bucket = "volunteer-driver-documents";
@@ -114,6 +115,17 @@ Deno.serve(async (request) => {
         ...application,
         parentEmail: requesterEmail,
         submittedByEmail: requesterEmail,
+        signedAt: submittedAt,
+        signatures: {
+          driver: typedSignatureRecord({
+            name: application.electronicSignature || application.parentName || "",
+            email: requesterEmail,
+            role: "Volunteer Driver",
+            signedAt: submittedAt,
+            agreementText: "I certify that this volunteer driver application is accurate and agree that typing my name records my electronic signature.",
+            request,
+          }),
+        },
         minimumRequirements: {
           liabilityPerPerson: MIN_PERSON,
           liabilityPerAccident: MIN_ACCIDENT,
