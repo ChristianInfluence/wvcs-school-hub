@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Download, FileSpreadsheet, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Download, FileSpreadsheet, GripVertical, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import {
   calculatePayrollRow,
   calculatePayrollSummary,
+  DEFAULT_PAYROLL_CATEGORIES,
   DEFAULT_PAYROLL_ROW,
   DEFAULT_PAYROLL_WORKSHEET,
   fetchStaffPayrollWorksheets,
@@ -12,18 +13,19 @@ import {
 } from "../../lib/staffPayrollData.js";
 import { currency, STAFF_CONTRACT_ADMIN_EMAIL } from "../../lib/staffContractsData.js";
 
-const categories = ["Teacher", "Admin", "Classified", "Childcare", "Preschool", "Other"];
 const payBases = ["salary", "hourly"];
-const categoryOrder = ["Admin", "Teacher", "Preschool", "Classified", "Childcare", "Other"];
 
 function uid() {
   return crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function hydrateWorksheet(worksheet = {}) {
+  const rowCategories = (worksheet.rows || []).map((row) => row.category).filter(Boolean);
+  const categories = [...new Set([...(worksheet.categories || []), ...DEFAULT_PAYROLL_CATEGORIES, ...rowCategories])];
   return {
     ...DEFAULT_PAYROLL_WORKSHEET,
     ...worksheet,
+    categories,
     rows: (worksheet.rows || []).map((row) => {
       const merged = { ...DEFAULT_PAYROLL_ROW, ...row, id: row.id || uid() };
       const inferredPayBasis = row.payBasis || (((merged.category === "Classified" || merged.category === "Childcare") && Number(merged.hourlyRate || 0) > 0 && Number(merged.annualHours || 0) > 0 && !merged.salaryBaseIsProrated) ? "hourly" : "salary");
@@ -98,7 +100,7 @@ function ActionButton({ children, tone = "slate", className = "", ...props }) {
   );
 }
 
-function groupPayrollRows(rows = [], worksheet = {}) {
+function groupPayrollRows(rows = [], worksheet = {}, categories = DEFAULT_PAYROLL_CATEGORIES) {
   const groups = rows.reduce((acc, row) => {
     const category = row.category || "Other";
     if (!acc[category]) acc[category] = { category, rows: [], subtotal: 0, monthlySubtotal: 0 };
@@ -109,8 +111,8 @@ function groupPayrollRows(rows = [], worksheet = {}) {
     return acc;
   }, {});
   return Object.values(groups).sort((a, b) => {
-    const aIndex = categoryOrder.indexOf(a.category);
-    const bIndex = categoryOrder.indexOf(b.category);
+    const aIndex = categories.indexOf(a.category);
+    const bIndex = categories.indexOf(b.category);
     if (aIndex !== -1 || bIndex !== -1) return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
     return a.category.localeCompare(b.category);
   });
@@ -119,8 +121,9 @@ function groupPayrollRows(rows = [], worksheet = {}) {
 function buildPayrollExportHtml(worksheet = {}) {
   const rows = sortedPayrollRows(worksheet.rows || []);
   const summary = calculatePayrollSummary(worksheet);
+  const categories = worksheet.categories || DEFAULT_PAYROLL_CATEGORIES;
   const title = `${worksheet.title || "WVCS Payroll Worksheet"} - ${worksheet.schoolYear || "2026-2027"}`;
-  const rowHtml = groupPayrollRows(rows, worksheet).map((group) => {
+  const rowHtml = groupPayrollRows(rows, worksheet, categories).map((group) => {
     const items = group.rows.map((row) => {
       const calc = calculatePayrollRow(row, worksheet);
       return `<tr>
@@ -134,7 +137,7 @@ function buildPayrollExportHtml(worksheet = {}) {
         <td class="num">${currency(calc.yearsPay)}</td>
         <td class="num">${currency(calc.certification)}</td>
         <td class="num">${currency(calc.responsibility)}</td>
-        <td class="num strong">${currency(calc.totalSalary)}</td>
+        <td class="num salary-total">${currency(calc.totalSalary)}</td>
         <td class="num">${currency(calc.monthlyPay)}</td>
         <td>${row.notes || ""}</td>
       </tr>`;
@@ -157,11 +160,12 @@ function buildPayrollExportHtml(worksheet = {}) {
       .muted { color: #64748b; font-size: 11px; }
       table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
       th { background: #e2e8f0; color: #0f172a; text-align: left; }
-      th, td { border: 1px solid #cbd5e1; padding: 5px 6px; vertical-align: top; }
+      th, td { border: 1px solid #cbd5e1; padding: 4px 5px; vertical-align: top; }
       .section td { background: #0f172a; color: white; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
       .subtotal td { background: #f8fafc; font-weight: 800; }
       .num { text-align: right; white-space: nowrap; }
       .strong { font-weight: 800; }
+      .salary-total { background: #ecfdf5; color: #065f46; font-weight: 800; }
       .summary { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
       .total { background: #eff6ff; font-weight: 800; }
       @media print {
@@ -201,12 +205,15 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [draggedRowId, setDraggedRowId] = useState("");
+  const [newCategory, setNewCategory] = useState("");
 
   const sortedRows = useMemo(() => sortedPayrollRows(draft.rows || []), [draft.rows]);
   const visibleRows = sortedRows.filter((row) => `${row.staffName} ${row.position} ${row.category}`.toLowerCase().includes(search.toLowerCase()));
-  const groupedRows = useMemo(() => groupPayrollRows(visibleRows, draft), [visibleRows, draft]);
+  const payrollCategories = useMemo(() => [...new Set([...(draft.categories || DEFAULT_PAYROLL_CATEGORIES), ...sortedRows.map((row) => row.category).filter(Boolean)])], [draft.categories, sortedRows]);
+  const groupedRows = useMemo(() => groupPayrollRows(visibleRows, draft, payrollCategories), [visibleRows, draft, payrollCategories]);
   const summary = useMemo(() => calculatePayrollSummary(draft), [draft]);
-  const categoryTotals = useMemo(() => groupPayrollRows(sortedRows, draft), [sortedRows, draft]);
+  const categoryTotals = useMemo(() => groupPayrollRows(sortedRows, draft, payrollCategories), [sortedRows, draft, payrollCategories]);
 
   async function load() {
     if (!isAllowed) return;
@@ -228,7 +235,11 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
   }
 
   function addEmployee() {
-    setDraft((current) => ({ ...current, rows: [...(current.rows || []), { ...DEFAULT_PAYROLL_ROW, id: uid() }] }));
+    setDraft((current) => {
+      const category = current.categories?.[0] || "Teacher";
+      const categoryRows = (current.rows || []).filter((row) => row.category === category);
+      return { ...current, rows: [...(current.rows || []), { ...DEFAULT_PAYROLL_ROW, id: uid(), category, sortOrder: categoryRows.length }] };
+    });
     setStatus("Employee row added. Fill in the details, then save.");
   }
 
@@ -290,6 +301,60 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
     anchor.click();
     URL.revokeObjectURL(url);
     setStatus("Excel export downloaded.");
+  }
+
+  function orderedRowsAfterDrag(rows, draggedId, targetId) {
+    const dragged = rows.find((row) => row.id === draggedId);
+    const target = rows.find((row) => row.id === targetId);
+    if (!dragged || !target || dragged.category !== target.category || dragged.id === target.id) return rows;
+    const categoryRows = rows.filter((row) => row.category === dragged.category).sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || String(a.staffName || "").localeCompare(String(b.staffName || "")));
+    const withoutDragged = categoryRows.filter((row) => row.id !== draggedId);
+    const targetIndex = withoutDragged.findIndex((row) => row.id === targetId);
+    withoutDragged.splice(Math.max(targetIndex, 0), 0, dragged);
+    const reorderedCategoryRows = withoutDragged.map((row, index) => ({ ...row, sortOrder: index }));
+    return rows.map((row) => reorderedCategoryRows.find((item) => item.id === row.id) || row);
+  }
+
+  function handleRowDrop(targetId) {
+    if (!draggedRowId) return;
+    setDraft((current) => ({ ...current, rows: orderedRowsAfterDrag(current.rows || [], draggedRowId, targetId) }));
+    setDraggedRowId("");
+  }
+
+  function addCategory() {
+    const name = newCategory.trim();
+    if (!name) return;
+    if (payrollCategories.some((category) => category.toLowerCase() === name.toLowerCase())) {
+      setStatus("That category already exists.");
+      return;
+    }
+    setDraft((current) => ({ ...current, categories: [...(current.categories || DEFAULT_PAYROLL_CATEGORIES), name] }));
+    setNewCategory("");
+    setStatus(`${name} category added.`);
+  }
+
+  function renameCategory(oldName, nextName) {
+    const name = nextName.trim();
+    if (!name || name === oldName) return;
+    setDraft((current) => ({
+      ...current,
+      categories: (current.categories || DEFAULT_PAYROLL_CATEGORIES).map((category) => (category === oldName ? name : category)),
+      rows: (current.rows || []).map((row) => (row.category === oldName ? { ...row, category: name } : row)),
+    }));
+  }
+
+  function deleteCategory(categoryName) {
+    const rowsInCategory = (draft.rows || []).filter((row) => row.category === categoryName).length;
+    const message = rowsInCategory
+      ? `Delete ${categoryName} and move ${rowsInCategory} employees to Other?`
+      : `Delete ${categoryName}?`;
+    if (!window.confirm(message)) return;
+    setDraft((current) => ({
+      ...current,
+      categories: (current.categories || DEFAULT_PAYROLL_CATEGORIES).filter((category) => category !== categoryName),
+      rows: (current.rows || []).map((row) => (row.category === categoryName ? { ...row, category: "Other" } : row)),
+    }));
+    setStatus(`${categoryName} category removed.`);
   }
 
   if (!isAllowed) {
@@ -356,14 +421,38 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
           ))}
         </div>
 
+        <details className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+          <summary className="cursor-pointer text-sm font-bold text-white">Payroll Categories</summary>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {payrollCategories.map((category) => (
+              <div key={category} className="grid grid-cols-[1fr_34px] gap-2 rounded-lg border border-slate-800 bg-slate-950 p-2">
+                <TextInput value={category} onChange={(event) => renameCategory(category, event.target.value)} />
+                <button
+                  type="button"
+                  onClick={() => deleteCategory(category)}
+                  className="rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20"
+                  title={`Delete ${category}`}
+                >
+                  <Trash2 size={13} className="mx-auto" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+            <TextInput placeholder="Add category..." value={newCategory} onChange={(event) => setNewCategory(event.target.value)} />
+            <ActionButton onClick={addCategory}><Plus size={14} /> Add Category</ActionButton>
+          </div>
+        </details>
+
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
           <div className="mb-2 grid gap-2 md:grid-cols-[1fr_auto]">
             <TextInput placeholder="Search employees..." value={search} onChange={(event) => setSearch(event.target.value)} />
             <ActionButton tone="emerald" onClick={addEmployee}><Plus size={15} /> Add Employee</ActionButton>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full table-fixed border-collapse text-left text-[11px]">
+            <table className="min-w-[1140px] w-full table-fixed border-collapse text-left text-[11px]">
               <colgroup>
+                <col className="w-[30px]" />
                 <col className="w-[165px]" />
                 <col className="w-[100px]" />
                 <col className="w-[118px]" />
@@ -381,7 +470,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
               </colgroup>
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
-                  {["Employee", "Category", "Position", "Basis", "FTE", "Salary/Rate", "Annual Hrs", "Years", "Cert.", "Responsibility", "Total", "Monthly", "Notes", ""].map((heading) => (
+                  {["", "Employee", "Category", "Position", "Basis", "FTE", "Salary/Rate", "Annual Hrs", "Years", "Cert.", "Responsibility", "Total", "Monthly", "Notes", ""].map((heading) => (
                     <th key={heading} className="border-b border-slate-800 px-1.5 py-1.5 font-semibold">{heading}</th>
                   ))}
                 </tr>
@@ -390,7 +479,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                 {groupedRows.map((group) => (
                   <Fragment key={group.category}>
                     <tr key={`${group.category}-header`} className="border-y border-sky-500/30 bg-sky-500/15 text-sky-50">
-                      <td colSpan="14" className="px-2 py-2">
+                      <td colSpan="15" className="px-2 py-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs font-black uppercase tracking-[0.12em]">{group.category}</span>
                           <span className="text-[11px] font-bold text-sky-100">{group.rows.length} employees | {currency(group.subtotal)} annual | {currency(group.monthlySubtotal)} monthly</span>
@@ -400,9 +489,19 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                     {group.rows.map((row) => {
                       const calc = calculatePayrollRow(row, draft);
                       return (
-                        <tr key={row.id} className="border-b border-slate-800 align-top">
-                          <td className="px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
-                          <td className="px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                        <tr
+                          key={row.id}
+                          draggable
+                          onDragStart={() => setDraggedRowId(row.id)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => handleRowDrop(row.id)}
+                          className={`border-b border-slate-800 align-top ${draggedRowId === row.id ? "bg-sky-500/10" : ""}`}
+                        >
+                          <td className="px-1 py-0.5 text-slate-500">
+                            <GripVertical size={14} className="mt-1 cursor-grab" />
+                          </td>
+                          <td className="px-1 py-0.5"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
+                          <td className="px-1 py-0.5"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{payrollCategories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
                           <td className="px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
                           <td className="px-1 py-1">
                             <SelectInput
@@ -423,7 +522,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                           <td className="px-1 py-1"><PlainNumberInput value={row.yearsAtWvcs || 0} onValueChange={(value) => updateRow(row.id, { yearsAtWvcs: value })} /></td>
                           <td className="px-1 py-1"><MoneyInput value={row.certificationAmount || 0} onValueChange={(value) => updateRow(row.id, { certificationAmount: value })} /></td>
                           <td className="px-1 py-1"><MoneyInput value={row.responsibilityAmount || 0} onValueChange={(value) => updateRow(row.id, { responsibilityAmount: value })} /></td>
-                          <td className="whitespace-nowrap px-1.5 py-2 font-bold text-white">
+                          <td className="whitespace-nowrap bg-emerald-500/10 px-1.5 py-1.5 font-black text-emerald-50">
                             <div>{currency(calc.totalSalary)}</div>
                             {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
                           </td>
@@ -442,14 +541,14 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                       );
                     })}
                     <tr key={`${group.category}-subtotal`} className="border-b border-slate-700 bg-slate-950/80 text-slate-100">
-                      <td colSpan="10" className="px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.08em] text-slate-400">Subtotal - {group.category}</td>
-                      <td className="px-1.5 py-2 font-black text-white">{currency(group.subtotal)}</td>
+                      <td colSpan="11" className="px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.08em] text-slate-400">Subtotal - {group.category}</td>
+                      <td className="bg-emerald-500/10 px-1.5 py-2 font-black text-emerald-50">{currency(group.subtotal)}</td>
                       <td className="px-1.5 py-2 font-bold text-slate-200">{currency(group.monthlySubtotal)}</td>
                       <td colSpan="2" />
                     </tr>
                   </Fragment>
                 ))}
-                {!visibleRows.length && <tr><td colSpan="14" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
+                {!visibleRows.length && <tr><td colSpan="15" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
               </tbody>
             </table>
           </div>

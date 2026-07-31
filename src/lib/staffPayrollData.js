@@ -1,6 +1,8 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 import { DEFAULT_WORK_DAY_BREAKDOWN, STAFF_CONTRACT_ADMIN_EMAIL, currency, money } from "./staffContractsData.js";
 
+export const DEFAULT_PAYROLL_CATEGORIES = ["Admin", "Teacher", "Teacher's Aide", "Facilities", "Preschool", "Classified", "Childcare", "Other"];
+
 export const DEFAULT_PAYROLL_ROW = {
   staffName: "",
   staffEmail: "",
@@ -16,6 +18,7 @@ export const DEFAULT_PAYROLL_ROW = {
   annualHours: 0,
   salaryBaseIsProrated: false,
   payType: "DD",
+  sortOrder: 0,
   notes: "",
 };
 
@@ -23,6 +26,7 @@ export const DEFAULT_PAYROLL_WORKSHEET = {
   schoolYear: "2026-2027",
   title: "WVCS Payroll Worksheet",
   hourlyRate: 16.55,
+  categories: DEFAULT_PAYROLL_CATEGORIES,
   rows: [],
   summaryAdjustments: [
     { label: "Subs", amount: 3000 },
@@ -36,7 +40,18 @@ export function normalizePayrollName(value = "") {
 }
 
 export function sortedPayrollRows(rows = []) {
-  return [...rows].sort((a, b) => normalizePayrollName(a.staffName).localeCompare(normalizePayrollName(b.staffName)));
+  return [...rows].sort((a, b) => {
+    const aOrder = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : null;
+    const bOrder = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : null;
+    if (a.category !== b.category) {
+      const aCategory = DEFAULT_PAYROLL_CATEGORIES.indexOf(a.category || "Other");
+      const bCategory = DEFAULT_PAYROLL_CATEGORIES.indexOf(b.category || "Other");
+      if (aCategory !== -1 || bCategory !== -1) return (aCategory === -1 ? 99 : aCategory) - (bCategory === -1 ? 99 : bCategory);
+      return String(a.category || "").localeCompare(String(b.category || ""));
+    }
+    if (aOrder !== null || bOrder !== null) return (aOrder ?? 9999) - (bOrder ?? 9999);
+    return normalizePayrollName(a.staffName).localeCompare(normalizePayrollName(b.staffName));
+  });
 }
 
 export function calculatePayrollRow(row = {}, worksheet = {}) {
@@ -106,6 +121,7 @@ function mapWorksheet(row) {
     schoolYear: row.school_year || "2026-2027",
     title: row.title || "WVCS Payroll Worksheet",
     hourlyRate: Number(row.hourly_rate ?? 16.55),
+    categories: row.settings?.categories || row.categories || DEFAULT_PAYROLL_CATEGORIES,
     rows: row.rows || [],
     summaryAdjustments: row.summary_adjustments || DEFAULT_PAYROLL_WORKSHEET.summaryAdjustments,
     benefitsTotal: Number(row.benefits_total || 0),
@@ -125,6 +141,7 @@ function toWorksheetRow(worksheet, currentUserEmail = "") {
     rows: sortedPayrollRows(worksheet.rows || []),
     summary_adjustments: worksheet.summaryAdjustments || [],
     benefits_total: money(worksheet.benefitsTotal || 0),
+    settings: { ...(worksheet.settings || {}), categories: worksheet.categories || DEFAULT_PAYROLL_CATEGORIES },
     created_by_email: worksheet.createdByEmail || currentUserEmail || null,
     updated_by_email: currentUserEmail || null,
     updated_at: new Date().toISOString(),
