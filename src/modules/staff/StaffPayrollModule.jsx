@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import {
   calculatePayrollRow,
@@ -14,6 +14,7 @@ import { currency, STAFF_CONTRACT_ADMIN_EMAIL } from "../../lib/staffContractsDa
 
 const categories = ["Teacher", "Admin", "Classified", "Childcare", "Preschool", "Other"];
 const payTypes = ["DD", "Check"];
+const categoryOrder = ["Admin", "Teacher", "Preschool", "Classified", "Childcare", "Other"];
 
 function uid() {
   return crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -59,28 +60,49 @@ function ActionButton({ children, tone = "slate", className = "", ...props }) {
   );
 }
 
+function groupPayrollRows(rows = [], worksheet = {}) {
+  const groups = rows.reduce((acc, row) => {
+    const category = row.category || "Other";
+    if (!acc[category]) acc[category] = { category, rows: [], subtotal: 0, monthlySubtotal: 0 };
+    const calc = calculatePayrollRow(row, worksheet);
+    acc[category].rows.push(row);
+    acc[category].subtotal += calc.totalSalary;
+    acc[category].monthlySubtotal += calc.monthlyPay;
+    return acc;
+  }, {});
+  return Object.values(groups).sort((a, b) => {
+    const aIndex = categoryOrder.indexOf(a.category);
+    const bIndex = categoryOrder.indexOf(b.category);
+    if (aIndex !== -1 || bIndex !== -1) return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+    return a.category.localeCompare(b.category);
+  });
+}
+
 function buildPayrollExportHtml(worksheet = {}) {
   const rows = sortedPayrollRows(worksheet.rows || []);
   const summary = calculatePayrollSummary(worksheet);
   const title = `${worksheet.title || "WVCS Payroll Worksheet"} - ${worksheet.schoolYear || "2026-2027"}`;
-  const rowHtml = rows.map((row) => {
-    const calc = calculatePayrollRow(row, worksheet);
-    return `<tr>
-      <td>${row.staffName || ""}</td>
-      <td>${row.position || ""}</td>
-      <td>${row.category || ""}</td>
-      <td class="num">${(calc.fte * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%</td>
-      <td class="num">${currency(calc.salaryBase)}</td>
-      <td class="num">${currency(calc.yearsPay)}</td>
-      <td class="num">${currency(calc.certification)}</td>
-      <td class="num">${currency(calc.responsibility)}</td>
-      <td class="num strong">${currency(calc.totalSalary)}</td>
-      <td class="num">${currency(calc.monthlyPay)}</td>
-      <td class="num">${row.importedTotalSalary ? currency(row.importedTotalSalary) : ""}</td>
-      <td class="num">${row.importedMonthlyPay ? currency(row.importedMonthlyPay) : ""}</td>
-      <td>${row.payType || ""}</td>
-      <td>${row.notes || ""}</td>
-    </tr>`;
+  const rowHtml = groupPayrollRows(rows, worksheet).map((group) => {
+    const items = group.rows.map((row) => {
+      const calc = calculatePayrollRow(row, worksheet);
+      return `<tr>
+        <td>${row.staffName || ""}</td>
+        <td>${row.position || ""}</td>
+        <td>${row.category || ""}</td>
+        <td class="num">${(calc.fte * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%</td>
+        <td class="num">${currency(calc.salaryBase)}</td>
+        <td class="num">${currency(calc.yearsPay)}</td>
+        <td class="num">${currency(calc.certification)}</td>
+        <td class="num">${currency(calc.responsibility)}</td>
+        <td class="num strong">${currency(calc.totalSalary)}</td>
+        <td class="num">${currency(calc.monthlyPay)}</td>
+        <td class="num">${row.importedTotalSalary ? currency(row.importedTotalSalary) : ""}</td>
+        <td class="num">${row.importedMonthlyPay ? currency(row.importedMonthlyPay) : ""}</td>
+        <td>${row.payType || ""}</td>
+        <td>${row.notes || ""}</td>
+      </tr>`;
+    }).join("");
+    return `<tr class="section"><td colspan="14">${group.category} (${group.rows.length})</td></tr>${items}<tr class="subtotal"><td colspan="8">Subtotal - ${group.category}</td><td class="num">${currency(group.subtotal)}</td><td class="num">${currency(group.monthlySubtotal)}</td><td colspan="4"></td></tr>`;
   }).join("");
   const categoryHtml = Object.entries(summary.byCategory).sort(([a], [b]) => a.localeCompare(b)).map(([label, amount]) => `<tr><td>${label}</td><td class="num">${currency(amount)}</td></tr>`).join("");
   const adjustmentHtml = (worksheet.summaryAdjustments || []).map((item) => `<tr><td>${item.label || ""}</td><td class="num">${currency(item.amount)}</td></tr>`).join("");
@@ -99,6 +121,8 @@ function buildPayrollExportHtml(worksheet = {}) {
       table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
       th { background: #e2e8f0; color: #0f172a; text-align: left; }
       th, td { border: 1px solid #cbd5e1; padding: 5px 6px; vertical-align: top; }
+      .section td { background: #0f172a; color: white; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+      .subtotal td { background: #f8fafc; font-weight: 800; }
       .num { text-align: right; white-space: nowrap; }
       .strong { font-weight: 800; }
       .summary { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -143,7 +167,9 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
 
   const sortedRows = useMemo(() => sortedPayrollRows(draft.rows || []), [draft.rows]);
   const visibleRows = sortedRows.filter((row) => `${row.staffName} ${row.position} ${row.category}`.toLowerCase().includes(search.toLowerCase()));
+  const groupedRows = useMemo(() => groupPayrollRows(visibleRows, draft), [visibleRows, draft]);
   const summary = useMemo(() => calculatePayrollSummary(draft), [draft]);
+  const categoryTotals = useMemo(() => groupPayrollRows(sortedRows, draft), [sortedRows, draft]);
 
   async function load() {
     if (!isAllowed) return;
@@ -280,6 +306,19 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
           ))}
         </div>
 
+        <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+          {categoryTotals.map((group) => (
+            <div key={group.category} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-xs font-bold text-white">{group.category}</div>
+                <div className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-bold text-slate-400">{group.rows.length}</div>
+              </div>
+              <div className="mt-1 text-sm font-bold text-sky-100">{currency(group.subtotal)}</div>
+              <div className="text-[10px] text-slate-500">{currency(group.monthlySubtotal)} monthly</div>
+            </div>
+          ))}
+        </div>
+
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
           <div className="mb-2 grid gap-2 md:grid-cols-[1fr_auto]">
             <TextInput placeholder="Search employees..." value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -295,42 +334,60 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row) => {
-                  const calc = calculatePayrollRow(row, draft);
-                  return (
-                    <tr key={row.id} className="border-b border-slate-800 align-top">
-                      <td className="w-[150px] px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
-                      <td className="w-[98px] px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                      <td className="w-[115px] px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
-                      <td className="w-[62px] px-1 py-1"><TextInput type="number" min="0" max="150" step="0.01" value={Number(row.fte || 0) * 100} onChange={(event) => updateRow(row.id, { fte: Number(event.target.value || 0) / 100 })} /></td>
-                      <td className="w-[86px] px-1 py-1"><TextInput type="number" step="0.01" value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onChange={(event) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: Number(event.target.value || 0) } : { baseSalary: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[56px] px-1 py-1"><TextInput type="number" value={row.yearsAtWvcs || 0} onChange={(event) => updateRow(row.id, { yearsAtWvcs: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[72px] px-1 py-1"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[86px] px-1 py-1"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[76px] px-1 py-1"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
-                      <td className="w-[88px] whitespace-nowrap px-1.5 py-2 font-bold text-white">
-                        <div>{currency(calc.totalSalary)}</div>
-                        {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
-                      </td>
-                      <td className="w-[82px] whitespace-nowrap px-1.5 py-2 text-slate-200">
-                        <div>{currency(calc.monthlyPay)}</div>
-                        {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
-                      </td>
-                      <td className="w-[70px] whitespace-nowrap px-1.5 py-2 text-slate-400">
-                        {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
-                        {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
-                      </td>
-                      <td className="w-[66px] px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                      <td className="w-[130px] px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
-                      <td className="w-[92px] px-1 py-1">
-                        <div className="flex gap-1">
-                          <button type="button" title="Use in contract" onClick={() => onCreateContractFromPayroll?.(payrollRowToContract(row, draft))} className="rounded-md border border-sky-500/50 bg-sky-500/10 px-1.5 py-1 text-[10px] font-bold text-sky-100 hover:bg-sky-500/20">Contract</button>
-                          <button type="button" title="Remove employee" onClick={() => removeEmployee(row)} className="rounded-md border border-rose-500/50 bg-rose-500/10 px-1.5 py-1 text-rose-100 hover:bg-rose-500/20"><Trash2 size={12} /></button>
+                {groupedRows.map((group) => (
+                  <Fragment key={group.category}>
+                    <tr key={`${group.category}-header`} className="border-y border-sky-500/30 bg-sky-500/15 text-sky-50">
+                      <td colSpan="15" className="px-2 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-black uppercase tracking-[0.12em]">{group.category}</span>
+                          <span className="text-[11px] font-bold text-sky-100">{group.rows.length} employees | {currency(group.subtotal)} annual | {currency(group.monthlySubtotal)} monthly</span>
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
+                    {group.rows.map((row) => {
+                      const calc = calculatePayrollRow(row, draft);
+                      return (
+                        <tr key={row.id} className="border-b border-slate-800 align-top">
+                          <td className="w-[150px] px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
+                          <td className="w-[98px] px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                          <td className="w-[115px] px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
+                          <td className="w-[62px] px-1 py-1"><TextInput type="number" min="0" max="150" step="0.01" value={Number(row.fte || 0) * 100} onChange={(event) => updateRow(row.id, { fte: Number(event.target.value || 0) / 100 })} /></td>
+                          <td className="w-[86px] px-1 py-1"><TextInput type="number" step="0.01" value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onChange={(event) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: Number(event.target.value || 0) } : { baseSalary: Number(event.target.value || 0) })} /></td>
+                          <td className="w-[56px] px-1 py-1"><TextInput type="number" value={row.yearsAtWvcs || 0} onChange={(event) => updateRow(row.id, { yearsAtWvcs: Number(event.target.value || 0) })} /></td>
+                          <td className="w-[72px] px-1 py-1"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
+                          <td className="w-[86px] px-1 py-1"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
+                          <td className="w-[76px] px-1 py-1"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
+                          <td className="w-[88px] whitespace-nowrap px-1.5 py-2 font-bold text-white">
+                            <div>{currency(calc.totalSalary)}</div>
+                            {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
+                          </td>
+                          <td className="w-[82px] whitespace-nowrap px-1.5 py-2 text-slate-200">
+                            <div>{currency(calc.monthlyPay)}</div>
+                            {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
+                          </td>
+                          <td className="w-[70px] whitespace-nowrap px-1.5 py-2 text-slate-400">
+                            {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
+                            {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
+                          </td>
+                          <td className="w-[66px] px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                          <td className="w-[130px] px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
+                          <td className="w-[92px] px-1 py-1">
+                            <div className="flex gap-1">
+                              <button type="button" title="Use in contract" onClick={() => onCreateContractFromPayroll?.(payrollRowToContract(row, draft))} className="rounded-md border border-sky-500/50 bg-sky-500/10 px-1.5 py-1 text-[10px] font-bold text-sky-100 hover:bg-sky-500/20">Contract</button>
+                              <button type="button" title="Remove employee" onClick={() => removeEmployee(row)} className="rounded-md border border-rose-500/50 bg-rose-500/10 px-1.5 py-1 text-rose-100 hover:bg-rose-500/20"><Trash2 size={12} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr key={`${group.category}-subtotal`} className="border-b border-slate-700 bg-slate-950/80 text-slate-100">
+                      <td colSpan="8" className="px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.08em] text-slate-400">Subtotal - {group.category}</td>
+                      <td className="px-1.5 py-2 font-black text-white">{currency(group.subtotal)}</td>
+                      <td className="px-1.5 py-2 font-bold text-slate-200">{currency(group.monthlySubtotal)}</td>
+                      <td colSpan="5" />
+                    </tr>
+                  </Fragment>
+                ))}
                 {!visibleRows.length && <tr><td colSpan="15" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
               </tbody>
             </table>
