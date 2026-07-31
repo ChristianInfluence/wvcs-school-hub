@@ -26,6 +26,9 @@ export const DEFAULT_PAYROLL_WORKSHEET = {
   schoolYear: "2026-2027",
   title: "WVCS Payroll Worksheet",
   hourlyRate: 16.55,
+  ficaRate: 0.0765,
+  suiRate: 0.035,
+  benefitItems: [],
   categories: DEFAULT_PAYROLL_CATEGORIES,
   rows: [],
   summaryAdjustments: [
@@ -91,12 +94,16 @@ export function calculatePayrollSummary(worksheet = {}) {
   const adjustments = Array.isArray(worksheet.summaryAdjustments) ? worksheet.summaryAdjustments : [];
   const adjustmentTotal = adjustments.reduce((sum, item) => sum + money(item.amount), 0);
   const totalSalaries = rowTotal + adjustmentTotal;
-  const fica = totalSalaries * 0.0765;
-  const sui = totalSalaries * 0.035;
+  const ficaRate = Number.isFinite(Number(worksheet.ficaRate)) ? Number(worksheet.ficaRate) : DEFAULT_PAYROLL_WORKSHEET.ficaRate;
+  const suiRate = Number.isFinite(Number(worksheet.suiRate)) ? Number(worksheet.suiRate) : DEFAULT_PAYROLL_WORKSHEET.suiRate;
+  const fica = totalSalaries * ficaRate;
+  const sui = totalSalaries * suiRate;
   const taxTotal = fica + sui;
-  const benefits = money(worksheet.benefitsTotal || 0);
+  const benefitItems = Array.isArray(worksheet.benefitItems) ? worksheet.benefitItems : [];
+  const benefitItemTotal = benefitItems.reduce((sum, item) => sum + money(item.amount), 0);
+  const benefits = benefitItemTotal || money(worksheet.benefitsTotal || 0);
   const totalAnnual = totalSalaries + taxTotal + benefits;
-  return { byCategory, rowTotal, adjustmentTotal, totalSalaries, fica, sui, taxTotal, benefits, totalAnnual, monthlyTotal: totalAnnual / 12 };
+  return { byCategory, rowTotal, adjustmentTotal, totalSalaries, ficaRate, suiRate, fica, sui, taxTotal, benefits, benefitItems, benefitItemTotal, totalAnnual, monthlyTotal: totalAnnual / 12 };
 }
 
 export function payrollRowToContract(row = {}, worksheet = {}) {
@@ -121,15 +128,20 @@ export function payrollRowToContract(row = {}, worksheet = {}) {
 }
 
 function mapWorksheet(row) {
+  const savedBenefitItems = Array.isArray(row.settings?.benefitItems) ? row.settings.benefitItems : [];
+  const benefitsTotal = Number(row.benefits_total || 0);
   return {
     id: row.id,
     schoolYear: row.school_year || "2026-2027",
     title: row.title || "WVCS Payroll Worksheet",
     hourlyRate: Number(row.hourly_rate ?? 16.55),
+    ficaRate: Number(row.settings?.ficaRate ?? DEFAULT_PAYROLL_WORKSHEET.ficaRate),
+    suiRate: Number(row.settings?.suiRate ?? DEFAULT_PAYROLL_WORKSHEET.suiRate),
+    benefitItems: savedBenefitItems.length ? savedBenefitItems : benefitsTotal ? [{ label: "Benefits / Other", amount: benefitsTotal }] : [],
     categories: row.settings?.categories || row.categories || DEFAULT_PAYROLL_CATEGORIES,
     rows: row.rows || [],
     summaryAdjustments: row.summary_adjustments || DEFAULT_PAYROLL_WORKSHEET.summaryAdjustments,
-    benefitsTotal: Number(row.benefits_total || 0),
+    benefitsTotal,
     createdByEmail: row.created_by_email || "",
     updatedByEmail: row.updated_by_email || "",
     createdAt: row.created_at || "",
@@ -139,14 +151,24 @@ function mapWorksheet(row) {
 
 function toWorksheetRow(worksheet, currentUserEmail = "") {
   return {
+    ...(() => {
+      const benefitItems = Array.isArray(worksheet.benefitItems) ? worksheet.benefitItems : [];
+      const benefitsTotal = benefitItems.reduce((sum, item) => sum + money(item.amount), 0) || money(worksheet.benefitsTotal || 0);
+      return { benefits_total: benefitsTotal };
+    })(),
     ...(worksheet.id ? { id: worksheet.id } : {}),
     school_year: worksheet.schoolYear || "2026-2027",
     title: worksheet.title || "WVCS Payroll Worksheet",
     hourly_rate: money(worksheet.hourlyRate || 16.55),
     rows: sortedPayrollRows(worksheet.rows || []),
     summary_adjustments: worksheet.summaryAdjustments || [],
-    benefits_total: money(worksheet.benefitsTotal || 0),
-    settings: { ...(worksheet.settings || {}), categories: worksheet.categories || DEFAULT_PAYROLL_CATEGORIES },
+    settings: {
+      ...(worksheet.settings || {}),
+      categories: worksheet.categories || DEFAULT_PAYROLL_CATEGORIES,
+      ficaRate: Number.isFinite(Number(worksheet.ficaRate)) ? Number(worksheet.ficaRate) : DEFAULT_PAYROLL_WORKSHEET.ficaRate,
+      suiRate: Number.isFinite(Number(worksheet.suiRate)) ? Number(worksheet.suiRate) : DEFAULT_PAYROLL_WORKSHEET.suiRate,
+      benefitItems: Array.isArray(worksheet.benefitItems) ? worksheet.benefitItems : [],
+    },
     created_by_email: worksheet.createdByEmail || currentUserEmail || null,
     updated_by_email: currentUserEmail || null,
     updated_at: new Date().toISOString(),

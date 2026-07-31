@@ -14,6 +14,21 @@ import {
 import { currency, STAFF_CONTRACT_ADMIN_EMAIL } from "../../lib/staffContractsData.js";
 
 const payBases = ["salary", "hourly"];
+const summaryTones = {
+  Employees: "border-sky-500/40 bg-sky-500/10 text-sky-100",
+  "Total salaries": "border-emerald-500/40 bg-emerald-500/10 text-emerald-100",
+  "Taxes est.": "border-amber-500/40 bg-amber-500/10 text-amber-100",
+  "Annual total": "border-violet-500/40 bg-violet-500/10 text-violet-100",
+  "Monthly est.": "border-cyan-500/40 bg-cyan-500/10 text-cyan-100",
+};
+const categoryTones = [
+  "border-sky-500/30 bg-sky-500/10 text-sky-100",
+  "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
+  "border-violet-500/30 bg-violet-500/10 text-violet-100",
+  "border-amber-500/30 bg-amber-500/10 text-amber-100",
+  "border-cyan-500/30 bg-cyan-500/10 text-cyan-100",
+  "border-rose-500/30 bg-rose-500/10 text-rose-100",
+];
 
 function uid() {
   return crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -26,6 +41,9 @@ function hydrateWorksheet(worksheet = {}) {
     ...DEFAULT_PAYROLL_WORKSHEET,
     ...worksheet,
     categories,
+    ficaRate: Number.isFinite(Number(worksheet.ficaRate)) ? Number(worksheet.ficaRate) : DEFAULT_PAYROLL_WORKSHEET.ficaRate,
+    suiRate: Number.isFinite(Number(worksheet.suiRate)) ? Number(worksheet.suiRate) : DEFAULT_PAYROLL_WORKSHEET.suiRate,
+    benefitItems: Array.isArray(worksheet.benefitItems) ? worksheet.benefitItems : [],
     rows: (worksheet.rows || []).map((row) => {
       const merged = { ...DEFAULT_PAYROLL_ROW, ...row, id: row.id || uid() };
       const inferredPayBasis = row.payBasis || (((merged.category === "Classified" || merged.category === "Childcare") && Number(merged.hourlyRate || 0) > 0 && Number(merged.annualHours || 0) > 0 && !merged.salaryBaseIsProrated) ? "hourly" : "salary");
@@ -167,6 +185,7 @@ function buildPayrollExportHtml(worksheet = {}) {
   }).join("");
   const categoryHtml = Object.entries(summary.byCategory).sort(([a], [b]) => a.localeCompare(b)).map(([label, amount]) => `<tr><td>${label}</td><td class="num">${currency(amount)}</td></tr>`).join("");
   const adjustmentHtml = (worksheet.summaryAdjustments || []).map((item) => `<tr><td>${item.label || ""}</td><td class="num">${currency(item.amount)}</td></tr>`).join("");
+  const benefitHtml = (worksheet.benefitItems || []).map((item) => `<tr><td>${item.label || "Benefit / Other"}</td><td class="num">${currency(item.amount)}</td></tr>`).join("");
   return `<!doctype html>
 <html>
   <head>
@@ -227,7 +246,7 @@ function buildPayrollExportHtml(worksheet = {}) {
       </table>
       <section class="summary">
         <table><thead><tr><th>Category</th><th>Total</th></tr></thead><tbody>${categoryHtml}<tr class="total"><td>Employee Rows</td><td class="num">${currency(summary.rowTotal)}</td></tr>${adjustmentHtml}<tr class="total"><td>Total Salaries</td><td class="num">${currency(summary.totalSalaries)}</td></tr></tbody></table>
-        <table><thead><tr><th>Payroll Summary</th><th>Total</th></tr></thead><tbody><tr><td>Employer FICA</td><td class="num">${currency(summary.fica)}</td></tr><tr><td>SUI Estimate</td><td class="num">${currency(summary.sui)}</td></tr><tr><td>Benefits / Other</td><td class="num">${currency(summary.benefits)}</td></tr><tr class="total"><td>Total Annual Payroll</td><td class="num">${currency(summary.totalAnnual)}</td></tr><tr class="total"><td>Monthly Estimate</td><td class="num">${currency(summary.monthlyTotal)}</td></tr></tbody></table>
+        <table><thead><tr><th>Payroll Summary</th><th>Total</th></tr></thead><tbody><tr><td>Employer FICA (${(summary.ficaRate * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%)</td><td class="num">${currency(summary.fica)}</td></tr><tr><td>SUI Estimate (${(summary.suiRate * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%)</td><td class="num">${currency(summary.sui)}</td></tr>${benefitHtml}<tr><td>Benefits / Other Total</td><td class="num">${currency(summary.benefits)}</td></tr><tr class="total"><td>Total Annual Payroll</td><td class="num">${currency(summary.totalAnnual)}</td></tr><tr class="total"><td>Monthly Estimate</td><td class="num">${currency(summary.monthlyTotal)}</td></tr></tbody></table>
       </section>
     </main>
   </body>
@@ -303,7 +322,12 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
 
   function newWorksheet() {
     setSelectedId("");
-    setDraft({ ...DEFAULT_PAYROLL_WORKSHEET, rows: [], summaryAdjustments: DEFAULT_PAYROLL_WORKSHEET.summaryAdjustments.map((item) => ({ ...item })) });
+    setDraft({
+      ...DEFAULT_PAYROLL_WORKSHEET,
+      rows: [],
+      benefitItems: [],
+      summaryAdjustments: DEFAULT_PAYROLL_WORKSHEET.summaryAdjustments.map((item) => ({ ...item })),
+    });
     setStatus("Started a new payroll worksheet.");
   }
 
@@ -375,13 +399,27 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
     setStatus(`${categoryName} category removed.`);
   }
 
+  function updateBenefit(index, patch) {
+    const benefitItems = [...(draft.benefitItems || [])];
+    benefitItems[index] = { ...benefitItems[index], ...patch };
+    setDraft({ ...draft, benefitItems });
+  }
+
+  function addBenefit() {
+    setDraft({ ...draft, benefitItems: [...(draft.benefitItems || []), { label: "Benefit / Other", amount: 0 }] });
+  }
+
+  function removeBenefit(index) {
+    setDraft({ ...draft, benefitItems: (draft.benefitItems || []).filter((_, itemIndex) => itemIndex !== index) });
+  }
+
   if (!isAllowed) {
     return <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-sm text-slate-300">This staff payroll area is private.</div>;
   }
 
   return (
     <section className="space-y-3">
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+        <div className="rounded-lg border border-sky-500/20 bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 p-3 shadow-sm shadow-sky-950/20">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-lg font-bold text-white"><FileSpreadsheet size={20} className="text-sky-300" /> Staff Payroll</div>
             <div className="flex flex-wrap gap-2">
@@ -401,7 +439,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             </Field>
             <Field label="Title"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></Field>
             <Field label="School Year"><TextInput value={draft.schoolYear} onChange={(event) => setDraft({ ...draft, schoolYear: event.target.value })} /></Field>
-            <Field label="Hourly Rate"><MoneyInput value={draft.hourlyRate} onValueChange={(value) => setDraft({ ...draft, hourlyRate: value })} /></Field>
+            <Field label="Default Hourly"><MoneyInput value={draft.hourlyRate} onValueChange={(value) => setDraft({ ...draft, hourlyRate: value })} /></Field>
             <div className="flex items-end gap-2">
               <ActionButton onClick={load} className="px-2" title="Refresh saved worksheets"><RefreshCw size={14} /></ActionButton>
               <ActionButton onClick={newWorksheet} className="px-2"><Plus size={14} /> New</ActionButton>
@@ -419,22 +457,22 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             ["Annual total", currency(summary.totalAnnual)],
             ["Monthly est.", currency(summary.monthlyTotal)],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
-              <div className="mt-0.5 text-sm font-bold text-white">{value}</div>
+            <div key={label} className={`rounded-lg border px-3 py-2 ${summaryTones[label] || "border-slate-800 bg-slate-900 text-white"}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] opacity-70">{label}</div>
+              <div className="mt-0.5 text-sm font-black text-white">{value}</div>
             </div>
           ))}
         </div>
 
         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-          {categoryTotals.map((group) => (
-            <div key={group.category} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+          {categoryTotals.map((group, index) => (
+            <div key={group.category} className={`rounded-lg border px-3 py-2 ${categoryTones[index % categoryTones.length]}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="truncate text-xs font-bold text-white">{group.category}</div>
-                <div className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-bold text-slate-400">{group.rows.length}</div>
+                <div className="rounded-full border border-white/15 bg-black/10 px-2 py-0.5 text-[10px] font-bold text-white/75">{group.rows.length}</div>
               </div>
-              <div className="mt-1 text-sm font-bold text-sky-100">{currency(group.subtotal)}</div>
-              <div className="text-[10px] text-slate-500">{currency(group.monthlySubtotal)} monthly</div>
+              <div className="mt-1 text-sm font-black text-white">{currency(group.subtotal)}</div>
+              <div className="text-[10px] text-white/60">{currency(group.monthlySubtotal)} monthly</div>
             </div>
           ))}
         </div>
@@ -485,17 +523,17 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                 <col className="w-[220px]" />
                 <col className="w-[88px]" />
               </colgroup>
-              <thead className="bg-slate-950 text-slate-400">
+              <thead className="bg-slate-950 text-slate-300">
                 <tr>
                   {["Employee", "Category", "Position", "Basis", "FTE", "Salary/Rate", "Annual Hrs", "Years", "Cert.", "Responsibility", "Total", "Monthly", "Notes", ""].map((heading) => (
-                    <th key={heading} className="border-b border-slate-800 px-1.5 py-1.5 font-semibold">{heading}</th>
+                    <th key={heading} className="border-b border-sky-500/20 px-1.5 py-1.5 font-semibold">{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {groupedRows.map((group) => (
                   <Fragment key={group.category}>
-                    <tr key={`${group.category}-header`} className="border-y border-sky-500/30 bg-sky-500/15 text-sky-50">
+                    <tr key={`${group.category}-header`} className="border-y border-sky-500/30 bg-gradient-to-r from-sky-500/20 via-slate-900 to-slate-900 text-sky-50">
                       <td colSpan="14" className="px-2 py-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs font-black uppercase tracking-[0.12em]">{group.category}</span>
@@ -562,8 +600,51 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
           </div>
         </div>
 
-        <details className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-          <summary className="cursor-pointer text-sm font-bold text-white">Budget Summary Adjustments</summary>
+        <details className="rounded-lg border border-violet-500/25 bg-gradient-to-br from-slate-900 via-slate-900 to-violet-950/30 p-3">
+          <summary className="cursor-pointer text-sm font-bold text-white">Payroll Options & Summary Adjustments</summary>
+          <div className="mt-3 grid gap-2 md:grid-cols-3 xl:grid-cols-5">
+            <Field label="Default Hourly Rate">
+              <MoneyInput value={draft.hourlyRate} onValueChange={(value) => setDraft({ ...draft, hourlyRate: value })} />
+            </Field>
+            <Field label="FICA Rate">
+              <PercentInput value={Number(draft.ficaRate ?? DEFAULT_PAYROLL_WORKSHEET.ficaRate) * 100} onValueChange={(value) => setDraft({ ...draft, ficaRate: value / 100 })} />
+            </Field>
+            <Field label="SUI Rate">
+              <PercentInput value={Number(draft.suiRate ?? DEFAULT_PAYROLL_WORKSHEET.suiRate) * 100} onValueChange={(value) => setDraft({ ...draft, suiRate: value / 100 })} />
+            </Field>
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-200/70">Benefits / Other</div>
+              <div className="mt-1 text-sm font-black text-white">{currency(summary.benefits)}</div>
+            </div>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-200/70">Tax Total</div>
+              <div className="mt-1 text-sm font-black text-white">{currency(summary.taxTotal)}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-bold text-white">Benefit / Other Costs</div>
+                <div className="text-xs text-slate-500">Add categories that should be included below taxes in total annual payroll.</div>
+              </div>
+              <ActionButton onClick={addBenefit} className="px-2 py-1"><Plus size={13} /> Add Benefit</ActionButton>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {(draft.benefitItems || []).map((item, index) => (
+                <div key={index} className="grid grid-cols-[1fr_110px_34px] gap-2">
+                  <TextInput value={item.label || ""} onChange={(event) => updateBenefit(index, { label: event.target.value })} placeholder="Benefit category" />
+                  <MoneyInput value={item.amount || 0} onValueChange={(value) => updateBenefit(index, { amount: value })} />
+                  <button type="button" onClick={() => removeBenefit(index)} className="rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20" title="Remove benefit"><Trash2 size={13} className="mx-auto" /></button>
+                </div>
+              ))}
+              {!(draft.benefitItems || []).length && (
+                <div className="rounded-lg border border-dashed border-slate-800 px-3 py-2 text-xs text-slate-500">No benefit costs added yet.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 text-sm font-bold text-white">Budget Summary Adjustments</div>
           <div className="mt-3 grid gap-2 md:grid-cols-3">
             {(draft.summaryAdjustments || []).map((item, index) => (
               <div key={index} className="grid grid-cols-[1fr_110px] gap-2">
