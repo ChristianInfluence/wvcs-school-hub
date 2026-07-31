@@ -6,6 +6,7 @@ export const DEFAULT_PAYROLL_ROW = {
   staffEmail: "",
   category: "Teacher",
   position: "Teacher",
+  payBasis: "salary",
   fte: 1,
   baseSalary: 32000,
   yearsAtWvcs: 0,
@@ -40,6 +41,8 @@ export function sortedPayrollRows(rows = []) {
 
 export function calculatePayrollRow(row = {}, worksheet = {}) {
   const category = row.category || "Teacher";
+  const inferredPayBasis = row.payBasis || (((category === "Classified" || category === "Childcare") && money(row.hourlyRate) > 0 && Number(row.annualHours || 0) > 0 && !row.salaryBaseIsProrated) ? "hourly" : "salary");
+  const isHourly = inferredPayBasis === "hourly";
   const fte = Math.min(Math.max(Number(row.fte ?? 1), 0), 1.5);
   const defaultHourlyRate = money(worksheet.hourlyRate || DEFAULT_PAYROLL_WORKSHEET.hourlyRate);
   const baseSalary = money(row.baseSalary);
@@ -48,14 +51,13 @@ export function calculatePayrollRow(row = {}, worksheet = {}) {
   const yearsPay = Math.max(Number.parseInt(row.yearsAtWvcs || 0, 10) || 0, 0) * 100;
   const certification = money(row.certificationAmount);
   const responsibility = money(row.responsibilityAmount);
-  const useHourlyBase = (category === "Classified" || category === "Childcare") && hourlyRate > 0 && annualHours > 0;
-  const salaryBase = row.salaryBaseIsProrated ? baseSalary : useHourlyBase ? hourlyRate * annualHours : baseSalary * fte;
+  const salaryBase = isHourly ? hourlyRate * annualHours : row.salaryBaseIsProrated ? baseSalary : baseSalary * fte;
   const totalSalary = salaryBase + yearsPay + certification + responsibility;
   const monthlyPay = totalSalary / 12;
   const quarterlyHours = 2080 * fte / 4;
   const sickHours = 40 * fte;
   const personalHours = 16 * fte;
-  return { fte, baseSalary, hourlyRate, annualHours, yearsPay, certification, responsibility, salaryBase, totalSalary, monthlyPay, quarterlyHours, sickHours, personalHours };
+  return { payBasis: inferredPayBasis, isHourly, fte, baseSalary, hourlyRate, annualHours, yearsPay, certification, responsibility, salaryBase, totalSalary, monthlyPay, quarterlyHours, sickHours, personalHours };
 }
 
 export function calculatePayrollSummary(worksheet = {}) {
