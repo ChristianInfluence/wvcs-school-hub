@@ -58,6 +58,48 @@ function signedLine(signature, fallback = "") {
   return `${signature.name}${signature.email ? ` (${signature.email})` : fallback ? ` (${fallback})` : ""} on ${new Date(signature.signedAt || Date.now()).toLocaleDateString()}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function signatureTimestamp(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function signedSignatureHtml(signature, fallbackEmail = "") {
+  if (!signature?.name) return `<span class="pending-signature">Pending</span>`;
+  const email = signature.email || fallbackEmail || "";
+  const timestamp = signatureTimestamp(signature.signedAt);
+  return `
+    <div class="script-signature">${escapeHtml(signature.name)}</div>
+    <div class="signature-meta">
+      Digitally signed by ${escapeHtml(signature.name)}${email ? ` (${escapeHtml(email)})` : ""}<br>
+      ${timestamp ? `${escapeHtml(timestamp)} | ` : ""}${escapeHtml(signature.method || "typed electronic signature")}
+    </div>
+  `;
+}
+
+function makeAdminSignature(currentUserEmail = "") {
+  return {
+    name: "Matthew Conniry",
+    email: currentUserEmail,
+    role: "Administrator",
+    signedAt: new Date().toISOString(),
+    method: "typed electronic signature",
+    signatureStyle: "script typed name",
+    agreementText: "I have reviewed this staff contract packet and agree that applying my typed name records my electronic signature.",
+    userAgent: navigator.userAgent || "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    signatureId: crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  };
+}
+
 function formatFtePercent(value) {
   const percent = Number(value || 0) * 100;
   if (!Number.isFinite(percent)) return "0";
@@ -100,6 +142,9 @@ export function buildStaffContractHtml(contract) {
       .total { background: #eff6ff; font-weight: 800; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .sig { border-top: 1px solid #111827; padding-top: 5px; min-height: 42px; }
+      .script-signature { font-family: "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive; font-size: 25px; line-height: 1.05; color: #111827; white-space: nowrap; }
+      .signature-meta { margin-top: 3px; color: #475569; font-size: 8.8px; line-height: 1.25; }
+      .pending-signature { color: #94a3b8; font-style: italic; }
       .fine { color: #475569; font-size: 9.5px; }
       .page-break { break-before: page; page-break-before: always; }
       @media print {
@@ -131,11 +176,11 @@ export function buildStaffContractHtml(contract) {
       <ol>${conditionItems.map((item) => `<li>${item}</li>`).join("")}</ol>
       <p>I have read and understand the duties, responsibilities, salary, and terms and conditions of this contract.</p>
       <div class="grid">
-        <div class="sig">${signedLine(contract.staffSignature, contract.staffEmail)}<br><strong>Teacher</strong></div>
-        <div class="sig">${signedLine(contract.adminSignature, STAFF_CONTRACT_ADMIN_EMAIL)}<br><strong>Administrator</strong></div>
+        <div class="sig">${signedSignatureHtml(contract.staffSignature, contract.staffEmail)}<br><strong>Teacher</strong></div>
+        <div class="sig">${signedSignatureHtml(contract.adminSignature, STAFF_CONTRACT_ADMIN_EMAIL)}<br><strong>Administrator</strong></div>
       </div>
       <div style="height:22px"></div>
-      <div class="sig">${signedLine(contract.boardSignature)}<br><strong>Board Chairman</strong></div>
+      <div class="sig">${signedSignatureHtml(contract.boardSignature)}<br><strong>Board Chairman</strong></div>
     </main>
 
     <main class="page page-break">
@@ -177,10 +222,10 @@ export function buildStaffContractHtml(contract) {
       <h2>School Board Action</h2>
       <p>Employment authorized at WVCS School Board meeting of: <span class="fill">${contract.boardMeetingDate || "________________"}</span></p>
       <div class="grid">
-        <div class="sig">${signedLine(contract.staffSignature, contract.staffEmail)}<br><strong>Teacher's signature</strong></div>
-        <div class="sig">${signedLine(contract.boardSignature)}<br><strong>School Board Chairperson's signature</strong></div>
+        <div class="sig">${signedSignatureHtml(contract.staffSignature, contract.staffEmail)}<br><strong>Teacher's signature</strong></div>
+        <div class="sig">${signedSignatureHtml(contract.boardSignature)}<br><strong>School Board Chairperson's signature</strong></div>
       </div>
-      <p class="fine">Electronic signatures include signer name, email when available, timestamp, and agreement record stored in WVCS School Hub.</p>
+      <p class="fine">Electronic signatures include typed signature name, signer role, email when available, timestamp, signature method, agreement text, and signing context stored in WVCS School Hub.</p>
       <button onclick="window.print()" style="margin-top:18px;padding:9px 14px;border:1px solid #0f172a;border-radius:8px;background:#0f172a;color:white;font-weight:800;">Print / Save PDF</button>
     </main>
   </body>
@@ -272,7 +317,7 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
     const next = {
       ...draft,
       status: draft.status === "Draft" ? "Admin Signed" : draft.status,
-      adminSignature: { name: "Matthew Conniry", email: currentUserEmail, signedAt: new Date().toISOString(), role: "Administrator" },
+      adminSignature: makeAdminSignature(currentUserEmail),
     };
     await save(next, "Administrator signature recorded.");
   }
@@ -539,7 +584,12 @@ export function StaffContractSigningPage({ token = "" }) {
     }
     setBusy(true);
     try {
-      const result = await staffContractAction("sign-token", { token, signerName: name });
+      const result = await staffContractAction("sign-token", {
+        token,
+        signerName: name,
+        agreementText: "I have reviewed both contract documents and agree that typing my name records my electronic signature.",
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      });
       setRecord(result.contract);
       setStatus("Signature recorded. Thank you.");
     } catch (error) {

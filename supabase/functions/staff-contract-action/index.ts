@@ -51,6 +51,13 @@ function money(value: unknown) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function requestIp(request: Request) {
+  return request.headers.get("cf-connecting-ip")
+    || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || "";
+}
+
 function mapRow(row: Record<string, any>) {
   return {
     id: row.id,
@@ -256,6 +263,7 @@ Deno.serve(async (request) => {
     if (action === "sign-token") {
       const token = String(payload.token || "").trim();
       const signerName = String(payload.signerName || "").trim();
+      const agreementText = String(payload.agreementText || "I agree that typing my name records my electronic signature.").trim();
       if (!token || !signerName) throw new Error("Please type your full name before signing.");
       const { data, error } = await supabase
         .from("staff_contracts")
@@ -266,13 +274,26 @@ Deno.serve(async (request) => {
       if (!data) throw new Error("Contract signing link is not available.");
       const now = new Date().toISOString();
       const signer = data.staff_token === token ? "staff" : "board";
+      const signatureRecord = {
+        name: signerName,
+        ...(signer === "staff" ? { email: data.staff_email } : {}),
+        role: signer === "staff" ? "Staff Member" : "Board Chair",
+        signedAt: now,
+        method: "typed electronic signature",
+        signatureStyle: "script typed name",
+        agreementText,
+        userAgent: request.headers.get("user-agent") || "",
+        ipAddress: requestIp(request),
+        timeZone: String(payload.timeZone || ""),
+        signatureId: crypto.randomUUID(),
+      };
       const patch = signer === "staff"
         ? {
-            staff_signature: { name: signerName, email: data.staff_email, role: "Staff Member", signedAt: now },
+            staff_signature: signatureRecord,
             status: "Staff Signed",
           }
         : {
-            board_signature: { name: signerName, role: "Board Chair", signedAt: now },
+            board_signature: signatureRecord,
             status: "Complete",
           };
       const { data: updated, error: updateError } = await supabase
