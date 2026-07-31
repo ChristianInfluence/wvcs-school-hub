@@ -49,7 +49,10 @@ export function sortedPayrollRows(rows = []) {
       if (aCategory !== -1 || bCategory !== -1) return (aCategory === -1 ? 99 : aCategory) - (bCategory === -1 ? 99 : bCategory);
       return String(a.category || "").localeCompare(String(b.category || ""));
     }
-    if (aOrder !== null || bOrder !== null) return (aOrder ?? 9999) - (bOrder ?? 9999);
+    if (aOrder !== null || bOrder !== null) {
+      const orderDifference = (aOrder ?? 9999) - (bOrder ?? 9999);
+      if (orderDifference !== 0) return orderDifference;
+    }
     return normalizePayrollName(a.staffName).localeCompare(normalizePayrollName(b.staffName));
   });
 }
@@ -58,14 +61,16 @@ export function calculatePayrollRow(row = {}, worksheet = {}) {
   const category = row.category || "Teacher";
   const inferredPayBasis = row.payBasis || (((category === "Classified" || category === "Childcare") && money(row.hourlyRate) > 0 && Number(row.annualHours || 0) > 0 && !row.salaryBaseIsProrated) ? "hourly" : "salary");
   const isHourly = inferredPayBasis === "hourly";
+  const usesTeacherAddons = category === "Teacher" || category === "Preschool";
+  const usesResponsibility = usesTeacherAddons || category === "Admin";
   const fte = Math.min(Math.max(Number(row.fte ?? 1), 0), 1.5);
   const defaultHourlyRate = money(worksheet.hourlyRate || DEFAULT_PAYROLL_WORKSHEET.hourlyRate);
   const baseSalary = money(row.baseSalary);
   const hourlyRate = money(row.hourlyRate || defaultHourlyRate);
   const annualHours = Number(row.annualHours || 0);
-  const yearsPay = Math.max(Number.parseInt(row.yearsAtWvcs || 0, 10) || 0, 0) * 100;
-  const certification = money(row.certificationAmount);
-  const responsibility = money(row.responsibilityAmount);
+  const yearsPay = usesTeacherAddons ? Math.max(Number.parseInt(row.yearsAtWvcs || 0, 10) || 0, 0) * 100 : 0;
+  const certification = usesTeacherAddons ? money(row.certificationAmount) : 0;
+  const responsibility = usesResponsibility ? money(row.responsibilityAmount) : 0;
   const salaryBase = isHourly ? hourlyRate * annualHours : row.salaryBaseIsProrated ? baseSalary : baseSalary * fte;
   const totalSalary = salaryBase + yearsPay + certification + responsibility;
   const monthlyPay = totalSalary / 12;
