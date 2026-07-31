@@ -14,7 +14,6 @@ import { currency, STAFF_CONTRACT_ADMIN_EMAIL } from "../../lib/staffContractsDa
 
 const categories = ["Teacher", "Admin", "Classified", "Childcare", "Preschool", "Other"];
 const payBases = ["salary", "hourly"];
-const payTypes = ["DD", "Check"];
 const categoryOrder = ["Admin", "Teacher", "Preschool", "Classified", "Childcare", "Other"];
 
 function uid() {
@@ -137,13 +136,10 @@ function buildPayrollExportHtml(worksheet = {}) {
         <td class="num">${currency(calc.responsibility)}</td>
         <td class="num strong">${currency(calc.totalSalary)}</td>
         <td class="num">${currency(calc.monthlyPay)}</td>
-        <td class="num">${row.importedTotalSalary ? currency(row.importedTotalSalary) : ""}</td>
-        <td class="num">${row.importedMonthlyPay ? currency(row.importedMonthlyPay) : ""}</td>
-        <td>${row.payType || ""}</td>
         <td>${row.notes || ""}</td>
       </tr>`;
     }).join("");
-    return `<tr class="section"><td colspan="16">${group.category} (${group.rows.length})</td></tr>${items}<tr class="subtotal"><td colspan="10">Subtotal - ${group.category}</td><td class="num">${currency(group.subtotal)}</td><td class="num">${currency(group.monthlySubtotal)}</td><td colspan="4"></td></tr>`;
+    return `<tr class="section"><td colspan="13">${group.category} (${group.rows.length})</td></tr>${items}<tr class="subtotal"><td colspan="10">Subtotal - ${group.category}</td><td class="num">${currency(group.subtotal)}</td><td class="num">${currency(group.monthlySubtotal)}</td><td></td></tr>`;
   }).join("");
   const categoryHtml = Object.entries(summary.byCategory).sort(([a], [b]) => a.localeCompare(b)).map(([label, amount]) => `<tr><td>${label}</td><td class="num">${currency(amount)}</td></tr>`).join("");
   const adjustmentHtml = (worksheet.summaryAdjustments || []).map((item) => `<tr><td>${item.label || ""}</td><td class="num">${currency(item.amount)}</td></tr>`).join("");
@@ -185,8 +181,8 @@ function buildPayrollExportHtml(worksheet = {}) {
         <div class="muted">Generated ${new Date().toLocaleDateString()}</div>
       </div>
       <table>
-        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>Basis</th><th>FTE</th><th>Salary / Rate</th><th>Annual Hours</th><th>Years</th><th>Certification</th><th>Responsibility</th><th>Hub Total</th><th>Hub Monthly</th><th>Sheet Total</th><th>Sheet Monthly</th><th>Pay</th><th>Notes</th></tr></thead>
-        <tbody>${rowHtml || `<tr><td colspan="16">No employees entered.</td></tr>`}</tbody>
+        <thead><tr><th>Employee</th><th>Position</th><th>Category</th><th>Basis</th><th>FTE</th><th>Salary / Rate</th><th>Annual Hours</th><th>Years</th><th>Certification</th><th>Responsibility</th><th>Hub Total</th><th>Hub Monthly</th><th>Notes</th></tr></thead>
+        <tbody>${rowHtml || `<tr><td colspan="13">No employees entered.</td></tr>`}</tbody>
       </table>
       <section class="summary">
         <table><thead><tr><th>Category</th><th>Total</th></tr></thead><tbody>${categoryHtml}<tr class="total"><td>Employee Rows</td><td class="num">${currency(summary.rowTotal)}</td></tr>${adjustmentHtml}<tr class="total"><td>Total Salaries</td><td class="num">${currency(summary.totalSalaries)}</td></tr></tbody></table>
@@ -366,28 +362,26 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             <ActionButton tone="emerald" onClick={addEmployee}><Plus size={15} /> Add Employee</ActionButton>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1260px] w-full table-fixed border-collapse text-left text-[11px]">
+            <table className="min-w-[1120px] w-full table-fixed border-collapse text-left text-[11px]">
               <colgroup>
-                <col className="w-[150px]" />
-                <col className="w-[94px]" />
-                <col className="w-[108px]" />
+                <col className="w-[165px]" />
+                <col className="w-[100px]" />
+                <col className="w-[118px]" />
                 <col className="w-[70px]" />
                 <col className="w-[58px]" />
-                <col className="w-[84px]" />
+                <col className="w-[92px]" />
                 <col className="w-[74px]" />
                 <col className="w-[48px]" />
                 <col className="w-[72px]" />
-                <col className="w-[84px]" />
                 <col className="w-[88px]" />
-                <col className="w-[82px]" />
-                <col className="w-[68px]" />
-                <col className="w-[56px]" />
-                <col className="w-[180px]" />
+                <col className="w-[92px]" />
+                <col className="w-[86px]" />
+                <col className="w-[220px]" />
                 <col className="w-[88px]" />
               </colgroup>
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
-                  {["Employee", "Category", "Position", "Basis", "FTE", "Salary/Rate", "Annual Hrs", "Years", "Cert.", "Responsibility", "Total", "Monthly", "Sheet", "Pay", "Notes", ""].map((heading) => (
+                  {["Employee", "Category", "Position", "Basis", "FTE", "Salary/Rate", "Annual Hrs", "Years", "Cert.", "Responsibility", "Total", "Monthly", "Notes", ""].map((heading) => (
                     <th key={heading} className="border-b border-slate-800 px-1.5 py-1.5 font-semibold">{heading}</th>
                   ))}
                 </tr>
@@ -396,7 +390,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                 {groupedRows.map((group) => (
                   <Fragment key={group.category}>
                     <tr key={`${group.category}-header`} className="border-y border-sky-500/30 bg-sky-500/15 text-sky-50">
-                      <td colSpan="16" className="px-2 py-2">
+                      <td colSpan="14" className="px-2 py-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs font-black uppercase tracking-[0.12em]">{group.category}</span>
                           <span className="text-[11px] font-bold text-sky-100">{group.rows.length} employees | {currency(group.subtotal)} annual | {currency(group.monthlySubtotal)} monthly</span>
@@ -437,11 +431,6 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                             <div>{currency(calc.monthlyPay)}</div>
                             {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
                           </td>
-                          <td className="whitespace-nowrap px-1.5 py-2 text-slate-400">
-                            {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
-                            {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
-                          </td>
-                          <td className="px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
                           <td className="px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
                           <td className="px-1 py-1">
                             <div className="flex gap-1">
@@ -456,11 +445,11 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                       <td colSpan="10" className="px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.08em] text-slate-400">Subtotal - {group.category}</td>
                       <td className="px-1.5 py-2 font-black text-white">{currency(group.subtotal)}</td>
                       <td className="px-1.5 py-2 font-bold text-slate-200">{currency(group.monthlySubtotal)}</td>
-                      <td colSpan="5" />
+                      <td colSpan="2" />
                     </tr>
                   </Fragment>
                 ))}
-                {!visibleRows.length && <tr><td colSpan="16" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
+                {!visibleRows.length && <tr><td colSpan="14" className="px-3 py-8 text-center text-sm text-slate-500">No employees match this search.</td></tr>}
               </tbody>
             </table>
           </div>
