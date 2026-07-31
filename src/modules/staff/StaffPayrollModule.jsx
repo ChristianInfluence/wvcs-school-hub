@@ -46,6 +46,40 @@ function SelectInput(props) {
   return <select {...props} className={`w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white outline-none focus:border-sky-400 ${props.className || ""}`} />;
 }
 
+function numericValue(value) {
+  const parsed = Number.parseFloat(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function DecoratedInput({ value, onValueChange, prefix = "", suffix = "", className = "", ...props }) {
+  return (
+    <div className={`flex w-full items-center rounded-md border border-slate-700 bg-slate-950 text-xs text-white focus-within:border-sky-400 ${className}`}>
+      {prefix && <span className="pl-2 text-[11px] font-bold text-slate-500">{prefix}</span>}
+      <input
+        {...props}
+        type="text"
+        inputMode="decimal"
+        value={value ?? ""}
+        onChange={(event) => onValueChange?.(numericValue(event.target.value))}
+        className="min-w-0 flex-1 bg-transparent px-1.5 py-1.5 text-xs text-white outline-none"
+      />
+      {suffix && <span className="pr-2 text-[11px] font-bold text-slate-500">{suffix}</span>}
+    </div>
+  );
+}
+
+function MoneyInput({ value, onValueChange, ...props }) {
+  return <DecoratedInput {...props} prefix="$" value={value} onValueChange={onValueChange} />;
+}
+
+function PercentInput({ value, onValueChange, ...props }) {
+  return <DecoratedInput {...props} suffix="%" value={value} onValueChange={onValueChange} />;
+}
+
+function PlainNumberInput({ value, onValueChange, ...props }) {
+  return <DecoratedInput {...props} value={value} onValueChange={onValueChange} />;
+}
+
 function ActionButton({ children, tone = "slate", className = "", ...props }) {
   const tones = {
     sky: "border-sky-400 bg-sky-500 text-white hover:bg-sky-400",
@@ -281,7 +315,7 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             </Field>
             <Field label="Title"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></Field>
             <Field label="School Year"><TextInput value={draft.schoolYear} onChange={(event) => setDraft({ ...draft, schoolYear: event.target.value })} /></Field>
-            <Field label="Hourly Rate"><TextInput type="number" step="0.01" value={draft.hourlyRate} onChange={(event) => setDraft({ ...draft, hourlyRate: Number(event.target.value || 0) })} /></Field>
+            <Field label="Hourly Rate"><MoneyInput value={draft.hourlyRate} onValueChange={(value) => setDraft({ ...draft, hourlyRate: value })} /></Field>
             <div className="flex items-end gap-2">
               <ActionButton onClick={load} className="px-2" title="Refresh saved worksheets"><RefreshCw size={14} /></ActionButton>
               <ActionButton onClick={newWorksheet} className="px-2"><Plus size={14} /> New</ActionButton>
@@ -325,7 +359,24 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
             <ActionButton tone="emerald" onClick={addEmployee}><Plus size={15} /> Add Employee</ActionButton>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full table-fixed border-collapse text-left text-[11px]">
+            <table className="min-w-[1180px] w-full table-fixed border-collapse text-left text-[11px]">
+              <colgroup>
+                <col className="w-[150px]" />
+                <col className="w-[94px]" />
+                <col className="w-[108px]" />
+                <col className="w-[58px]" />
+                <col className="w-[84px]" />
+                <col className="w-[48px]" />
+                <col className="w-[72px]" />
+                <col className="w-[84px]" />
+                <col className="w-[74px]" />
+                <col className="w-[88px]" />
+                <col className="w-[82px]" />
+                <col className="w-[68px]" />
+                <col className="w-[56px]" />
+                <col className="w-[180px]" />
+                <col className="w-[88px]" />
+              </colgroup>
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
                   {["Employee", "Category", "Position", "FTE", "Base/Rate", "Years", "Cert.", "Responsibility", "Annual Hrs", "Total", "Monthly", "Sheet", "Pay", "Notes", ""].map((heading) => (
@@ -348,30 +399,30 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                       const calc = calculatePayrollRow(row, draft);
                       return (
                         <tr key={row.id} className="border-b border-slate-800 align-top">
-                          <td className="w-[150px] px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
-                          <td className="w-[98px] px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                          <td className="w-[115px] px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
-                          <td className="w-[62px] px-1 py-1"><TextInput type="number" min="0" max="150" step="0.01" value={Number(row.fte || 0) * 100} onChange={(event) => updateRow(row.id, { fte: Number(event.target.value || 0) / 100 })} /></td>
-                          <td className="w-[86px] px-1 py-1"><TextInput type="number" step="0.01" value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onChange={(event) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: Number(event.target.value || 0) } : { baseSalary: Number(event.target.value || 0) })} /></td>
-                          <td className="w-[56px] px-1 py-1"><TextInput type="number" value={row.yearsAtWvcs || 0} onChange={(event) => updateRow(row.id, { yearsAtWvcs: Number(event.target.value || 0) })} /></td>
-                          <td className="w-[72px] px-1 py-1"><TextInput type="number" value={row.certificationAmount || 0} onChange={(event) => updateRow(row.id, { certificationAmount: Number(event.target.value || 0) })} /></td>
-                          <td className="w-[86px] px-1 py-1"><TextInput type="number" value={row.responsibilityAmount || 0} onChange={(event) => updateRow(row.id, { responsibilityAmount: Number(event.target.value || 0) })} /></td>
-                          <td className="w-[76px] px-1 py-1"><TextInput type="number" value={row.annualHours || 0} onChange={(event) => updateRow(row.id, { annualHours: Number(event.target.value || 0) })} /></td>
-                          <td className="w-[88px] whitespace-nowrap px-1.5 py-2 font-bold text-white">
+                          <td className="px-1 py-1"><TextInput value={row.staffName} onChange={(event) => updateRow(row.id, { staffName: event.target.value })} /></td>
+                          <td className="px-1 py-1"><SelectInput value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                          <td className="px-1 py-1"><TextInput value={row.position} onChange={(event) => updateRow(row.id, { position: event.target.value })} /></td>
+                          <td className="px-1 py-1"><PercentInput value={Number(row.fte || 0) * 100} onValueChange={(value) => updateRow(row.id, { fte: value / 100 })} /></td>
+                          <td className="px-1 py-1"><MoneyInput value={row.category === "Classified" || row.category === "Childcare" ? row.hourlyRate || draft.hourlyRate : row.baseSalary} onValueChange={(value) => updateRow(row.id, row.category === "Classified" || row.category === "Childcare" ? { hourlyRate: value } : { baseSalary: value })} /></td>
+                          <td className="px-1 py-1"><PlainNumberInput value={row.yearsAtWvcs || 0} onValueChange={(value) => updateRow(row.id, { yearsAtWvcs: value })} /></td>
+                          <td className="px-1 py-1"><MoneyInput value={row.certificationAmount || 0} onValueChange={(value) => updateRow(row.id, { certificationAmount: value })} /></td>
+                          <td className="px-1 py-1"><MoneyInput value={row.responsibilityAmount || 0} onValueChange={(value) => updateRow(row.id, { responsibilityAmount: value })} /></td>
+                          <td className="px-1 py-1"><PlainNumberInput value={row.annualHours || 0} onValueChange={(value) => updateRow(row.id, { annualHours: value })} /></td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-bold text-white">
                             <div>{currency(calc.totalSalary)}</div>
                             {row.importedTotalSalary ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedTotalSalary)}</div> : null}
                           </td>
-                          <td className="w-[82px] whitespace-nowrap px-1.5 py-2 text-slate-200">
+                          <td className="whitespace-nowrap px-1.5 py-2 text-slate-200">
                             <div>{currency(calc.monthlyPay)}</div>
                             {row.importedMonthlyPay ? <div className="text-[10px] font-semibold text-slate-500">Excel {currency(row.importedMonthlyPay)}</div> : null}
                           </td>
-                          <td className="w-[70px] whitespace-nowrap px-1.5 py-2 text-slate-400">
+                          <td className="whitespace-nowrap px-1.5 py-2 text-slate-400">
                             {row.sourceSheetRow ? <div>Row {row.sourceSheetRow}</div> : null}
                             {row.importedQuarterlyHours ? <div className="text-[10px]">Qtr {Number(row.importedQuarterlyHours).toLocaleString("en-US", { maximumFractionDigits: 2 })} hrs</div> : null}
                           </td>
-                          <td className="w-[66px] px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
-                          <td className="w-[130px] px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
-                          <td className="w-[92px] px-1 py-1">
+                          <td className="px-1 py-1"><SelectInput value={row.payType || "DD"} onChange={(event) => updateRow(row.id, { payType: event.target.value })}>{payTypes.map((item) => <option key={item}>{item}</option>)}</SelectInput></td>
+                          <td className="px-1 py-1"><TextInput value={row.notes || ""} onChange={(event) => updateRow(row.id, { notes: event.target.value })} /></td>
+                          <td className="px-1 py-1">
                             <div className="flex gap-1">
                               <button type="button" title="Use in contract" onClick={() => onCreateContractFromPayroll?.(payrollRowToContract(row, draft))} className="rounded-md border border-sky-500/50 bg-sky-500/10 px-1.5 py-1 text-[10px] font-bold text-sky-100 hover:bg-sky-500/20">Contract</button>
                               <button type="button" title="Remove employee" onClick={() => removeEmployee(row)} className="rounded-md border border-rose-500/50 bg-rose-500/10 px-1.5 py-1 text-rose-100 hover:bg-rose-500/20"><Trash2 size={12} /></button>
@@ -404,9 +455,9 @@ export default function StaffPayrollModule({ currentUserEmail = "", onCreateCont
                   next[index] = { ...item, label: event.target.value };
                   setDraft({ ...draft, summaryAdjustments: next });
                 }} />
-                <TextInput type="number" value={item.amount || 0} onChange={(event) => {
+                <MoneyInput value={item.amount || 0} onValueChange={(value) => {
                   const next = [...(draft.summaryAdjustments || [])];
-                  next[index] = { ...item, amount: Number(event.target.value || 0) };
+                  next[index] = { ...item, amount: value };
                   setDraft({ ...draft, summaryAdjustments: next });
                 }} />
               </div>
