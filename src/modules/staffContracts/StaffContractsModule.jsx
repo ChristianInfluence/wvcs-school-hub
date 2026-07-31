@@ -261,9 +261,20 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [contractSort, setContractSort] = useState("name-asc");
 
   const compensation = useMemo(() => calculateStaffCompensation(draft), [draft]);
-  const filtered = contracts.filter((contract) => `${contract.staffName} ${contract.schoolYear} ${contract.status}`.toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => {
+    const searched = contracts.filter((contract) => `${contract.staffName} ${contract.schoolYear} ${contract.status}`.toLowerCase().includes(search.toLowerCase()));
+    return [...searched].sort((a, b) => {
+      if (contractSort === "name-desc") return String(b.staffName || "").localeCompare(String(a.staffName || ""));
+      if (contractSort === "year-desc") return String(b.schoolYear || "").localeCompare(String(a.schoolYear || "")) || String(a.staffName || "").localeCompare(String(b.staffName || ""));
+      if (contractSort === "year-asc") return String(a.schoolYear || "").localeCompare(String(b.schoolYear || "")) || String(a.staffName || "").localeCompare(String(b.staffName || ""));
+      if (contractSort === "status") return String(a.status || "").localeCompare(String(b.status || "")) || String(a.staffName || "").localeCompare(String(b.staffName || ""));
+      if (contractSort === "updated") return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+      return String(a.staffName || "").localeCompare(String(b.staffName || ""));
+    });
+  }, [contracts, contractSort, search]);
 
   async function load() {
     if (!isAllowed) return;
@@ -387,21 +398,38 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
 
   return (
     <section className="mx-auto grid max-w-[1600px] gap-4 px-5 py-5 lg:grid-cols-[260px_1fr]">
-      <aside className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
+      <aside className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <div className="text-sm font-bold text-white">Saved Contracts</div>
-          <button type="button" onClick={load} className="rounded-md border border-slate-700 bg-slate-950 p-2 text-slate-200 hover:bg-slate-800"><RefreshCw size={15} /></button>
+          <button type="button" onClick={load} className="rounded-md border border-slate-700 bg-slate-950 p-1.5 text-slate-200 hover:bg-slate-800"><RefreshCw size={14} /></button>
         </div>
-        <TextInput placeholder="Search staff..." value={search} onChange={(event) => setSearch(event.target.value)} />
-        <button type="button" onClick={newContract} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-100 hover:bg-slate-800">
+        <TextInput placeholder="Search staff..." value={search} onChange={(event) => setSearch(event.target.value)} className="px-2 py-1.5 text-xs" />
+        <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+          <select
+            value={contractSort}
+            onChange={(event) => setContractSort(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-slate-200 outline-none focus:border-sky-400"
+          >
+            <option value="name-asc">Name A-Z</option>
+            <option value="name-desc">Name Z-A</option>
+            <option value="year-desc">Year newest</option>
+            <option value="year-asc">Year oldest</option>
+            <option value="status">Status</option>
+            <option value="updated">Recently updated</option>
+          </select>
+          <div className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1.5 text-center text-xs font-bold text-slate-400">{filtered.length}</div>
+        </div>
+        <button type="button" onClick={newContract} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-800">
           <Plus size={15} /> New Contract
         </button>
-        <div className="mt-3 max-h-[70vh] space-y-2 overflow-auto pr-1">
+        <div className="mt-2 max-h-[74vh] space-y-1 overflow-auto pr-1">
           {filtered.map((contract) => (
-            <button key={contract.id} type="button" onClick={() => selectContract(contract)} className={`w-full rounded-lg border p-3 text-left transition ${selectedId === contract.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:bg-slate-800"}`}>
-              <div className="truncate text-sm font-bold text-white">{contract.staffName}</div>
-              <div className="mt-1 text-xs text-slate-400">{contract.schoolYear}</div>
-              <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${statusTone(contract.status)}`}>{contract.status}</span>
+            <button key={contract.id} type="button" onClick={() => selectContract(contract)} className={`w-full rounded-md border px-2 py-1.5 text-left transition ${selectedId === contract.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:bg-slate-800"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 truncate text-xs font-bold text-white">{contract.staffName || "Unnamed"}</div>
+                <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold leading-none ${statusTone(contract.status)}`}>{contract.status}</span>
+              </div>
+              <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{contract.schoolYear || "No year"}{contract.positionTitle ? ` | ${contract.positionTitle}` : ""}</div>
             </button>
           ))}
         </div>
