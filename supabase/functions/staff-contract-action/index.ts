@@ -205,6 +205,46 @@ async function sendEmail(contract: Record<string, any>, recipient: string, signe
   return response.json();
 }
 
+async function sendContractForSignature({
+  supabase,
+  row,
+  signer,
+  recipient,
+  actorEmail,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  row: Record<string, any>;
+  signer: string;
+  recipient: string;
+  actorEmail: string;
+}) {
+  if (signer === "staff" && !row.admin_signature?.name) throw new Error("Sign as administrator before sending to staff.");
+  if (signer === "board" && !row.staff_signature?.name) throw new Error("The staff member must sign before sending to the board chair.");
+  const token = signer === "board" ? row.board_token : row.staff_token;
+  const siteUrl = Deno.env.get("SITE_URL") || "https://wvcshub.org";
+  const signingUrl = `${siteUrl.replace(/\/$/, "")}/#/staff-contract-sign/${encodeURIComponent(token)}`;
+  const sent = await sendEmail(row, recipient, signer, signingUrl);
+  const nextStatus = signer === "board" ? "Sent to Board" : "Sent to Staff";
+  const { data: updated, error: updateError } = await supabase
+    .from("staff_contracts")
+    .update({ status: nextStatus, updated_by_email: actorEmail, updated_at: new Date().toISOString() })
+    .eq("id", row.id)
+    .select("*")
+    .single();
+  if (updateError) throw updateError;
+  await recordEmailAudit({
+    module: "Staff Contracts",
+    subject: signer === "board" ? `WVCS Board Signature Needed: ${row.staff_name}` : "WVCS Staff Contract Ready for Signature",
+    recipients: [recipient],
+    senderEmail: requiredEnv("GMAIL_SENDER_EMAIL"),
+    actorEmail,
+    status: "sent",
+    messageIds: [sent.id],
+    metadata: { contractId: row.id, staffName: row.staff_name, signer },
+  });
+  return updated;
+}
+
 function contractTotal(row: Record<string, any>) {
   const compensation = row.compensation || {};
   if (money(compensation.annualSalary)) return money(compensation.annualSalary);
@@ -314,33 +354,40 @@ Deno.serve(async (request) => {
       const { data, error } = await supabase.from("staff_contracts").select("*").eq("id", contractId).maybeSingle();
       if (error) throw error;
       if (!data) throw new Error("Contract record was not found.");
-      if (signer === "staff" && !data.admin_signature?.name) throw new Error("Sign as administrator before sending to staff.");
-      if (signer === "board" && !data.staff_signature?.name) throw new Error("The staff member must sign before sending to the board chair.");
       const recipient = signer === "board" ? normalizeEmail(payload.boardEmail || "") : normalizeEmail(data.staff_email || "");
       if (!recipient) throw new Error("Enter a recipient email address.");
-      const token = signer === "board" ? data.board_token : data.staff_token;
-      const siteUrl = Deno.env.get("SITE_URL") || "https://wvcshub.org";
-      const signingUrl = `${siteUrl.replace(/\/$/, "")}/#/staff-contract-sign/${encodeURIComponent(token)}`;
-      const sent = await sendEmail(data, recipient, signer, signingUrl);
-      const nextStatus = signer === "board" ? "Sent to Board" : "Sent to Staff";
-      const { data: updated, error: updateError } = await supabase
-        .from("staff_contracts")
-        .update({ status: nextStatus, updated_by_email: actorEmail, updated_at: new Date().toISOString() })
-        .eq("id", data.id)
-        .select("*")
-        .single();
-      if (updateError) throw updateError;
-      await recordEmailAudit({
-        module: "Staff Contracts",
-        subject: signer === "board" ? `WVCS Board Signature Needed: ${data.staff_name}` : "WVCS Staff Contract Ready for Signature",
-        recipients: [recipient],
-        senderEmail: requiredEnv("GMAIL_SENDER_EMAIL"),
-        actorEmail,
-        status: "sent",
-        messageIds: [sent.id],
-        metadata: { contractId: data.id, staffName: data.staff_name, signer },
-      });
+      const updated = await sendContractForSignature({ supabase, row: data, signer, recipient, actorEmail });
       return new Response(JSON.stringify({ ok: true, contract: mapRow(updated) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "bulk-send-board") {
+      const actorEmail = await requireAdmin(supabase, request);
+      const recipient = normalizeEmail(payload.boardEmail || "");
+      const contractIds = Array.isArray(payload.contractIds)
+        ? [...new Set(payload.contractIds.map((id: unknown) => String(id || "").trim()).filter(Boolean))]
+        : [];
+      if (!recipient) throw new Error("Enter a board chair email address.");
+      if (!contractIds.length) throw new Error("Select at least one contract to send to the board chair.");
+      const { data, error } = await supabase
+        .from("staff_contracts")
+        .select("*")
+        .in("id", contractIds);
+      if (error) throw error;
+      if (!data?.length) throw new Error("No selected contract records were found.");
+      if (data.length !== contractIds.length) throw new Error("One or more selected contract records could not be found.");
+      const notReady = data.filter((row) => !row.staff_signature?.name || row.board_signature?.name);
+      if (notReady.length) {
+        throw new Error(`Only staff-signed contracts without a board signature can be bulk sent. Check: ${notReady.map((row) => row.staff_name || "Unnamed").join(", ")}`);
+      }
+      const ordered = contractIds
+        .map((id) => data.find((row) => row.id === id))
+        .filter(Boolean) as Record<string, any>[];
+      const updatedRows = [];
+      for (const row of ordered) {
+        const updated = await sendContractForSignature({ supabase, row, signer: "board", recipient, actorEmail });
+        updatedRows.push(updated);
+      }
+      return new Response(JSON.stringify({ ok: true, sentCount: updatedRows.length, contracts: updatedRows.map(mapRow) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error("Unsupported staff contract action.");

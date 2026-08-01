@@ -363,6 +363,8 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [contractSort, setContractSort] = useState("name-asc");
+  const [boardEmail, setBoardEmail] = useState("");
+  const [selectedBoardIds, setSelectedBoardIds] = useState([]);
 
   const compensation = useMemo(() => calculateStaffCompensation(draft), [draft]);
   const filtered = useMemo(() => {
@@ -376,6 +378,14 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
       return String(a.staffName || "").localeCompare(String(b.staffName || ""));
     });
   }, [contracts, contractSort, search]);
+  const boardReadyContracts = useMemo(
+    () => contracts.filter((contract) => contract.id && contract.staffSignature?.name && !contract.boardSignature?.name),
+    [contracts],
+  );
+  const selectedBoardContracts = useMemo(
+    () => boardReadyContracts.filter((contract) => selectedBoardIds.includes(contract.id)),
+    [boardReadyContracts, selectedBoardIds],
+  );
 
   async function load() {
     if (!isAllowed) return;
@@ -387,6 +397,10 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
   useEffect(() => {
     load().catch((error) => setStatus(error.message));
   }, [isAllowed]);
+
+  useEffect(() => {
+    setSelectedBoardIds((ids) => ids.filter((id) => boardReadyContracts.some((contract) => contract.id === id)));
+  }, [boardReadyContracts]);
 
   useEffect(() => {
     if (!payrollContractSeed?.nonce) return;
@@ -465,6 +479,56 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
     }
   }
 
+  function toggleBoardContract(contractId) {
+    setSelectedBoardIds((ids) => (
+      ids.includes(contractId)
+        ? ids.filter((id) => id !== contractId)
+        : [...ids, contractId]
+    ));
+  }
+
+  function toggleAllBoardReady() {
+    setSelectedBoardIds((ids) => (
+      ids.length === boardReadyContracts.length
+        ? []
+        : boardReadyContracts.map((contract) => contract.id)
+    ));
+  }
+
+  async function bulkSendToBoard() {
+    if (!selectedBoardContracts.length) {
+      setStatus("Select at least one staff-signed contract to send to the board chair.");
+      return;
+    }
+    const recipient = boardEmail.trim();
+    if (!recipient) {
+      setStatus("Enter the board chair email address before sending.");
+      return;
+    }
+    const names = selectedBoardContracts.map((contract) => contract.staffName || "Unnamed").join(", ");
+    const confirmed = window.confirm(`Send ${selectedBoardContracts.length} contract${selectedBoardContracts.length === 1 ? "" : "s"} to ${recipient} for board signature?\n\n${names}`);
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      const result = await staffContractAction("bulk-send-board", {
+        contractIds: selectedBoardContracts.map((contract) => contract.id),
+        boardEmail: recipient,
+        currentUserEmail,
+      });
+      if (result.contracts?.length && selectedId) {
+        const updatedSelected = result.contracts.find((contract) => contract.id === selectedId);
+        if (updatedSelected) setDraft({ ...DEFAULT_STAFF_CONTRACT, ...updatedSelected });
+      }
+      setSelectedBoardIds([]);
+      await load();
+      setStatus(`Sent ${result.sentCount || selectedBoardContracts.length} contract${(result.sentCount || selectedBoardContracts.length) === 1 ? "" : "s"} to ${recipient}.`);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function printPreview() {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
@@ -523,6 +587,47 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
         <button type="button" onClick={newContract} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs font-bold text-slate-100 hover:bg-slate-800">
           <Plus size={15} /> New Contract
         </button>
+        <details className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/10 p-2">
+          <summary className="cursor-pointer text-xs font-black text-violet-100">Bulk Send Board</summary>
+          <div className="mt-2 space-y-2">
+            <TextInput placeholder="Board chair email" value={boardEmail} onChange={(event) => setBoardEmail(event.target.value)} className="px-2 py-1.5 text-xs" />
+            <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-violet-100">
+              <span>{boardReadyContracts.length} ready</span>
+              <button type="button" onClick={toggleAllBoardReady} className="rounded-md border border-violet-400/40 bg-slate-950 px-2 py-1 text-violet-100 hover:bg-violet-500/20">
+                {selectedBoardIds.length === boardReadyContracts.length && boardReadyContracts.length ? "Clear" : "Select all"}
+              </button>
+            </div>
+            <div className="max-h-52 space-y-1 overflow-auto pr-1">
+              {boardReadyContracts.map((contract) => (
+                <label key={contract.id} className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 hover:border-violet-400/50">
+                  <input
+                    type="checkbox"
+                    checked={selectedBoardIds.includes(contract.id)}
+                    onChange={() => toggleBoardContract(contract.id)}
+                    className="mt-0.5 h-3.5 w-3.5 accent-violet-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-bold text-white">{contract.staffName || "Unnamed"}</span>
+                    <span className="block truncate text-[10px] text-slate-500">{contract.schoolYear || "No year"}</span>
+                  </span>
+                </label>
+              ))}
+              {!boardReadyContracts.length && (
+                <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-2 text-[11px] text-slate-500">
+                  No contracts are waiting for board signature.
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={busy || !selectedBoardIds.length}
+              onClick={bulkSendToBoard}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-violet-500/50 bg-violet-500/20 px-2 py-1.5 text-xs font-black text-violet-50 hover:bg-violet-500/30 disabled:opacity-50"
+            >
+              <Send size={14} /> Send Selected
+            </button>
+          </div>
+        </details>
         <div className="mt-2 max-h-[74vh] space-y-1 overflow-auto pr-1">
           {filtered.map((contract) => (
             <button key={contract.id} type="button" onClick={() => selectContract(contract)} className={`w-full rounded-md border px-2 py-1.5 text-left transition ${selectedId === contract.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:bg-slate-800"}`}>
