@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileSignature, FileText, History, Info, Mail, RefreshCw, Save, Search, ShieldCheck, Utensils, Users } from "lucide-react";
+import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileSignature, FileText, History, Info, Mail, Plus, RefreshCw, Save, Search, ShieldCheck, Utensils, Users, X } from "lucide-react";
 import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchOffCampusLunchPermissions, fetchParentBackgroundChecks, fetchStudentDriverRegistrations, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewOffCampusLunchPermission, reviewStudentDriverRegistration, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
 import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
@@ -282,6 +282,18 @@ function backgroundCheckLabel(record) {
   return record.status || "No Application";
 }
 
+function backgroundSheetStatus(record) {
+  if (!record || record.status === "No Application") return "Due";
+  if (isExpiredBackgroundCheck(record)) return "Due";
+  if (record.status === "Approved") return "Clear";
+  if (record.status === "Denied" || record.status === "Revoked") return "Did NOT get cleared";
+  return record.status || "Due";
+}
+
+function isSyntheticBackgroundEmail(value) {
+  return String(value || "").toLowerCase().endsWith("@wvcs.local");
+}
+
 function driverTone(status) {
   const value = String(status || "").toLowerCase();
   if (value === "verified") return "emerald";
@@ -327,6 +339,9 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const [backgroundDrafts, setBackgroundDrafts] = useState({});
   const [backgroundSavingKey, setBackgroundSavingKey] = useState("");
   const [backgroundEditor, setBackgroundEditor] = useState(null);
+  const [backgroundMasterOpen, setBackgroundMasterOpen] = useState(false);
+  const [backgroundMasterSearch, setBackgroundMasterSearch] = useState("");
+  const [backgroundMasterEditor, setBackgroundMasterEditor] = useState(null);
   const [fosAdjustmentDrafts, setFosAdjustmentDrafts] = useState({});
   const [fosAdjustmentSavingKey, setFosAdjustmentSavingKey] = useState("");
   const [fosAdjustmentOpen, setFosAdjustmentOpen] = useState({});
@@ -493,6 +508,52 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
 
   const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey || family.familyKeys?.includes(selectedFamilyKey)) || filteredFamilies[0] || null;
   const selectedInviteRecipients = selectedFamily ? inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || [] : [];
+  const backgroundContactOptions = useMemo(() => familySummaries.flatMap((family) => (family.parents || [])
+    .filter((parent) => parent.email || parent.name)
+    .map((parent) => ({
+      familyKey: family.familyKey,
+      familyName: family.familyName,
+      parentName: parent.name || "Parent / Guardian",
+      parentEmail: normalizeEmail(parent.email),
+      studentNote: (family.students || []).map((student) => student.name).filter(Boolean).join(", "),
+      label: `${parent.name || "Parent / Guardian"} · ${family.familyName}${parent.email ? ` · ${parent.email}` : ""}`,
+    }))), [familySummaries]);
+  const backgroundMasterRows = useMemo(() => {
+    const rosterRows = backgroundContactOptions.map((contact) => {
+      const record = data.backgroundChecks.find((item) => normalizeEmail(item.parentEmail) === contact.parentEmail && (item.familyKey === contact.familyKey || familyNamesMatch(item.familyName, contact.familyName)));
+      return {
+        id: record?.id || `${contact.familyKey}:${contact.parentEmail || contact.parentName}`,
+        source: "roster",
+        ...contact,
+        record,
+        status: record?.status || "No Application",
+        verifiedAt: record?.verifiedAt || "",
+        expiresAt: record?.expiresAt || "",
+        officeNote: record?.officeNote || "",
+        searchText: `${contact.parentName} ${contact.parentEmail} ${contact.familyName} ${contact.studentNote} ${record?.officeNote || ""}`.toLowerCase(),
+      };
+    });
+    const standaloneRows = data.backgroundChecks
+      .filter((record) => !backgroundContactOptions.some((contact) => normalizeEmail(contact.parentEmail) === normalizeEmail(record.parentEmail) && (contact.familyKey === record.familyKey || familyNamesMatch(contact.familyName, record.familyName))))
+      .map((record) => ({
+        id: record.id,
+        source: "standalone",
+        familyKey: record.familyKey,
+        familyName: record.familyName || "Standalone Background Checks",
+        parentName: record.parentName || "Person",
+        parentEmail: isSyntheticBackgroundEmail(record.parentEmail) ? "" : record.parentEmail,
+        studentNote: record.familyName && record.familyName !== "Standalone Background Checks" ? record.familyName : "",
+        record,
+        status: record.status || "No Application",
+        verifiedAt: record.verifiedAt || "",
+        expiresAt: record.expiresAt || "",
+        officeNote: record.officeNote || "",
+        searchText: `${record.parentName} ${record.parentEmail} ${record.familyName} ${record.officeNote}`.toLowerCase(),
+      }));
+    return [...rosterRows, ...standaloneRows]
+      .filter((row) => !backgroundMasterSearch.trim() || row.searchText.includes(backgroundMasterSearch.trim().toLowerCase()))
+      .sort((a, b) => a.parentName.localeCompare(b.parentName, undefined, { sensitivity: "base" }));
+  }, [backgroundContactOptions, backgroundMasterSearch, data.backgroundChecks]);
   const timeline = selectedFamily
     ? [
         ...selectedFamily.incidentalInvoices.map((invoice) => ({
@@ -790,6 +851,73 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
   }
 
+  function openBackgroundMasterEditor(row = null) {
+    const completedAt = row?.verifiedAt || today;
+    setBackgroundMasterEditor({
+      source: row?.source || "standalone",
+      familyKey: row?.familyKey || "",
+      familyName: row?.familyName || "Standalone Background Checks",
+      parentName: row?.parentName || "",
+      parentEmail: row?.parentEmail || "",
+      verifiedAt: completedAt,
+      expiresAt: row?.expiresAt || addYears(completedAt, 2),
+      status: row?.status || "Pending",
+      officeNote: row?.officeNote || "",
+    });
+    setActionStatus("");
+  }
+
+  function selectBackgroundContact(optionKey) {
+    const contact = backgroundContactOptions.find((option) => `${option.familyKey}|${option.parentEmail}` === optionKey);
+    if (!contact) return;
+    setBackgroundMasterEditor((current) => ({
+      ...(current || {}),
+      source: "roster",
+      familyKey: contact.familyKey,
+      familyName: contact.familyName,
+      parentName: contact.parentName,
+      parentEmail: contact.parentEmail,
+    }));
+  }
+
+  async function saveBackgroundMasterRecord() {
+    if (!backgroundMasterEditor) return;
+    const name = String(backgroundMasterEditor.parentName || "").trim();
+    if (!name) {
+      setActionStatus("Enter the person's name before saving a background check.");
+      return;
+    }
+    if (!backgroundMasterEditor.expiresAt) {
+      setActionStatus("Enter an expiration date before saving a background check.");
+      return;
+    }
+    try {
+      const saveKey = `${backgroundMasterEditor.familyKey || "standalone"}:${backgroundMasterEditor.parentEmail || name}`;
+      setBackgroundSavingKey(saveKey);
+      setActionStatus(`Saving background check for ${name}...`);
+      await saveParentBackgroundCheck(
+        {
+          familyKey: backgroundMasterEditor.familyKey,
+          familyName: backgroundMasterEditor.familyName || "Standalone Background Checks",
+          parentName: name,
+          parentEmail: backgroundMasterEditor.parentEmail,
+          verifiedAt: backgroundMasterEditor.verifiedAt || today,
+          expiresAt: backgroundMasterEditor.expiresAt,
+          status: backgroundMasterEditor.status || "Pending",
+          officeNote: backgroundMasterEditor.officeNote || "",
+        },
+        currentUserEmail
+      );
+      setActionStatus(`Background check saved for ${name}.`);
+      setBackgroundMasterEditor(null);
+      await loadData();
+    } catch (error) {
+      setActionStatus(`Unable to save background check: ${error.message}`);
+    } finally {
+      setBackgroundSavingKey("");
+    }
+  }
+
   return (
     <section className="mx-auto max-w-[1500px] px-5 py-5">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
@@ -798,14 +926,100 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           <h2 className="mt-1 text-2xl font-bold text-slate-950">Family Records</h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">A unified family view for contacts, students, invoices, lunch, FOS, portal access, and recent activity.</p>
         </div>
-        <button type="button" onClick={() => loadData("Family records refreshed.")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setBackgroundMasterOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100">
+            <ShieldCheck size={16} />
+            Backgrounds
+          </button>
+          <button type="button" onClick={() => loadData("Family records refreshed.")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {data.error && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{data.error}</div>}
       {data.loading && <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">Loading family records...</div>}
+      {backgroundMasterOpen && (
+        <div className="fixed inset-0 z-50 overflow-auto bg-slate-950/45 p-3 sm:p-6">
+          <div className="mx-auto max-w-7xl rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-black text-slate-950"><ShieldCheck size={17} className="text-sky-600" />Background Check Master Sheet</div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Track clear, due, pending, denied, and revoked checks. Linked roster contacts update the family badges automatically.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => openBackgroundMasterEditor()} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700"><Plus size={16} />Add Person</button>
+                <button type="button" onClick={() => setBackgroundMasterOpen(false)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><X size={16} />Close</button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-5">
+              <div className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Total</div><div className="mt-1 text-xl font-black text-slate-950">{backgroundMasterRows.length}</div></div>
+              {["Clear", "Due", "Pending", "Did NOT get cleared"].map((label) => (
+                <div key={label} className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div><div className="mt-1 text-xl font-black text-slate-950">{backgroundMasterRows.filter((row) => backgroundSheetStatus(row.record || row) === label).length}</div></div>
+              ))}
+            </div>
+
+            <div className="grid gap-4 p-4 xl:grid-cols-[1fr_380px]">
+              <div className="min-w-0">
+                <div className="relative">
+                  <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input value={backgroundMasterSearch} onChange={(event) => setBackgroundMasterSearch(event.target.value)} placeholder="Search name, family, student, status, or notes" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" />
+                </div>
+                <div className="mt-3 max-h-[68vh] overflow-auto rounded-lg border border-slate-200">
+                  <div className="sticky top-0 grid min-w-[860px] grid-cols-[170px_210px_1fr_110px_110px_130px_90px] gap-2 border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">
+                    <div>Name</div><div>Family / Role</div><div>Notes / Students</div><div>Completed</div><div>Expires</div><div>Status</div><div></div>
+                  </div>
+                  {backgroundMasterRows.map((row) => {
+                    const statusLabel = backgroundSheetStatus(row.record || row);
+                    const tone = statusLabel === "Clear" ? "emerald" : statusLabel === "Pending" ? "amber" : "rose";
+                    return (
+                      <div key={row.id} className="grid min-w-[860px] grid-cols-[170px_210px_1fr_110px_110px_130px_90px] gap-2 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0">
+                        <div className="font-bold text-slate-950">{row.parentName}</div>
+                        <div className="min-w-0"><div className="truncate font-semibold text-slate-700">{row.source === "standalone" ? "Standalone" : row.familyName}</div>{row.parentEmail && <div className="truncate text-[11px] text-slate-500">{row.parentEmail}</div>}</div>
+                        <div className="truncate text-slate-600">{row.officeNote || row.studentNote || "No notes"}</div>
+                        <div className="text-slate-600">{row.verifiedAt ? formatShortDate(row.verifiedAt) : "Not set"}</div>
+                        <div className={isExpiredBackgroundCheck(row.record || row) ? "font-bold text-rose-700" : "text-slate-600"}>{row.expiresAt ? formatShortDate(row.expiresAt) : "Not set"}</div>
+                        <div><StatusPill tone={tone}>{statusLabel}</StatusPill></div>
+                        <button type="button" onClick={() => openBackgroundMasterEditor(row)} className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-black text-slate-700 hover:bg-slate-50">Edit</button>
+                      </div>
+                    );
+                  })}
+                  {!backgroundMasterRows.length && <div className="p-4 text-sm text-slate-500">No background check records match this search.</div>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-black text-slate-950">{backgroundMasterEditor ? "Add or Edit Background Check" : "Quick Notes"}</div>
+                {!backgroundMasterEditor && <div className="mt-2 text-xs leading-5 text-slate-600">Use <span className="font-bold">Add Person</span> for coaches, subs, staff, or volunteers who are not tied to a roster family. Use <span className="font-bold">Edit</span> beside a roster parent to update the green badge in Family Records.</div>}
+                {backgroundMasterEditor && (
+                  <div className="mt-3 grid gap-3">
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Attach to roster contact
+                      <select value={backgroundMasterEditor.source === "roster" ? `${backgroundMasterEditor.familyKey}|${backgroundMasterEditor.parentEmail}` : ""} onChange={(event) => selectBackgroundContact(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500">
+                        <option value="">Standalone / not on family roster</option>
+                        {backgroundContactOptions.map((option) => <option key={`${option.familyKey}|${option.parentEmail}`} value={`${option.familyKey}|${option.parentEmail}`}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Person name<input value={backgroundMasterEditor.parentName} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentName: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Email optional<input type="email" value={backgroundMasterEditor.parentEmail} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentEmail: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} placeholder="Optional for standalone records" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Filled out<input type="date" value={backgroundMasterEditor.verifiedAt} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, verifiedAt: event.target.value, expiresAt: addYears(event.target.value, 2) }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Expires<input type="date" value={backgroundMasterEditor.expiresAt} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, expiresAt: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
+                    </div>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Status<select value={backgroundMasterEditor.status} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, status: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"><option>No Application</option><option>Approved</option><option>Pending</option><option>Denied</option><option>Revoked</option></select></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Notes<textarea value={backgroundMasterEditor.officeNote} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, officeNote: event.target.value }))} rows={4} placeholder="Students, role, old yearly checks, or office notes" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={saveBackgroundMasterRecord} disabled={Boolean(backgroundSavingKey)} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"><Save size={15} />{backgroundSavingKey ? "Saving..." : "Save Background"}</button>
+                      <button type="button" onClick={() => setBackgroundMasterEditor(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[330px_1fr]">
         <aside className="rounded-lg border border-slate-200 bg-white p-3">

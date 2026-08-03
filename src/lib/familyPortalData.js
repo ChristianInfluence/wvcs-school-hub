@@ -319,15 +319,18 @@ export async function fetchParentBackgroundChecks() {
 
 export async function saveParentBackgroundCheck(record, currentUserEmail = "") {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
-  const parentEmail = String(record.parentEmail || "").trim().toLowerCase();
-  if (!record.familyKey || !parentEmail) throw new Error("Choose a parent with an email before saving the background check.");
+  const parentName = String(record.parentName || "").trim();
+  const providedEmail = String(record.parentEmail || "").trim().toLowerCase();
+  if (!parentName && !providedEmail) throw new Error("Enter a name before saving the background check.");
+  const parentEmail = providedEmail || `background-${parentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "person"}@wvcs.local`;
+  const familyKey = record.familyKey || `standalone-background:${parentEmail}`;
   const { data, error } = await supabase
     .from("parent_background_checks")
     .upsert(
       {
-        family_key: record.familyKey,
-        family_name: record.familyName || "",
-        parent_name: record.parentName || "",
+        family_key: familyKey,
+        family_name: record.familyName || "Standalone Background Checks",
+        parent_name: parentName,
         parent_email: parentEmail,
         verified_at: record.verifiedAt || new Date().toISOString().slice(0, 10),
         expires_at: record.expiresAt,
