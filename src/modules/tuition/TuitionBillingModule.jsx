@@ -151,6 +151,10 @@ function createManualReceivableDraft() {
   };
 }
 
+function isStandaloneReceivable(invoice = {}) {
+  return Boolean(invoice.isStandaloneReceivable || invoice.metadata?.standaloneReceivable) || !invoice.familyKey;
+}
+
 function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -2061,12 +2065,13 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
 
   async function saveManualReceivableEntry() {
     const selectedFamily = familyDirectory.find((family) => family.familyKey === manualReceivableDraft.familyKey) || null;
-    const familyName = manualReceivableDraft.familyName || selectedFamily?.familyName || manualReceivableDraft.familySearch;
+    const familyName = String(manualReceivableDraft.familyName || selectedFamily?.familyName || manualReceivableDraft.familySearch || "").trim();
+    const isStandalone = !selectedFamily && !manualReceivableDraft.familyKey;
     const amount = money(manualReceivableDraft.amount);
     const description = manualReceivableDraft.category === "Other" ? manualReceivableDraft.description.trim() : manualReceivableDraft.category;
     if (!String(familyName || "").trim()) {
-      setStatus("Choose or enter a family before saving the manual entry.");
-      setActionState("manualReceivable", "error", "Needs Family");
+      setStatus("Choose a family or type a standalone payer name before saving the manual entry.");
+      setActionState("manualReceivable", "error", "Needs Name");
       return;
     }
     if (amount <= 0) {
@@ -2132,6 +2137,12 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         paymentMethod: manualReceivableDraft.markPaid ? manualReceivableDraft.paymentMethod : "",
         checkNumber: manualReceivableDraft.markPaid && manualReceivableDraft.paymentMethod === "check" ? manualReceivableDraft.checkNumber : "",
         note: manualReceivableDraft.note || "Manual accounts receivable entry.",
+        isStandaloneReceivable: isStandalone,
+        metadata: {
+          ...(defaultIncidentalInvoice.metadata || {}),
+          standaloneReceivable: isStandalone,
+          entryType: isStandalone ? "standalone_manual_ar" : "family_manual_ar",
+        },
         charges: [{
           id: uid("charge"),
           category: manualReceivableDraft.category,
@@ -2141,10 +2152,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       };
       const saved = await saveCurrentIncidentalInvoiceFor(invoice, { status: "Manual Entry" });
       const savedInvoice = getRecordInvoice(saved);
-      const lunchSynced = getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0;
+      const lunchSynced = !isStandaloneReceivable(savedInvoice) && getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0;
       setManualReceivableDraft(createManualReceivableDraft());
       setManualReceivableOpen(false);
-      setStatus(`Manual entry saved for ${savedInvoice.familyName || "family"}.${lunchSynced ? " Lunch account synced." : ""}`);
+      setStatus(`Manual ${isStandaloneReceivable(savedInvoice) ? "standalone " : ""}entry saved for ${savedInvoice.familyName || "payer"}.${lunchSynced ? " Lunch account synced." : ""}`);
       setActionState("manualReceivable", "done", "Saved");
     } catch (error) {
       setStatus(`Unable to save manual entry: ${error.message}`);
@@ -2400,7 +2411,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const result = await saveIncidentalInvoice(record, currentUserEmail);
     const savedInvoice = getRecordInvoice(result.invoice);
     let lunchSync = { credited: false };
-    if (getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0) {
+    if (!isStandaloneReceivable(savedInvoice) && getIncidentalPaymentStatus(savedInvoice) === "Paid" && lunchPaymentTotal(savedInvoice) > 0) {
       lunchSync = await syncPaidIncidentalLunchCredit(savedInvoice);
     }
     setIncidentalInvoice(savedInvoice);
@@ -3882,7 +3893,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-sm font-bold text-white">Manual AR Entry</div>
-                      <div className="text-xs text-slate-500">Record a quick charge or office payment without opening the full invoice composer.</div>
+                      <div className="text-xs text-slate-500">Record a quick charge or office payment with or without a family roster connection.</div>
                     </div>
                     <button
                       type="button"
@@ -3897,7 +3908,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   </div>
                   <div className="mt-3 grid gap-3 xl:grid-cols-[1.15fr_.8fr_.8fr_.7fr]">
                     <label className="grid gap-1 text-xs font-semibold text-slate-300">
-                      Family
+                      Family or Payer
                       <div className="relative">
                         <Search size={15} className="pointer-events-none absolute left-3 top-2 text-slate-500" />
                         <Input
@@ -3908,9 +3919,23 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             familyKey: "",
                             familyName: event.target.value,
                           }))}
-                          placeholder="Search family, parent, or student"
-                          className="py-1.5 pl-8 text-xs"
+                          placeholder="Search family or type standalone payer"
+                          className="py-1.5 pl-8 pr-14 text-xs"
                         />
+                        {manualReceivableDraft.familySearch && (
+                          <button
+                            type="button"
+                            onClick={() => setManualReceivableDraft((current) => ({
+                              ...current,
+                              familySearch: "",
+                              familyKey: "",
+                              familyName: "",
+                            }))}
+                            className="absolute right-2 top-1.5 rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 hover:bg-slate-800"
+                          >
+                            Clear
+                          </button>
+                        )}
                         {manualReceivableDraft.familySearch && manualFamilyResults.length > 0 && !manualReceivableDraft.familyKey && (
                           <div className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-xl">
                             {manualFamilyResults.map((family) => (
@@ -3929,6 +3954,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           </div>
                         )}
                       </div>
+                      <span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${manualReceivableDraft.familyKey ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-amber-500/30 bg-amber-500/10 text-amber-100"}`}>
+                        {manualReceivableDraft.familyKey ? `Attached to ${manualReceivableDraft.familyName}` : "Standalone entry - not tied to family portal"}
+                      </span>
                     </label>
                     <label className="grid gap-1 text-xs font-semibold text-slate-300">
                       Category
@@ -3998,6 +4026,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       {actionLabel("manualReceivable", "Save Manual Entry")}
                     </button>
                   </div>
+                  {!manualReceivableDraft.familyKey && manualReceivableDraft.category === "Lunch Payment" && (
+                    <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                      Standalone lunch payments are recorded in accounts receivable only. Attach a roster family if this should credit a family lunch account.
+                    </div>
+                  )}
                   {manualReceivableDraft.markPaid && (
                     <div className="mt-3 grid gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 md:grid-cols-4">
                       <label className="grid gap-1 text-xs font-semibold text-emerald-100">
@@ -4061,7 +4094,13 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       <div key={record.id} className="grid grid-cols-[minmax(170px,1.25fr)_minmax(125px,.85fr)_76px_76px_86px_84px_112px] gap-1.5 border-b border-slate-800 px-2 py-1.5 text-[11px] last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
-                          <div className="mt-0.5 truncate text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "No roster students attached"}</div>
+                          {isStandaloneReceivable(recordInvoice) ? (
+                            <div className="mt-0.5 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-100">
+                              Standalone AR
+                            </div>
+                          ) : (
+                            <div className="mt-0.5 truncate text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "Family roster attached"}</div>
+                          )}
                           {recordInvoice.paidAt && <div className="mt-0.5 text-emerald-300">Paid {formatShortDate(recordInvoice.paidAt)}</div>}
                         </div>
                         <div className="text-slate-300">
