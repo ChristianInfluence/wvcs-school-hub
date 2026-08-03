@@ -68,6 +68,45 @@ function monthName(value) {
   return monthStart(value).toLocaleDateString([], { month: "long", year: "numeric" });
 }
 
+function normalizeFamilyName(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function firstName(value = "") {
+  return String(value || "").trim().split(/\s+/)[0] || "";
+}
+
+function familyDisambiguator(family = {}) {
+  const studentNames = (family.students || [])
+    .map((student) => firstName(student.name))
+    .filter(Boolean);
+  if (studentNames.length) return studentNames.slice(0, 3).join(", ");
+  const parentNames = (family.parents || [])
+    .map((parent) => firstName(parent.name))
+    .filter(Boolean);
+  if (parentNames.length) return parentNames.slice(0, 2).join(" / ");
+  return family.familyKey ? family.familyKey.slice(0, 6) : "";
+}
+
+function duplicateFamilyNameSet(families = []) {
+  const counts = new Map();
+  families.forEach((family) => {
+    const key = normalizeFamilyName(family.familyName);
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function shouldDisambiguateFamily(family = {}, duplicates = new Set()) {
+  return duplicates.has(normalizeFamilyName(family.familyName));
+}
+
+function familyOptionLabel(family = {}, duplicates = new Set()) {
+  const hint = shouldDisambiguateFamily(family, duplicates) ? familyDisambiguator(family) : "";
+  return hint ? `${family.familyName} - ${hint}` : family.familyName;
+}
+
 function buildSchoolMonthDays(value) {
   const start = monthStart(value);
   const days = [];
@@ -173,6 +212,8 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
 
   const selectedFamily = data.families.find((family) => family.familyKey === selectedFamilyKey) || null;
   const selectedStudent = selectedFamily?.students.find((student) => student.studentId === selectedStudentId) || null;
+  const duplicateFamilyNames = useMemo(() => duplicateFamilyNameSet(data.families), [data.families]);
+  const familyByKey = useMemo(() => new Map(data.families.map((family) => [family.familyKey, family])), [data.families]);
   const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.familyKey, account])), [data.accounts]);
   const menuItemsForDate = data.menus
     .filter((menu) => menu.status !== "Closed")
@@ -390,7 +431,7 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
               <Field label="Family">
                 <Select value={selectedFamilyKey} onChange={(event) => { setSelectedFamilyKey(event.target.value); setSelectedStudentId(""); }}>
                   <option value="">Select family</option>
-                  {filteredFamilies.slice(0, 80).map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}
+                  {filteredFamilies.slice(0, 80).map((family) => <option key={family.familyKey} value={family.familyKey}>{familyOptionLabel(family, duplicateFamilyNames)}</option>)}
                 </Select>
               </Field>
               <Field label="Student">
@@ -428,7 +469,13 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
                 <div key={order.id} className="grid gap-2 border-b border-slate-200 px-3 py-3 text-sm last:border-b-0 lg:grid-cols-[1fr_1fr_95px_320px] lg:items-center">
                   <div>
                     <div className="font-bold text-slate-950">{order.studentName}</div>
-                    <div className="text-xs text-slate-500">{order.familyName} {order.studentGrade ? `| Grade ${order.studentGrade}` : ""}</div>
+                    <div className="text-xs text-slate-500">
+                      {order.familyName}
+                      {shouldDisambiguateFamily(familyByKey.get(order.familyKey), duplicateFamilyNames) && (
+                        <span className="text-slate-400"> - {familyDisambiguator(familyByKey.get(order.familyKey))}</span>
+                      )}
+                      {order.studentGrade ? ` | Grade ${order.studentGrade}` : ""}
+                    </div>
                   </div>
                   <div>
                     <div className="font-semibold text-slate-800">{order.itemName}</div>
@@ -549,7 +596,7 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="text-sm font-bold text-slate-950">Record Lunch Payment</div>
               <div className="mt-4 grid gap-3">
-                <Field label="Family"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}</Select></Field>
+                <Field label="Family"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{familyOptionLabel(family, duplicateFamilyNames)}</option>)}</Select></Field>
                 <Field label="Amount"><Input inputMode="decimal" value={deposit.amount} onChange={(event) => setDeposit({ ...deposit, amount: event.target.value })} placeholder="25.00" /></Field>
                 <Field label="Method"><Select value={deposit.method} onChange={(event) => setDeposit({ ...deposit, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option><option value="adjustment">Adjustment</option></Select></Field>
                 {deposit.method === "check" && <Field label="Check number"><Input value={deposit.checkNumber} onChange={(event) => setDeposit({ ...deposit, checkNumber: event.target.value })} /></Field>}
@@ -569,7 +616,7 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
                 Enter a positive amount for credit. Enter a negative amount for money owed from last year.
               </div>
               <div className="mt-4 grid gap-3">
-                <Field label="Family"><Select value={carryover.familyKey} onChange={(event) => setCarryover({ ...carryover, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{family.familyName}</option>)}</Select></Field>
+                <Field label="Family"><Select value={carryover.familyKey} onChange={(event) => setCarryover({ ...carryover, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{familyOptionLabel(family, duplicateFamilyNames)}</option>)}</Select></Field>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                   <Field label="Carryover amount"><Input inputMode="decimal" value={carryover.amount} onChange={(event) => setCarryover({ ...carryover, amount: event.target.value })} placeholder="-18.75 or 32.50" /></Field>
                   <Field label="From school year"><Input value={carryover.schoolYear} onChange={(event) => setCarryover({ ...carryover, schoolYear: event.target.value })} placeholder="2025-2026" /></Field>
@@ -587,7 +634,12 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
               {accountFamilies.map((family) => (
                 <div key={family.familyKey} className="grid gap-2 border-b border-slate-200 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1fr_130px]">
                   <div>
-                    <div className="font-bold text-slate-950">{family.familyName}</div>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-bold text-slate-950">{family.familyName}</span>
+                      {shouldDisambiguateFamily(family, duplicateFamilyNames) && (
+                        <span className="text-xs font-semibold text-slate-400">{familyDisambiguator(family)}</span>
+                      )}
+                    </div>
                     <div className="text-xs text-slate-500">{family.students.map((student) => `${student.name}${student.grade ? ` (${student.grade})` : ""}`).join(", ")}</div>
                   </div>
                   <div className={`font-bold ${Number(family.account.balance || 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{money(family.account.balance || 0)}</div>
