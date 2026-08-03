@@ -90,6 +90,72 @@ function emailsMatchAny(value, emails = []) {
   return Boolean(normalized && emails.includes(normalized));
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function uniqueBy(items, keyFn) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function familyContactEmails(family) {
+  return uniqueBy((family.parents || []).map((parent) => normalizeEmail(parent.email)).filter(Boolean), (email) => email);
+}
+
+function familyMergeKey(family) {
+  const emails = familyContactEmails(family).sort();
+  if (emails.length) return `emails:${emails.join("|")}`;
+  return `name:${normalizeFamilyName(family.familyName) || normalizeFamilyName(family.students?.[0]?.name) || family.familyKey}`;
+}
+
+function mergeDirectoryFamilies(families = []) {
+  const groups = new Map();
+
+  families.forEach((family) => {
+    const mergeKey = familyMergeKey(family);
+    const existing = groups.get(mergeKey);
+    if (!existing) {
+      groups.set(mergeKey, {
+        ...family,
+        familyKeys: uniqueBy([family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key),
+        parents: uniqueBy(family.parents || [], (parent) => `${normalizeEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`),
+        students: uniqueBy(family.students || [], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`),
+      });
+      return;
+    }
+
+    existing.familyKeys = uniqueBy([...(existing.familyKeys || []), family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key);
+    existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`);
+    existing.students = uniqueBy([...(existing.students || []), ...(family.students || [])], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`);
+    if ((family.students || []).length > (existing.students || []).length) {
+      existing.familyName = family.familyName || existing.familyName;
+    }
+  });
+
+  return [...groups.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+}
+
+function matchesFamilyRecord(record, family) {
+  const familyKeys = new Set([family.familyKey, ...(family.familyKeys || [])].filter(Boolean));
+  return familyKeys.has(record?.familyKey) || familyNamesMatch(record?.familyName || record?.invoice?.familyName, family.familyName);
+}
+
+function mergeAccessRecords(records = []) {
+  if (!records.length) return null;
+  const sorted = [...records].sort((a, b) => new Date(b.lastParentLoginAt || 0) - new Date(a.lastParentLoginAt || 0));
+  const primary = sorted[0];
+  return {
+    ...primary,
+    contactEmails: uniqueBy(records.flatMap((record) => record.contactEmails || []), (email) => normalizeEmail(email)),
+  };
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -332,29 +398,32 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
 
   const familySummaries = useMemo(() => {
     const accounts = new Map((data.lunch?.accounts || []).map((account) => [account.familyKey, account]));
-    const accessMap = new Map(data.access.map((record) => [record.familyKey, record]));
     const eventMap = new Map(data.permissionEvents.map((event) => [event.id, event]));
-    return data.families.map((family) => {
+    return mergeDirectoryFamilies(data.families).map((family) => {
+      const familyKeys = new Set([family.familyKey, ...(family.familyKeys || [])].filter(Boolean));
       const parentEmails = family.parents.map((parent) => String(parent.email || "").trim().toLowerCase()).filter(Boolean);
       const studentIds = new Set(family.students.map((student) => student.studentId).filter(Boolean));
-      const incidentalInvoices = data.incidentals.filter((invoice) => invoice.familyKey === family.familyKey || familyNamesMatch(invoice.familyName, family.familyName));
-      const tuitionInvoices = data.tuition.filter((invoice) => invoice.familyKey === family.familyKey || invoice.invoice?.familyKey === family.familyKey || familyNamesMatch(invoice.familyName || invoice.invoice?.familyName, family.familyName));
-      const lunchOrders = (data.lunch?.orders || []).filter((order) => order.familyKey === family.familyKey);
-      const lunchAccount = accounts.get(family.familyKey) || { balance: 0 };
-      const fosEntries = data.fosEntries.filter((entry) => entry.familyKey === family.familyKey);
-      const access = accessMap.get(family.familyKey);
+      const incidentalInvoices = data.incidentals.filter((invoice) => matchesFamilyRecord(invoice, family));
+      const tuitionInvoices = data.tuition.filter((invoice) => matchesFamilyRecord(invoice, family) || familyKeys.has(invoice.invoice?.familyKey));
+      const lunchOrders = (data.lunch?.orders || []).filter((order) => matchesFamilyRecord(order, family));
+      const matchedLunchAccounts = [...familyKeys].map((key) => accounts.get(key)).filter(Boolean);
+      const lunchAccount = matchedLunchAccounts.length
+        ? { ...matchedLunchAccounts[0], balance: matchedLunchAccounts.reduce((sum, account) => sum + Number(account.balance || 0), 0) }
+        : { balance: 0 };
+      const fosEntries = data.fosEntries.filter((entry) => matchesFamilyRecord(entry, family));
+      const access = mergeAccessRecords(data.access.filter((record) => matchesFamilyRecord(record, family)));
       const fos = calculateFosBalance(fosEntries, access || {});
       const unpaidIncidentals = incidentalInvoices.filter((invoice) => !String(invoice.paymentStatus || "").toLowerCase().includes("paid"));
       const pendingFos = fosEntries.filter((entry) => entry.status === "Pending");
-      const driverApplications = data.driverApplications.filter((application) => application.familyKey === family.familyKey || familyNamesMatch(application.familyName, family.familyName));
+      const driverApplications = data.driverApplications.filter((application) => matchesFamilyRecord(application, family));
       const verifiedDrivers = driverApplications.filter(isVerifiedDriver);
       const pendingDrivers = driverApplications.filter((application) => application.status === "Pending");
-      const studentDriverRegistrations = data.studentDriverRegistrations.filter((registration) => registration.familyKey === family.familyKey || familyNamesMatch(registration.familyName, family.familyName));
+      const studentDriverRegistrations = data.studentDriverRegistrations.filter((registration) => matchesFamilyRecord(registration, family));
       const approvedStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Approved" && (!registration.expiresAt || registration.expiresAt.slice(0, 10) >= today));
       const pendingStudentDrivers = studentDriverRegistrations.filter((registration) => registration.status === "Pending" || registration.status === "Needs Correction");
-      const offCampusLunchPermissions = data.offCampusLunchPermissions.filter((permission) => permission.familyKey === family.familyKey || familyNamesMatch(permission.familyName, family.familyName));
+      const offCampusLunchPermissions = data.offCampusLunchPermissions.filter((permission) => matchesFamilyRecord(permission, family));
       const pendingOffCampusLunchPermissions = offCampusLunchPermissions.filter((permission) => permission.status === "Pending" || permission.status === "Needs Correction");
-      const backgroundChecks = data.backgroundChecks.filter((record) => record.familyKey === family.familyKey || familyNamesMatch(record.familyName, family.familyName));
+      const backgroundChecks = data.backgroundChecks.filter((record) => matchesFamilyRecord(record, family));
       const currentBackgroundChecks = backgroundChecks.filter(isCurrentBackgroundCheck);
       const permissionRecipients = data.permissionRecipients.filter((recipient) => studentIds.has(recipient.studentId) || emailsMatchAny(recipient.parentEmail, parentEmails));
       const permissionSubmissions = data.permissionSubmissions.filter((submission) => studentIds.has(submission.studentId) || emailsMatchAny(submission.parentEmail, parentEmails));
@@ -422,7 +491,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     })
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
-  const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey) || filteredFamilies[0] || null;
+  const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey || family.familyKeys?.includes(selectedFamilyKey)) || filteredFamilies[0] || null;
   const selectedInviteRecipients = selectedFamily ? inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || [] : [];
   const timeline = selectedFamily
     ? [
@@ -454,7 +523,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           detail: `${entry.approvedHours || entry.submittedHours} hour(s)`,
           at: entry.reviewedAt || entry.submittedAt,
         })),
-        ...data.audit.filter((event) => event.familyKey === selectedFamily.familyKey).map((event) => ({
+        ...data.audit.filter((event) => selectedFamily.familyKeys?.includes(event.familyKey) || event.familyKey === selectedFamily.familyKey).map((event) => ({
           id: `audit-${event.id}`,
           type: "Activity",
           title: event.eventType.replaceAll("_", " "),
@@ -1617,7 +1686,7 @@ function ParentAccessAuditPanel() {
       setState({
         loading: false,
         access: accessResult.access || [],
-        families: directoryResult.families || [],
+        families: mergeDirectoryFamilies(directoryResult.families || []),
         error: accessResult.reason || directoryResult.reason || "",
       });
     } catch (error) {
@@ -1629,7 +1698,13 @@ function ParentAccessAuditPanel() {
     loadAudit();
   }, []);
 
-  const familyMap = useMemo(() => new Map(state.families.map((family) => [family.familyKey, family])), [state.families]);
+  const familyMap = useMemo(() => {
+    const map = new Map();
+    state.families.forEach((family) => {
+      [family.familyKey, ...(family.familyKeys || [])].filter(Boolean).forEach((key) => map.set(key, family));
+    });
+    return map;
+  }, [state.families]);
   const rows = state.access
     .map((record) => {
       const family = familyMap.get(record.familyKey);
@@ -1644,7 +1719,7 @@ function ParentAccessAuditPanel() {
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
   const loggedInCount = state.access.filter((record) => record.lastParentLoginAt).length;
-  const missingPortalRecordCount = Math.max(state.families.length - state.access.length, 0);
+  const missingPortalRecordCount = state.families.filter((family) => !state.access.some((record) => matchesFamilyRecord(record, family))).length;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -1842,7 +1917,7 @@ function SecurityReviewPanel() {
       ]);
       setState({
         loading: false,
-        families: directoryResult.families || [],
+        families: mergeDirectoryFamilies(directoryResult.families || []),
         access: accessResult.access || [],
         emailEntries: auditResult.entries || [],
         officeEmail: emailResult.settings || DEFAULT_OFFICE_EMAIL_SETTINGS,
@@ -1857,8 +1932,7 @@ function SecurityReviewPanel() {
     loadSecurityReview();
   }, []);
 
-  const accessByFamily = useMemo(() => new Map(state.access.map((record) => [record.familyKey, record])), [state.access]);
-  const missingPortalFamilies = state.families.filter((family) => !accessByFamily.has(family.familyKey));
+  const missingPortalFamilies = state.families.filter((family) => !state.access.some((record) => matchesFamilyRecord(record, family)));
   const noLoginFamilies = state.access.filter((record) => !record.lastParentLoginAt);
   const emptyPortalEmailFamilies = state.access.filter((record) => !(record.contactEmails || []).length);
   const emailIssues = state.emailEntries.filter((entry) => {
