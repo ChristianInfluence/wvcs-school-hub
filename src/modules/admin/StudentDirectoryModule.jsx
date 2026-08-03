@@ -22,6 +22,39 @@ const emptyStudent = {
   email2: "",
 };
 
+function defaultFamilyName(student = {}) {
+  return student.studentLastName ? `${student.studentLastName} Family` : "";
+}
+
+function defaultFamilyKey(student = {}) {
+  return [student.email1, student.email2, student.studentLastName].filter(Boolean).join("|").replace(/\s+/g, "").toLowerCase();
+}
+
+function familyOptionsFromStudents(students = []) {
+  const families = new Map();
+  students.forEach((student) => {
+    const familyKey = defaultFamilyKey(student);
+    const familyName = defaultFamilyName(student);
+    if (!familyKey || !familyName) return;
+    const family = families.get(familyKey) || {
+      familyKey,
+      familyName,
+      students: [],
+      parent1FirstName: student.parent1FirstName || "",
+      parent1LastName: student.parent1LastName || "",
+      email1: student.email1 || "",
+      phone1: student.phone1 || "",
+      parent2FirstName: student.parent2FirstName || "",
+      parent2LastName: student.parent2LastName || "",
+      email2: student.email2 || "",
+      phone2: student.phone2 || "",
+    };
+    family.students.push(`${student.studentFirstName} ${student.studentLastName}`.trim());
+    families.set(familyKey, family);
+  });
+  return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+}
+
 function parentDisplay(firstName, lastName) {
   return [firstName, lastName].filter(Boolean).join(" ");
 }
@@ -48,7 +81,7 @@ function ContactBlock({ label, firstName, lastName, email, phone }) {
   );
 }
 
-function StudentFormDialog({ mode, student, onClose, onSave }) {
+function StudentFormDialog({ mode, student, familyOptions = [], onClose, onSave }) {
   const [draft, setDraft] = useState(() => ({ ...emptyStudent, ...(student || {}) }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -69,6 +102,22 @@ function StudentFormDialog({ mode, student, onClose, onSave }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function attachFamily(familyKey) {
+    const family = familyOptions.find((item) => item.familyKey === familyKey);
+    if (!family) return;
+    setDraft((current) => ({
+      ...current,
+      parent1FirstName: family.parent1FirstName,
+      parent1LastName: family.parent1LastName,
+      email1: family.email1,
+      phone1: family.phone1,
+      parent2FirstName: family.parent2FirstName,
+      parent2LastName: family.parent2LastName,
+      email2: family.email2,
+      phone2: family.phone2,
+    }));
   }
 
   const fields = [
@@ -98,6 +147,24 @@ function StudentFormDialog({ mode, student, onClose, onSave }) {
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="space-y-1 text-sm font-semibold text-slate-200 md:col-span-2">
+            Attach to Existing Family
+            <select
+              value=""
+              onChange={(event) => attachFamily(event.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+            >
+              <option value="">Choose a family to copy parent contacts</option>
+              {familyOptions.map((family) => (
+                <option key={family.familyKey} value={family.familyKey}>
+                  {family.familyName}{family.students.length ? ` - ${family.students.slice(0, 3).join(", ")}` : ""}
+                </option>
+              ))}
+            </select>
+            <span className="block text-xs font-medium text-slate-500">
+              This reconnects a student by copying the same parent names, emails, and phone numbers used by that family.
+            </span>
+          </label>
           <label className="space-y-1 text-sm font-semibold text-slate-200">
             Grade
             <select
@@ -199,6 +266,7 @@ function RemoveDialog({ student, onClose, onRemove }) {
 
 export default function StudentDirectoryModule() {
   const [students, setStudents] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [query, setQuery] = useState("");
   const [grade, setGrade] = useState("all");
   const [status, setStatus] = useState("Loading student roster...");
@@ -209,7 +277,9 @@ export default function StudentDirectoryModule() {
     setLoading(true);
     try {
       const roster = await getStudents({ grade, q: query });
+      const fullRoster = await getStudents({ grade: "all", q: "" });
       setStudents(roster);
+      setAllStudents(fullRoster);
       setStatus(`${roster.length} student${roster.length === 1 ? "" : "s"} loaded from Supabase.`);
     } catch (error) {
       setStatus(error.message || "Unable to load students.");
@@ -228,6 +298,8 @@ export default function StudentDirectoryModule() {
     students.forEach((student) => counts.set(student.grade, (counts.get(student.grade) || 0) + 1));
     return STUDENT_GRADES.filter((item) => counts.has(item)).map((item) => `${item}: ${counts.get(item)}`).join("  ");
   }, [students]);
+
+  const familyOptions = useMemo(() => familyOptionsFromStudents(allStudents), [allStudents]);
 
   async function saveStudent(draft) {
     if (dialog?.mode === "edit") {
@@ -323,6 +395,7 @@ export default function StudentDirectoryModule() {
                 <div className="text-base font-bold text-white">
                   {student.studentFirstName} {student.studentLastName}
                 </div>
+                <div className="mt-1 text-xs font-semibold text-slate-500">{defaultFamilyName(student)}</div>
               </div>
               <div>
                 <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1 text-xs font-bold text-sky-100">
@@ -372,7 +445,7 @@ export default function StudentDirectoryModule() {
       </div>
 
       {(dialog?.mode === "add" || dialog?.mode === "edit") && (
-        <StudentFormDialog mode={dialog.mode} student={dialog.student} onClose={() => setDialog(null)} onSave={saveStudent} />
+        <StudentFormDialog mode={dialog.mode} student={dialog.student} familyOptions={familyOptions} onClose={() => setDialog(null)} onSave={saveStudent} />
       )}
       {dialog?.mode === "remove" && (
         <RemoveDialog student={dialog.student} onClose={() => setDialog(null)} onRemove={archiveStudent} />
