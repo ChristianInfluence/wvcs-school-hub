@@ -50,6 +50,7 @@ function familyOptionsFromStudents(students = []) {
       phone2: student.phone2 || "",
     };
     family.students.push(`${student.studentFirstName} ${student.studentLastName}`.trim());
+    family.studentRecords = [...(family.studentRecords || []), student];
     families.set(familyKey, family);
   });
   return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
@@ -264,6 +265,84 @@ function RemoveDialog({ student, onClose, onRemove }) {
   );
 }
 
+function FamilyContactDialog({ family, onClose, onSave }) {
+  const [draft, setDraft] = useState(() => ({
+    parent1FirstName: family.parent1FirstName || "",
+    parent1LastName: family.parent1LastName || "",
+    email1: family.email1 || "",
+    phone1: family.phone1 || "",
+    parent2FirstName: family.parent2FirstName || "",
+    parent2LastName: family.parent2LastName || "",
+    email2: family.email2 || "",
+    phone2: family.phone2 || "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(family, draft);
+      onClose();
+    } catch (saveError) {
+      setError(saveError.message || "Unable to save family contacts.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fields = [
+    ["parent1FirstName", "Parent 1 First Name"],
+    ["parent1LastName", "Parent 1 Last Name"],
+    ["email1", "Parent 1 Email"],
+    ["phone1", "Parent 1 Phone"],
+    ["parent2FirstName", "Parent 2 First Name"],
+    ["parent2LastName", "Parent 2 Last Name"],
+    ["email2", "Parent 2 Email"],
+    ["phone2", "Parent 2 Phone"],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-2xl rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <div className="text-lg font-bold text-white">Edit Household Contacts</div>
+            <p className="mt-1 text-sm text-slate-400">{family.familyName} - updates {family.students.length} student record{family.students.length === 1 ? "" : "s"}.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:bg-slate-800">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {fields.map(([field, label]) => (
+            <label key={field} className="space-y-1 text-sm font-semibold text-slate-200">
+              {label}
+              <input
+                type={field.includes("email") ? "email" : "text"}
+                value={draft[field] || ""}
+                onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+              />
+            </label>
+          ))}
+        </div>
+        {error && <div className="mt-4 rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100">{error}</div>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} aria-busy={saving} className="rounded-lg border border-sky-400 bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60">
+            {saving ? "Saving..." : "Save Household"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function StudentDirectoryModule() {
   const [students, setStudents] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
@@ -300,6 +379,10 @@ export default function StudentDirectoryModule() {
   }, [students]);
 
   const familyOptions = useMemo(() => familyOptionsFromStudents(allStudents), [allStudents]);
+  const visibleFamilies = useMemo(() => {
+    const visibleStudentIds = new Set(students.map((student) => student.studentId));
+    return familyOptions.filter((family) => (family.studentRecords || []).some((student) => visibleStudentIds.has(student.studentId)));
+  }, [familyOptions, students]);
 
   async function saveStudent(draft) {
     if (dialog?.mode === "edit") {
@@ -316,6 +399,31 @@ export default function StudentDirectoryModule() {
     await removeStudent(studentId, reason);
     setStatus("Student moved to Former Students.");
     await loadStudents();
+  }
+
+  async function saveFamilyContacts(family, contactDraft) {
+    const records = family.studentRecords || [];
+    await Promise.all(records.map((student) => updateStudent(student.studentId, { ...student, ...contactDraft })));
+    setStatus(`${family.familyName} household contacts updated for ${records.length} student record${records.length === 1 ? "" : "s"}.`);
+    await loadStudents();
+  }
+
+  function addStudentToFamily(family) {
+    setDialog({
+      mode: "add",
+      student: {
+        ...emptyStudent,
+        studentLastName: family.studentRecords?.[0]?.studentLastName || family.familyName.replace(/\s+Family$/i, ""),
+        parent1FirstName: family.parent1FirstName,
+        parent1LastName: family.parent1LastName,
+        email1: family.email1,
+        phone1: family.phone1,
+        parent2FirstName: family.parent2FirstName,
+        parent2LastName: family.parent2LastName,
+        email2: family.email2,
+        phone2: family.phone2,
+      },
+    });
   }
 
   return (
@@ -378,67 +486,54 @@ export default function StudentDirectoryModule() {
           {byGradeSummary && <span>{byGradeSummary}</span>}
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-lg border border-slate-800">
-          <div className="hidden grid-cols-[1.2fr_90px_1.4fr_1.4fr_150px] gap-4 border-b border-slate-800 bg-slate-950 px-4 py-3 text-xs font-bold uppercase text-slate-400 xl:grid">
-            <div>Student</div>
-            <div>Grade</div>
-            <div>Parent 1</div>
-            <div>Parent 2</div>
-            <div className="text-right">Actions</div>
-          </div>
-          {students.map((student) => (
-            <div
-              key={student.studentId}
-              className="grid gap-4 border-b border-slate-800 bg-slate-900 px-4 py-4 last:border-b-0 xl:grid-cols-[1.2fr_90px_1.4fr_1.4fr_150px] xl:items-center"
-            >
-              <div>
-                <div className="text-base font-bold text-white">
-                  {student.studentFirstName} {student.studentLastName}
+        <div className="mt-5 space-y-3">
+          {visibleFamilies.map((family) => (
+            <div key={family.familyKey} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="flex flex-col gap-3 border-b border-slate-800 pb-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="text-base font-bold text-white">{family.familyName}</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">
+                    {family.students.length} student{family.students.length === 1 ? "" : "s"} - {family.students.join(", ")}
+                  </div>
                 </div>
-                <div className="mt-1 text-xs font-semibold text-slate-500">{defaultFamilyName(student)}</div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setDialog({ mode: "family", family })} className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20">
+                    <Pencil size={14} />
+                    Edit Household
+                  </button>
+                  <button type="button" onClick={() => addStudentToFamily(family)} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20">
+                    <Plus size={14} />
+                    Add Student
+                  </button>
+                </div>
               </div>
-              <div>
-                <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1 text-xs font-bold text-sky-100">
-                  {student.grade}
-                </span>
+              <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_1fr]">
+                <ContactBlock label="Parent 1" firstName={family.parent1FirstName} lastName={family.parent1LastName} email={family.email1} phone={family.phone1} />
+                <ContactBlock label="Parent 2" firstName={family.parent2FirstName} lastName={family.parent2LastName} email={family.email2} phone={family.phone2} />
               </div>
-              <ContactBlock
-                label="Parent 1"
-                firstName={student.parent1FirstName}
-                lastName={student.parent1LastName}
-                email={student.email1}
-                phone={student.phone1}
-              />
-              <ContactBlock
-                label="Parent 2"
-                firstName={student.parent2FirstName}
-                lastName={student.parent2LastName}
-                email={student.email2}
-                phone={student.phone2}
-              />
-              <div className="flex gap-2 xl:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setDialog({ mode: "edit", student })}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
-                >
-                  <Pencil size={14} />
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDialog({ mode: "remove", student })}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
-                >
-                  <Trash2 size={14} />
-                  Remove
-                </button>
+              <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
+                {(family.studentRecords || []).map((student) => (
+                  <div key={student.studentId} className="grid gap-3 border-b border-slate-800 bg-slate-950 px-3 py-2 last:border-b-0 sm:grid-cols-[1fr_80px_auto] sm:items-center">
+                    <div className="font-semibold text-white">{student.studentFirstName} {student.studentLastName}</div>
+                    <span className="w-fit rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1 text-xs font-bold text-sky-100">{student.grade}</span>
+                    <div className="flex gap-2 sm:justify-end">
+                      <button type="button" onClick={() => setDialog({ mode: "edit", student })} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800">
+                        <Pencil size={13} />
+                        Student
+                      </button>
+                      <button type="button" onClick={() => setDialog({ mode: "remove", student })} className="inline-flex items-center gap-2 rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/20">
+                        <Trash2 size={13} />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
-          {!students.length && (
-            <div className="bg-slate-900 px-4 py-10 text-center text-sm font-semibold text-slate-400">
-              {loading ? "Loading students..." : "No students matched this search."}
+          {!visibleFamilies.length && (
+            <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-10 text-center text-sm font-semibold text-slate-400">
+              {loading ? "Loading students..." : "No families matched this search."}
             </div>
           )}
         </div>
@@ -449,6 +544,9 @@ export default function StudentDirectoryModule() {
       )}
       {dialog?.mode === "remove" && (
         <RemoveDialog student={dialog.student} onClose={() => setDialog(null)} onRemove={archiveStudent} />
+      )}
+      {dialog?.mode === "family" && (
+        <FamilyContactDialog family={dialog.family} onClose={() => setDialog(null)} onSave={saveFamilyContacts} />
       )}
     </section>
   );

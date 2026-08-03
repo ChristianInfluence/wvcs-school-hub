@@ -1,4 +1,4 @@
-import { fetchOfficeFamilyDirectory } from "./tuitionBillingData.js";
+import { fetchOfficeFamilyDirectory, mergeDirectoryFamilies } from "./tuitionBillingData.js";
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 
 export const LUNCH_ORDER_STATUSES = ["Anticipated", "Served", "Absent", "Cancelled"];
@@ -142,7 +142,7 @@ function mapLunchFamilyDirectoryRows(rows = []) {
     families.set(familyKey, family);
   });
 
-  return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+  return mergeDirectoryFamilies([...families.values()]);
 }
 
 export async function fetchLunchDailyData() {
@@ -156,7 +156,7 @@ export async function fetchLunchDailyData() {
   if (!functionError && functionData?.loaded) {
     return {
       loaded: true,
-      families: functionData.families || [],
+      families: mergeDirectoryFamilies(functionData.families || []),
       menus: (functionData.menus || []).map(mapMenu),
       orders: (functionData.orders || []).map(mapOrder),
       accounts: [],

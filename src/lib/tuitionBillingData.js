@@ -142,6 +142,73 @@ function mapIncidentalInvoiceToDatabase(record, updatedByEmail = "") {
   };
 }
 
+export function normalizeFamilyName(value) {
+  return String(value || "").trim().replace(/\s+Family$/i, "").toLowerCase();
+}
+
+export function familyNamesMatch(a, b) {
+  const first = normalizeFamilyName(a);
+  const second = normalizeFamilyName(b);
+  return Boolean(first && second && first === second);
+}
+
+export function normalizeFamilyEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function uniqueBy(items, keyFn) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function familyContactEmails(family) {
+  return uniqueBy((family.parents || []).map((parent) => normalizeFamilyEmail(parent.email)).filter(Boolean), (email) => email);
+}
+
+function familyMergeKey(family) {
+  const emails = familyContactEmails(family).sort();
+  if (emails.length) return `emails:${emails.join("|")}`;
+  return `name:${normalizeFamilyName(family.familyName) || normalizeFamilyName(family.students?.[0]?.name) || family.familyKey}`;
+}
+
+export function mergeDirectoryFamilies(families = []) {
+  const groups = new Map();
+
+  families.forEach((family) => {
+    const mergeKey = familyMergeKey(family);
+    const emails = familyContactEmails(family);
+    const existing = groups.get(mergeKey) || [...groups.values()].find((candidate) => {
+      const candidateEmails = familyContactEmails(candidate);
+      return emails.length && candidateEmails.some((email) => emails.includes(email));
+    });
+    if (!existing) {
+      groups.set(mergeKey, {
+        ...family,
+        familyKeys: uniqueBy([family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key),
+        parents: uniqueBy(family.parents || [], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`),
+        students: uniqueBy(family.students || [], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`),
+      });
+      return;
+    }
+
+    existing.familyKeys = uniqueBy([...(existing.familyKeys || []), family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key);
+    existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`);
+    existing.students = uniqueBy([...(existing.students || []), ...(family.students || [])], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`);
+  });
+
+  return [...groups.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+}
+
+export function matchesFamilyRecord(record, family) {
+  const familyKeys = new Set([family?.familyKey, ...(family?.familyKeys || [])].filter(Boolean));
+  return familyKeys.has(record?.familyKey) || familyKeys.has(record?.invoice?.familyKey) || familyNamesMatch(record?.familyName || record?.invoice?.familyName, family?.familyName);
+}
+
 function mapFamilyDirectoryRows(rows = []) {
   const families = new Map();
 
@@ -174,7 +241,7 @@ function mapFamilyDirectoryRows(rows = []) {
     families.set(familyKey, family);
   });
 
-  return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+  return mergeDirectoryFamilies([...families.values()]);
 }
 
 export async function fetchTuitionInvoices() {

@@ -23,6 +23,7 @@ import {
   fetchIncidentalInvoices,
   fetchOfficeFamilyDirectory,
   fetchTuitionInvoices,
+  matchesFamilyRecord as matchesDirectoryFamilyRecord,
   reconcileIncidentalCheckoutPayment,
   saveIncidentalInvoice,
   saveTuitionInvoice,
@@ -47,7 +48,7 @@ const DISCOUNT_OPTIONS = [
 const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
-const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Other"];
+const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Full-pay Tuition", "Other"];
 
 function createBlankParent() {
   return {
@@ -429,6 +430,47 @@ function getRecordInvoice(record) {
   return {
     ...invoice,
     charges: normalizeIncidentalCharges(invoice.charges || []),
+  };
+}
+
+function tuitionRecordToReceivable(record) {
+  const tuitionInvoice = { ...defaultInvoice, ...(record.invoice || {}) };
+  const total = invoiceTotals(tuitionInvoice).grandTotal;
+  const familyName = record.familyName || tuitionInvoice.familyName || "";
+  return {
+    ...record,
+    receivableType: "tuition",
+    invoice: {
+      ...defaultIncidentalInvoice,
+      id: record.id,
+      familyKey: record.familyKey || tuitionInvoice.familyKey || "",
+      familyName,
+      studentIds: record.studentIds || tuitionInvoice.studentIds || [],
+      students: (tuitionInvoice.students || []).map((student) => ({
+        id: student.id,
+        name: student.name,
+        grade: student.grade,
+      })),
+      status: record.status || tuitionInvoice.status || "Saved",
+      paymentStatus: record.paymentStatus || tuitionInvoice.paymentStatus || getTuitionPaymentStatus(tuitionInvoice),
+      invoiceDate: tuitionInvoice.invoiceDate || String(record.createdAt || today).slice(0, 10),
+      dueDate: tuitionInvoice.dueDate || tuitionInvoice.invoiceDate || String(record.createdAt || today).slice(0, 10),
+      charges: [
+        {
+          id: "full-pay-tuition",
+          category: "Full-pay Tuition",
+          description: `${tuitionInvoice.schoolYear || record.schoolYear || "School year"} tuition breakdown`,
+          amount: total.toFixed(2),
+        },
+      ],
+      paymentHistory: record.paymentHistory || tuitionInvoice.paymentHistory || [],
+      paidAt: record.paidAt || tuitionInvoice.paidAt || "",
+      paymentMethod: record.paymentMethod || tuitionInvoice.paymentMethod || "",
+      checkNumber: record.checkNumber || tuitionInvoice.checkNumber || "",
+      sentAt: record.sentAt || tuitionInvoice.sentAt || "",
+      sentTo: record.sentTo || tuitionInvoice.sentTo || [],
+      note: "Full-pay tuition breakdown. Monthly FACTS payments are not recorded in the Hub.",
+    },
   };
 }
 
@@ -1282,9 +1324,16 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     () => familyDirectory.filter((family) => familyMatchesSearch(family, manualReceivableDraft.familySearch)).slice(0, 8),
     [familyDirectory, manualReceivableDraft.familySearch]
   );
+  const accountsReceivableRecords = useMemo(
+    () => [
+      ...savedIncidentalInvoices,
+      ...savedInvoices.map(tuitionRecordToReceivable),
+    ],
+    [savedIncidentalInvoices, savedInvoices]
+  );
   const filteredReceivables = useMemo(
     () =>
-      savedIncidentalInvoices
+      accountsReceivableRecords
         .filter((record) => {
           const invoice = getRecordInvoice(record);
           const status = getIncidentalPaymentStatus(invoice);
@@ -1296,18 +1345,18 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         })
         .filter((record) => invoiceHasCategory(record, receivablesCategoryFilter))
         .filter((record) => recordMatchesSearch(record, receivablesSearch)),
-    [savedIncidentalInvoices, receivablesSearch, receivablesStatusFilter, receivablesCategoryFilter]
+    [accountsReceivableRecords, receivablesSearch, receivablesStatusFilter, receivablesCategoryFilter]
   );
-  const receivableTotals = useMemo(() => getReceivableTotals(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const receivableTotals = useMemo(() => getReceivableTotals(accountsReceivableRecords), [accountsReceivableRecords]);
   const receivableCategoryTotals = useMemo(() => getChargeCategoryTotals(filteredReceivables), [filteredReceivables]);
-  const agingBuckets = useMemo(() => getAgingBuckets(savedIncidentalInvoices), [savedIncidentalInvoices]);
+  const agingBuckets = useMemo(() => getAgingBuckets(accountsReceivableRecords), [accountsReceivableRecords]);
   const compactIncidentalsWorkspace = activeView === "incidentals";
   const ledgerFamilyResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)),
     [familyDirectory, ledgerFamilySearch]
   );
   const selectedLedgerFamily = useMemo(
-    () => familyDirectory.find((family) => family.familyKey === ledgerFamilyKey) || null,
+    () => familyDirectory.find((family) => family.familyKey === ledgerFamilyKey || family.familyKeys?.includes(ledgerFamilyKey)) || null,
     [familyDirectory, ledgerFamilyKey]
   );
   const ledgerRecords = useMemo(
@@ -1317,15 +1366,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
             ...savedIncidentalInvoices
               .filter((record) => {
                 const invoice = getRecordInvoice(record);
-                return invoice.familyKey === ledgerFamilyKey || familyNamesMatch(invoice.familyName, selectedLedgerFamily?.familyName);
+                return selectedLedgerFamily
+                  ? matchesDirectoryFamilyRecord({ familyKey: invoice.familyKey || record.familyKey, familyName: invoice.familyName || record.familyName }, selectedLedgerFamily)
+                  : invoice.familyKey === ledgerFamilyKey;
               })
               .map((record) => ({ type: "incidental", record })),
             ...savedInvoices
               .filter((record) => {
                 const invoiceRecord = record.invoice || {};
-                return record.familyKey === ledgerFamilyKey
-                  || invoiceRecord.familyKey === ledgerFamilyKey
-                  || familyNamesMatch(record.familyName || invoiceRecord.familyName, selectedLedgerFamily?.familyName);
+                return selectedLedgerFamily
+                  ? matchesDirectoryFamilyRecord({ familyKey: record.familyKey || invoiceRecord.familyKey, familyName: record.familyName || invoiceRecord.familyName }, selectedLedgerFamily)
+                  : record.familyKey === ledgerFamilyKey || invoiceRecord.familyKey === ledgerFamilyKey;
               })
               .map((record) => ({ type: "tuition", record })),
           ].sort((a, b) => {
@@ -3879,7 +3930,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   </button>
                   <button
                     type="button"
-                    onClick={loadSavedIncidentalInvoices}
+                    onClick={() => {
+                      loadSavedIncidentalInvoices();
+                      loadSavedInvoices();
+                    }}
                     className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
                   >
                     <RefreshCw size={13} />
@@ -4094,6 +4148,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       <div key={record.id} className="grid grid-cols-[minmax(170px,1.25fr)_minmax(125px,.85fr)_76px_76px_86px_84px_112px] gap-1.5 border-b border-slate-800 px-2 py-1.5 text-[11px] last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
+                          {record.receivableType === "tuition" && (
+                            <div className="mt-0.5 inline-flex rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-100">
+                              Full-pay Tuition
+                            </div>
+                          )}
                           {isStandaloneReceivable(recordInvoice) ? (
                             <div className="mt-0.5 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-100">
                               Standalone AR
@@ -4138,7 +4197,14 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         <div className="grid gap-1">
                           <button
                             type="button"
-                            onClick={() => loadIncidentalRecord(record)}
+                            onClick={() => {
+                              if (record.receivableType === "tuition") {
+                                setActiveView("tuition");
+                                loadInvoiceRecord(record);
+                              } else {
+                                loadIncidentalRecord(record);
+                              }
+                            }}
                             className="rounded-md border border-slate-700 px-1.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800"
                           >
                             Open
@@ -4161,25 +4227,47 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                               </button>
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIncidentalInvoice(recordInvoice);
-                                setSelectedIncidentalInvoiceId(record.id);
-                                setIncidentalWorkspaceView("invoice");
-                                setOfficePaymentOpen(true);
-                              }}
-                              className="rounded-md border border-emerald-500/40 px-1.5 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
-                            >
-                              Payment
-                            </button>
+                            record.receivableType === "tuition" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tuitionInvoice = { ...defaultInvoice, ...(record.invoice || {}) };
+                                  setActiveView("tuition");
+                                  loadInvoiceRecord(record);
+                                  setTuitionPaymentDraft({
+                                    amount: tuitionBalance(tuitionInvoice) > 0 ? tuitionBalance(tuitionInvoice).toFixed(2) : "",
+                                    paymentDate: today,
+                                    method: "check",
+                                    checkNumber: "",
+                                    note: "",
+                                  });
+                                  setTuitionPaymentOpen(true);
+                                }}
+                                className="rounded-md border border-emerald-500/40 px-1.5 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                              >
+                                Payment
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIncidentalInvoice(recordInvoice);
+                                  setSelectedIncidentalInvoiceId(record.id);
+                                  setIncidentalWorkspaceView("invoice");
+                                  setOfficePaymentOpen(true);
+                                }}
+                                className="rounded-md border border-emerald-500/40 px-1.5 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/10"
+                              >
+                                Payment
+                              </button>
+                            )
                           )}
                         </div>
                       </div>
                     );
                   })}
                   {!filteredReceivables.length && (
-                    <div className="p-6 text-sm text-slate-500">No incidental receivables match this search.</div>
+                    <div className="p-6 text-sm text-slate-500">No accounts receivable records match this search.</div>
                   )}
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Mail, RefreshCw, Search, XCircle } from "lucide-react";
-import { fetchOfficeFamilyDirectory } from "../../lib/tuitionBillingData.js";
+import { fetchOfficeFamilyDirectory, matchesFamilyRecord } from "../../lib/tuitionBillingData.js";
 import {
   DEFAULT_FOS_REMINDER_TEMPLATE,
   FOS_BUYOUT_AMOUNT,
@@ -59,6 +59,10 @@ function familyMatches(family, query) {
   ].join(" ").toLowerCase().includes(needle);
 }
 
+function familyKeysFor(family) {
+  return [family?.familyKey, ...(family?.familyKeys || [])].filter(Boolean);
+}
+
 export default function FosAdminModule({ currentUserEmail = "" }) {
   const [entries, setEntries] = useState([]);
   const [families, setFamilies] = useState([]);
@@ -114,10 +118,19 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     () => entries.filter((entry) => filter === "All" || entry.status === filter),
     [entries, filter]
   );
+  function accessForFamily(family) {
+    return familyKeysFor(family).map((key) => portalAccess[key]).find(Boolean) || {};
+  }
+
+  function liabilityDraftForFamily(family) {
+    const key = familyKeysFor(family).find((familyKey) => liabilityDrafts[familyKey] !== undefined);
+    return key ? liabilityDrafts[key] : undefined;
+  }
+
   function balanceForFamily(family) {
-    const access = portalAccess[family.familyKey] || {};
-    const familyEntries = entries.filter((entry) => entry.familyKey === family.familyKey);
-    const liabilityDraft = liabilityDrafts[family.familyKey];
+    const access = accessForFamily(family);
+    const familyEntries = entries.filter((entry) => matchesFamilyRecord(entry, family));
+    const liabilityDraft = liabilityDraftForFamily(family);
     return calculateFosBalance(familyEntries, {
       liabilityAmount: liabilityDraft !== undefined ? liabilityDraft : access.liabilityAmount ?? FOS_BUYOUT_AMOUNT,
       hourValue: access.hourValue ?? FOS_HOUR_VALUE,
@@ -128,7 +141,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     () =>
       families.filter((family) => {
         if (!familyMatches(family, familySearch)) return false;
-        const access = portalAccess[family.familyKey];
+        const access = accessForFamily(family);
         const balance = balanceForFamily(family);
         if (familyFilter === "balance") return balance.remainingBalance > 0;
         if (familyFilter === "no-login") return !access?.lastParentLoginAt;
@@ -139,11 +152,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     [families, familySearch, familyFilter, portalAccess, entries]
   );
   const selectedFamilyEntries = useMemo(
-    () => (selectedFamily ? entries.filter((entry) => entry.familyKey === selectedFamily.familyKey) : []),
+    () => (selectedFamily ? entries.filter((entry) => matchesFamilyRecord(entry, selectedFamily)) : []),
     [entries, selectedFamily]
   );
-  const selectedAccess = selectedFamily ? portalAccess[selectedFamily.familyKey] : null;
-  const selectedLiabilityDraft = selectedFamily ? liabilityDrafts[selectedFamily.familyKey] : undefined;
+  const selectedAccess = selectedFamily ? accessForFamily(selectedFamily) : null;
+  const selectedLiabilityDraft = selectedFamily ? liabilityDraftForFamily(selectedFamily) : undefined;
   const selectedLiabilityAmount = Number(selectedLiabilityDraft !== undefined ? selectedLiabilityDraft : selectedAccess?.liabilityAmount ?? FOS_BUYOUT_AMOUNT);
   const selectedBalance = calculateFosBalance(selectedFamilyEntries, {
     liabilityAmount: selectedLiabilityAmount,
@@ -154,11 +167,11 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     [families, bulkSelectedKeys]
   );
   const bulkEligibleFamilies = useMemo(
-    () => bulkSelectedFamilies.filter((family) => (portalAccess[family.familyKey]?.contactEmails || []).length),
+    () => bulkSelectedFamilies.filter((family) => (accessForFamily(family)?.contactEmails || []).length),
     [bulkSelectedFamilies, portalAccess]
   );
   const bulkRecipientCount = useMemo(
-    () => bulkEligibleFamilies.reduce((total, family) => total + (portalAccess[family.familyKey]?.contactEmails || []).length, 0),
+    () => bulkEligibleFamilies.reduce((total, family) => total + (accessForFamily(family)?.contactEmails || []).length, 0),
     [bulkEligibleFamilies, portalAccess]
   );
 
@@ -184,14 +197,15 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
 
   async function sendReminder(family) {
     try {
-      const recipients = portalAccess[family.familyKey]?.contactEmails || [];
+      const access = accessForFamily(family);
+      const recipients = access?.contactEmails || [];
       if (!recipients.length) {
         setStatus("This family does not have authorized portal emails yet. Manage family portal invites in Family Records.");
         return;
       }
       setPortalLoadingKey(family.familyKey);
       setStatus(`Sending FOS reminder for ${family.familyName}...`);
-      const result = await sendFamilyFosReminder(family.familyKey, recipients);
+      const result = await sendFamilyFosReminder(access.familyKey || family.familyKey, recipients);
       const sentRecipients = result.results?.[0]?.recipients || result.recipients || [];
       setStatus(`FOS reminder sent to ${sentRecipients.join(", ")}.`);
       await loadData();
@@ -217,9 +231,12 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
       setBulkSending(true);
       setStatus(`Sending FOS reminders to ${familyKeys.length} families...`);
       const recipientsByFamily = Object.fromEntries(
-        bulkEligibleFamilies.map((family) => [family.familyKey, portalAccess[family.familyKey]?.contactEmails || []])
+        bulkEligibleFamilies.map((family) => {
+          const access = accessForFamily(family);
+          return [access.familyKey || family.familyKey, access.contactEmails || []];
+        })
       );
-      const result = await sendFamilyFosReminder(familyKeys, recipientsByFamily);
+      const result = await sendFamilyFosReminder(Object.keys(recipientsByFamily), recipientsByFamily);
       const failed = (result.results || []).filter((item) => !item.sent);
       setStatus(
         failed.length
@@ -245,7 +262,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     window.requestAnimationFrame(() => {
       selectedFamilyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-    if (!portalAccess[family.familyKey]) ensureAccessForFamily(family);
+    if (!accessForFamily(family)?.familyKey) ensureAccessForFamily(family);
   }
 
   function toggleBulkFamily(familyKey) {
@@ -282,7 +299,7 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
 
   async function saveLiability() {
     if (!selectedFamily) return;
-    const liabilityAmount = Number(liabilityDrafts[selectedFamily.familyKey] || FOS_BUYOUT_AMOUNT);
+    const liabilityAmount = Number(liabilityDraftForFamily(selectedFamily) ?? accessForFamily(selectedFamily)?.liabilityAmount ?? FOS_BUYOUT_AMOUNT);
     if (!Number.isFinite(liabilityAmount) || liabilityAmount < 0) {
       setStatus("Enter a valid FOS liability amount.");
       return;
@@ -290,8 +307,8 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     try {
       setLiabilitySaveState("Saving...");
       setStatus(`Saving FOS liability for ${selectedFamily.familyName}...`);
-      let access = portalAccess[selectedFamily.familyKey];
-      if (!access) {
+      let access = accessForFamily(selectedFamily);
+      if (!access?.familyKey) {
         const result = await ensureFamilyPortalAccess(selectedFamily, currentUserEmail);
         access = result.access;
       }
@@ -455,56 +472,59 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
               <option value="reminded">Reminder sent</option>
             </select>
             <div className="mt-3 max-h-[520px] overflow-y-auto rounded-lg border border-slate-800 bg-slate-950">
-              {familyResults.map((family) => (
-                <button
-                  key={family.familyKey}
-                  type="button"
-                  onClick={() => selectFamily(family)}
-                  className={`flex w-full items-start gap-2 border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 ${
-                    selectedFamily?.familyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={bulkSelectedKeys.includes(family.familyKey)}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={() => toggleBulkFamily(family.familyKey)}
-                    className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
-                    aria-label={`Select ${family.familyName} for FOS reminder`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 text-sm font-bold">
-                      <span className="block min-w-0 flex-1 truncate">{family.familyName}</span>
-                      {portalAccess[family.familyKey]?.lastParentLoginAt ? (
-                        <span
-                          title={`Last login: ${dateTime(portalAccess[family.familyKey].lastParentLoginAt)}${portalAccess[family.familyKey].lastParentLoginEmail ? ` by ${portalAccess[family.familyKey].lastParentLoginEmail}` : ""}`}
-                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                        >
-                          <CheckCircle2 size={12} />
-                        </span>
-                      ) : (
-                        <span
-                          title="No parent login recorded yet"
-                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-[10px] font-bold text-slate-500"
-                        >
-                          -
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-slate-500">
-                      {(family.students || []).map((student) => student.name).join(", ")}
-                    </span>
-                    <span className="mt-1 flex flex-wrap gap-1 text-[11px]">
-                      <span className="rounded border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-rose-100">
-                        {money(balanceForFamily(family).remainingBalance)} owed
+              {familyResults.map((family) => {
+                const access = accessForFamily(family);
+                return (
+                  <button
+                    key={family.familyKey}
+                    type="button"
+                    onClick={() => selectFamily(family)}
+                    className={`flex w-full items-start gap-2 border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800 ${
+                      selectedFamily?.familyKey === family.familyKey ? "text-sky-200" : "text-slate-200"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkSelectedKeys.includes(family.familyKey)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleBulkFamily(family.familyKey)}
+                      className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
+                      aria-label={`Select ${family.familyName} for FOS reminder`}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-sm font-bold">
+                        <span className="block min-w-0 flex-1 truncate">{family.familyName}</span>
+                        {access?.lastParentLoginAt ? (
+                          <span
+                            title={`Last login: ${dateTime(access.lastParentLoginAt)}${access.lastParentLoginEmail ? ` by ${access.lastParentLoginEmail}` : ""}`}
+                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                          >
+                            <CheckCircle2 size={12} />
+                          </span>
+                        ) : (
+                          <span
+                            title="No parent login recorded yet"
+                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-[10px] font-bold text-slate-500"
+                          >
+                            -
+                          </span>
+                        )}
                       </span>
-                      <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-400">
-                        {portalAccess[family.familyKey]?.lastFosReminderSentAt ? `Reminded ${shortDate(portalAccess[family.familyKey].lastFosReminderSentAt)}` : "No reminder"}
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        {(family.students || []).map((student) => student.name).join(", ")}
+                      </span>
+                      <span className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                        <span className="rounded border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-rose-100">
+                          {money(balanceForFamily(family).remainingBalance)} owed
+                        </span>
+                        <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-400">
+                          {access?.lastFosReminderSentAt ? `Reminded ${shortDate(access.lastFosReminderSentAt)}` : "No reminder"}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
