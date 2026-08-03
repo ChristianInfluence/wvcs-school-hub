@@ -22,23 +22,31 @@ const emptyStudent = {
   email2: "",
 };
 
+function studentLastNamesLabel(students = []) {
+  const lastNames = [...new Set(students.map((student) => String(student.studentLastName || "").trim()).filter(Boolean))];
+  if (!lastNames.length) return "Family";
+  if (lastNames.length === 1) return `${lastNames[0]} Family`;
+  return `${lastNames.slice(0, 2).join(" / ")}${lastNames.length > 2 ? " +" : ""} Family`;
+}
+
 function defaultFamilyName(student = {}) {
-  return student.studentLastName ? `${student.studentLastName} Family` : "";
+  return student.studentLastName ? `${student.studentLastName} Family` : "Family";
 }
 
 function defaultFamilyKey(student = {}) {
-  return [student.email1, student.email2, student.studentLastName].filter(Boolean).join("|").replace(/\s+/g, "").toLowerCase();
+  const parentEmails = [student.email1, student.email2].map((email) => String(email || "").trim().toLowerCase()).filter(Boolean).sort();
+  if (parentEmails.length) return `parents:${parentEmails.join("|")}`;
+  return `name:${String(student.studentLastName || "").replace(/\s+/g, "").toLowerCase()}`;
 }
 
 function familyOptionsFromStudents(students = []) {
   const families = new Map();
   students.forEach((student) => {
     const familyKey = defaultFamilyKey(student);
-    const familyName = defaultFamilyName(student);
-    if (!familyKey || !familyName) return;
+    if (!familyKey) return;
     const family = families.get(familyKey) || {
       familyKey,
-      familyName,
+      familyName: defaultFamilyName(student),
       students: [],
       parent1FirstName: student.parent1FirstName || "",
       parent1LastName: student.parent1LastName || "",
@@ -51,6 +59,7 @@ function familyOptionsFromStudents(students = []) {
     };
     family.students.push(`${student.studentFirstName} ${student.studentLastName}`.trim());
     family.studentRecords = [...(family.studentRecords || []), student];
+    family.familyName = studentLastNamesLabel(family.studentRecords);
     families.set(familyKey, family);
   });
   return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
@@ -413,7 +422,7 @@ export default function StudentDirectoryModule() {
       mode: "add",
       student: {
         ...emptyStudent,
-        studentLastName: family.studentRecords?.[0]?.studentLastName || family.familyName.replace(/\s+Family$/i, ""),
+        studentLastName: family.studentRecords?.[0]?.studentLastName || "",
         parent1FirstName: family.parent1FirstName,
         parent1LastName: family.parent1LastName,
         email1: family.email1,
