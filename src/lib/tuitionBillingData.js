@@ -176,6 +176,23 @@ function familyMergeKey(family) {
   return `name:${normalizeFamilyName(family.familyName) || normalizeFamilyName(family.students?.[0]?.name) || family.familyKey}`;
 }
 
+function familyNameParts(family = {}) {
+  return uniqueBy(
+    [
+      String(family.familyName || "").trim().replace(/\s+Family$/i, ""),
+      ...(family.familyNames || []).map((name) => String(name || "").trim().replace(/\s+Family$/i, "")),
+    ].filter(Boolean),
+    (name) => name.toLowerCase()
+  );
+}
+
+function mergedFamilyDisplayName(family = {}) {
+  const names = familyNameParts(family);
+  if (!names.length) return family.familyName || "Family";
+  if (names.length === 1) return `${names[0]} Family`;
+  return `${names.slice(0, 2).join(" / ")}${names.length > 2 ? " +" : ""} Family`;
+}
+
 export function mergeDirectoryFamilies(families = []) {
   const groups = new Map();
 
@@ -190,6 +207,7 @@ export function mergeDirectoryFamilies(families = []) {
       groups.set(mergeKey, {
         ...family,
         familyKeys: uniqueBy([family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key),
+        familyNames: familyNameParts(family),
         parents: uniqueBy(family.parents || [], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`),
         students: uniqueBy(family.students || [], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`),
       });
@@ -197,11 +215,14 @@ export function mergeDirectoryFamilies(families = []) {
     }
 
     existing.familyKeys = uniqueBy([...(existing.familyKeys || []), family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key);
+    existing.familyNames = uniqueBy([...(existing.familyNames || []), ...familyNameParts(family)], (name) => name.toLowerCase());
     existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`);
     existing.students = uniqueBy([...(existing.students || []), ...(family.students || [])], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`);
   });
 
-  return [...groups.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+  return [...groups.values()]
+    .map((family) => ({ ...family, familyName: mergedFamilyDisplayName(family) }))
+    .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 }
 
 export function matchesFamilyRecord(record, family) {

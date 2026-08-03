@@ -114,6 +114,15 @@ export default function FosAdminModule({ currentUserEmail = "" }) {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!selectedFamily || !families.length) return;
+    const selectedKeys = familyKeysFor(selectedFamily);
+    const refreshedFamily = families.find((family) => familyKeysFor(family).some((key) => selectedKeys.includes(key)));
+    if (refreshedFamily && refreshedFamily.familyName !== selectedFamily.familyName) {
+      setSelectedFamily(refreshedFamily);
+    }
+  }, [families, selectedFamily?.familyKey]);
+
   const visibleEntries = useMemo(
     () => entries.filter((entry) => filter === "All" || entry.status === filter),
     [entries, filter]
