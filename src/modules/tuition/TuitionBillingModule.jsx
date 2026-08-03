@@ -1327,7 +1327,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const accountsReceivableRecords = useMemo(
     () => [
       ...savedIncidentalInvoices,
-      ...savedInvoices.map(tuitionRecordToReceivable),
+      ...savedInvoices
+        .filter((record) => tuitionPaidTotal({ ...defaultInvoice, ...(record.invoice || {}) }) > 0)
+        .map(tuitionRecordToReceivable),
     ],
     [savedIncidentalInvoices, savedInvoices]
   );
