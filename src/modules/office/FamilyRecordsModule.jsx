@@ -519,38 +519,26 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       label: `${parent.name || "Parent / Guardian"} · ${family.familyName}${parent.email ? ` · ${parent.email}` : ""}`,
     }))), [familySummaries]);
   const backgroundMasterRows = useMemo(() => {
-    const rosterRows = backgroundContactOptions.map((contact) => {
-      const record = data.backgroundChecks.find((item) => normalizeEmail(item.parentEmail) === contact.parentEmail && (item.familyKey === contact.familyKey || familyNamesMatch(item.familyName, contact.familyName)));
-      return {
-        id: record?.id || `${contact.familyKey}:${contact.parentEmail || contact.parentName}`,
-        source: "roster",
-        ...contact,
-        record,
-        status: record?.status || "No Application",
-        verifiedAt: record?.verifiedAt || "",
-        expiresAt: record?.expiresAt || "",
-        officeNote: record?.officeNote || "",
-        searchText: `${contact.parentName} ${contact.parentEmail} ${contact.familyName} ${contact.studentNote} ${record?.officeNote || ""}`.toLowerCase(),
-      };
-    });
-    const standaloneRows = data.backgroundChecks
-      .filter((record) => !backgroundContactOptions.some((contact) => normalizeEmail(contact.parentEmail) === normalizeEmail(record.parentEmail) && (contact.familyKey === record.familyKey || familyNamesMatch(contact.familyName, record.familyName))))
-      .map((record) => ({
+    return data.backgroundChecks
+      .filter((record) => record.status && record.status !== "No Application")
+      .map((record) => {
+        const contact = backgroundContactOptions.find((option) => normalizeEmail(option.parentEmail) === normalizeEmail(record.parentEmail) && (option.familyKey === record.familyKey || familyNamesMatch(option.familyName, record.familyName)));
+        return {
         id: record.id,
-        source: "standalone",
-        familyKey: record.familyKey,
-        familyName: record.familyName || "Standalone Background Checks",
-        parentName: record.parentName || "Person",
+        source: contact ? "roster" : "standalone",
+        familyKey: contact?.familyKey || record.familyKey,
+        familyName: contact?.familyName || record.familyName || "Standalone Background Checks",
+        parentName: contact?.parentName || record.parentName || "Person",
         parentEmail: isSyntheticBackgroundEmail(record.parentEmail) ? "" : record.parentEmail,
-        studentNote: record.familyName && record.familyName !== "Standalone Background Checks" ? record.familyName : "",
+        studentNote: contact?.studentNote || (record.familyName && record.familyName !== "Standalone Background Checks" ? record.familyName : ""),
         record,
         status: record.status || "No Application",
         verifiedAt: record.verifiedAt || "",
         expiresAt: record.expiresAt || "",
         officeNote: record.officeNote || "",
-        searchText: `${record.parentName} ${record.parentEmail} ${record.familyName} ${record.officeNote}`.toLowerCase(),
-      }));
-    return [...rosterRows, ...standaloneRows]
+        searchText: `${contact?.parentName || record.parentName} ${record.parentEmail} ${contact?.familyName || record.familyName} ${contact?.studentNote || ""} ${record.officeNote} ${record.status}`.toLowerCase(),
+        };
+      })
       .filter((row) => !backgroundMasterSearch.trim() || row.searchText.includes(backgroundMasterSearch.trim().toLowerCase()))
       .sort((a, b) => a.parentName.localeCompare(b.parentName, undefined, { sensitivity: "base" }));
   }, [backgroundContactOptions, backgroundMasterSearch, data.backgroundChecks]);
@@ -854,7 +842,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   function openBackgroundMasterEditor(row = null) {
     const completedAt = row?.verifiedAt || today;
     setBackgroundMasterEditor({
-      source: row?.source || "standalone",
+      source: row ? row.source || "standalone" : "roster",
       familyKey: row?.familyKey || "",
       familyName: row?.familyName || "Standalone Background Checks",
       parentName: row?.parentName || "",
@@ -889,6 +877,10 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
     if (!backgroundMasterEditor.expiresAt) {
       setActionStatus("Enter an expiration date before saving a background check.");
+      return;
+    }
+    if (backgroundMasterEditor.source === "roster" && !backgroundMasterEditor.familyKey) {
+      setActionStatus("Choose a parent or guardian from Family Records before saving.");
       return;
     }
     try {
@@ -961,7 +953,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
               ))}
             </div>
 
-            <div className="grid gap-4 p-4 xl:grid-cols-[1fr_380px]">
+            <div className="p-4">
               <div className="min-w-0">
                 <div className="relative">
                   <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -989,34 +981,48 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                   {!backgroundMasterRows.length && <div className="p-4 text-sm text-slate-500">No background check records match this search.</div>}
                 </div>
               </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="text-sm font-black text-slate-950">{backgroundMasterEditor ? "Add or Edit Background Check" : "Quick Notes"}</div>
-                {!backgroundMasterEditor && <div className="mt-2 text-xs leading-5 text-slate-600">Use <span className="font-bold">Add Person</span> for coaches, subs, staff, or volunteers who are not tied to a roster family. Use <span className="font-bold">Edit</span> beside a roster parent to update the green badge in Family Records.</div>}
-                {backgroundMasterEditor && (
-                  <div className="mt-3 grid gap-3">
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Attach to roster contact
-                      <select value={backgroundMasterEditor.source === "roster" ? `${backgroundMasterEditor.familyKey}|${backgroundMasterEditor.parentEmail}` : ""} onChange={(event) => selectBackgroundContact(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500">
-                        <option value="">Standalone / not on family roster</option>
-                        {backgroundContactOptions.map((option) => <option key={`${option.familyKey}|${option.parentEmail}`} value={`${option.familyKey}|${option.parentEmail}`}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Person name<input value={backgroundMasterEditor.parentName} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentName: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Email optional<input type="email" value={backgroundMasterEditor.parentEmail} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentEmail: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} placeholder="Optional for standalone records" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
+            </div>
+            {backgroundMasterEditor && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/35 p-3">
+                <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl">
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4">
+                    <div>
+                      <div className="text-base font-black text-slate-950">Background Check</div>
+                      <div className="mt-1 text-xs text-slate-500">Add a roster contact or a person outside family records.</div>
+                    </div>
+                    <button type="button" onClick={() => setBackgroundMasterEditor(null)} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50" aria-label="Close background editor"><X size={16} /></button>
+                  </div>
+                  <div className="grid gap-4 p-4">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button type="button" onClick={() => setBackgroundMasterEditor((current) => ({ ...current, source: "roster" }))} className={`rounded-lg border px-3 py-2 text-sm font-black ${backgroundMasterEditor.source === "roster" ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>From Family Records</button>
+                      <button type="button" onClick={() => setBackgroundMasterEditor((current) => ({ ...current, source: "standalone", familyKey: "", familyName: "Standalone Background Checks" }))} className={`rounded-lg border px-3 py-2 text-sm font-black ${backgroundMasterEditor.source === "standalone" ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>Not on Family Records</button>
+                    </div>
+                    {backgroundMasterEditor.source === "roster" && (
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Choose roster contact
+                        <select value={`${backgroundMasterEditor.familyKey}|${backgroundMasterEditor.parentEmail}`} onChange={(event) => selectBackgroundContact(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500">
+                          <option value="|">Select a parent or guardian</option>
+                          {backgroundContactOptions.map((option) => <option key={`${option.familyKey}|${option.parentEmail}`} value={`${option.familyKey}|${option.parentEmail}`}>{option.label}</option>)}
+                        </select>
+                      </label>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Person name<input value={backgroundMasterEditor.parentName} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentName: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Email optional<input type="email" value={backgroundMasterEditor.parentEmail} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentEmail: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} placeholder="Optional for standalone records" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
                       <label className="grid gap-1 text-xs font-bold text-slate-700">Filled out<input type="date" value={backgroundMasterEditor.verifiedAt} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, verifiedAt: event.target.value, expiresAt: addYears(event.target.value, 2) }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
                       <label className="grid gap-1 text-xs font-bold text-slate-700">Expires<input type="date" value={backgroundMasterEditor.expiresAt} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, expiresAt: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Status<select value={backgroundMasterEditor.status} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, status: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"><option>No Application</option><option>Approved</option><option>Pending</option><option>Denied</option><option>Revoked</option></select></label>
                     </div>
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Status<select value={backgroundMasterEditor.status} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, status: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500"><option>No Application</option><option>Approved</option><option>Pending</option><option>Denied</option><option>Revoked</option></select></label>
                     <label className="grid gap-1 text-xs font-bold text-slate-700">Notes<textarea value={backgroundMasterEditor.officeNote} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, officeNote: event.target.value }))} rows={4} placeholder="Students, role, old yearly checks, or office notes" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={saveBackgroundMasterRecord} disabled={Boolean(backgroundSavingKey)} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"><Save size={15} />{backgroundSavingKey ? "Saving..." : "Save Background"}</button>
+                    <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
                       <button type="button" onClick={() => setBackgroundMasterEditor(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                      <button type="button" onClick={saveBackgroundMasterRecord} disabled={Boolean(backgroundSavingKey)} className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"><Save size={15} />{backgroundSavingKey ? "Saving..." : "Save Background"}</button>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
