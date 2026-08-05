@@ -309,6 +309,36 @@ export async function archiveCurriculumResource(resourceId, currentUserEmail = "
   return mapResource(data);
 }
 
+export async function archiveCurriculumAssignment(assignmentId, currentUserEmail = "") {
+  if (!assignmentId) return null;
+  if (!isSupabaseConfigured) {
+    const records = readLocal(ASSIGNMENTS_STORE_KEY).map((assignment) => (
+      assignment.id === assignmentId
+        ? { ...assignment, active: false, updatedByEmail: currentUserEmail, updatedAt: new Date().toISOString() }
+        : assignment
+    ));
+    writeLocal(ASSIGNMENTS_STORE_KEY, records);
+    return records.find((assignment) => assignment.id === assignmentId) || null;
+  }
+  const { data, error } = await supabase
+    .from("curriculum_assignments")
+    .update({ active: false, updated_by_email: currentUserEmail || null, updated_at: new Date().toISOString() })
+    .eq("id", assignmentId)
+    .select("*")
+    .single();
+  if (isMissingCurriculumTable(error)) {
+    const records = readLocal(ASSIGNMENTS_STORE_KEY).map((assignment) => (
+      assignment.id === assignmentId
+        ? { ...assignment, active: false, updatedByEmail: currentUserEmail, updatedAt: new Date().toISOString() }
+        : assignment
+    ));
+    writeLocal(ASSIGNMENTS_STORE_KEY, records);
+    return records.find((assignment) => assignment.id === assignmentId) || null;
+  }
+  if (error) throw error;
+  return mapAssignment(data);
+}
+
 export async function submitCurriculumInventory({ resourceId, assignmentId = "", submittedCount, schoolYear = "2026-2027", note = "", submittedByName = "", submittedByEmail = "" }) {
   const count = Number.parseInt(submittedCount, 10);
   if (!resourceId) throw new Error("Select a curriculum resource.");

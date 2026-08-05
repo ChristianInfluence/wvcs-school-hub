@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, BookOpen, CheckCircle2, History, Layers3, Plus, RefreshCw, Save, Search, X } from "lucide-react";
+import { Archive, BookOpen, CheckCircle2, History, Layers3, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import {
   CURRICULUM_GRADES,
   CURRICULUM_SUBJECTS,
   MATERIAL_TYPES,
+  archiveCurriculumAssignment,
   archiveCurriculumResource,
   canManageCurriculum,
   emptyCurriculumAssignment,
@@ -14,10 +15,6 @@ import {
   saveCurriculumResource,
   submitCurriculumInventory,
 } from "../../lib/curriculumData.js";
-
-function uid() {
-  return crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 function cleanAuthors(authors) {
   if (Array.isArray(authors)) return authors.join(", ");
@@ -69,6 +66,25 @@ function ActionButton({ children, tone = "slate", className = "", ...props }) {
   );
 }
 
+function Modal({ title, subtitle, children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-3">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-lg border border-slate-700 bg-slate-900 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-800 bg-slate-900 px-4 py-3">
+          <div>
+            <div className="text-lg font-bold text-white">{title}</div>
+            {subtitle && <div className="mt-1 text-xs font-semibold text-slate-500">{subtitle}</div>}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-300 hover:bg-slate-800" aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function coverBlock(resource, compact = false) {
   if (resource.coverImageUrl) {
     return <img src={resource.coverImageUrl} alt={`${resource.title} cover`} className={`${compact ? "h-24 w-16" : "h-40 w-28"} rounded-md bg-slate-800 object-cover shadow-lg`} loading="lazy" />;
@@ -108,21 +124,18 @@ function assignmentSummary(assignments = []) {
     .join(" | ");
 }
 
-function ResourceEditor({ draft, setDraft, onSave, onLookup, lookupStatus, busy, canManage }) {
+function ResourceEditor({ draft, setDraft, onSave, onLookup, lookupStatus, busy, canManage, onCancel }) {
   function update(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
   }
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2 text-sm font-bold text-white"><BookOpen size={17} className="text-sky-300" /> Curriculum Resource</div>
           <div className="mt-1 text-xs text-slate-500">Add by ISBN or maintain a manual title/edition record.</div>
         </div>
-        <ActionButton type="button" onClick={() => setDraft({ ...emptyCurriculumResource, id: uid() })}>
-          <Plus size={14} /> New
-        </ActionButton>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <Input value={draft.isbn13 || draft.isbn10 || ""} onChange={(event) => update("isbn13", event.target.value)} placeholder="Enter ISBN-10 or ISBN-13" disabled={!canManage} />
@@ -159,6 +172,9 @@ function ResourceEditor({ draft, setDraft, onSave, onLookup, lookupStatus, busy,
         </div>
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2">
+        <ActionButton type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </ActionButton>
         {draft.id && (
           <ActionButton type="button" tone="rose" onClick={() => onSave({ ...draft, active: false })} disabled={!canManage || busy}>
             <Archive size={14} /> Archive
@@ -172,18 +188,86 @@ function ResourceEditor({ draft, setDraft, onSave, onLookup, lookupStatus, busy,
   );
 }
 
-function AssignmentPanel({ selectedResource, assignments, assignmentDraft, setAssignmentDraft, onSaveAssignment, canManage, busy }) {
+function ResourceDetail({ resource, assignments, submissions, onEdit, canManage }) {
+  if (!resource) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-center">
+        <BookOpen className="mx-auto text-slate-600" size={32} />
+        <div className="mt-3 text-lg font-bold text-white">Select a Curriculum Resource</div>
+        <div className="mt-1 text-sm text-slate-500">Choose a book from the catalog or add a new one.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <div className="grid gap-4 lg:grid-cols-[150px_1fr_auto]">
+        <div className="flex justify-center lg:justify-start">{coverBlock(resource)}</div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="min-w-0 text-2xl font-black text-white">{resource.title || "Untitled Curriculum"}</h2>
+            {!resource.active && <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-100">Archived</span>}
+          </div>
+          {resource.subtitle && <div className="mt-1 text-sm font-semibold text-slate-300">{resource.subtitle}</div>}
+          <div className="mt-2 text-sm text-slate-400">{cleanAuthors(resource.authors) || "No author listed"}</div>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"><span className="block text-slate-500">Publisher</span><span className="font-bold text-white">{resource.publisher || "Not listed"}</span></div>
+            <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"><span className="block text-slate-500">Edition</span><span className="font-bold text-white">{resource.edition || "Not listed"}</span></div>
+            <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"><span className="block text-slate-500">On Hand</span><span className="font-bold text-emerald-200">{resource.quantityOnHand}</span></div>
+            <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"><span className="block text-slate-500">Assignments</span><span className="font-bold text-sky-200">{assignments.length}</span></div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+            {resource.isbn13 && <span className="rounded-full border border-slate-700 px-2 py-1">ISBN-13 {resource.isbn13}</span>}
+            {resource.isbn10 && <span className="rounded-full border border-slate-700 px-2 py-1">ISBN-10 {resource.isbn10}</span>}
+            <span className="rounded-full border border-slate-700 px-2 py-1">{resource.materialType || "Textbook"}</span>
+            <span className="rounded-full border border-slate-700 px-2 py-1">{resource.reusable ? "Reusable" : "Consumable"}</span>
+          </div>
+          {resource.description && <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-400">{resource.description}</p>}
+          {submissions[0] && <div className="mt-3 text-xs font-semibold text-slate-500">Last inventory update: {dateTime(submissions[0].createdAt)}</div>}
+        </div>
+        {canManage && (
+          <div className="flex lg:justify-end">
+            <ActionButton type="button" tone="sky" onClick={onEdit}>
+              <Pencil size={14} /> Edit
+            </ActionButton>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssignmentPanel({ selectedResource, assignments, assignmentDraft, setAssignmentDraft, onSaveAssignment, onArchiveAssignment, canManage, busy }) {
   function update(field, value) {
     setAssignmentDraft((current) => ({ ...current, [field]: value }));
   }
 
+  function startNewAssignment() {
+    setAssignmentDraft({ ...emptyCurriculumAssignment, resourceId: selectedResource?.id || "" });
+  }
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <div className="flex items-center gap-2 text-sm font-bold text-white"><Layers3 size={17} className="text-emerald-300" /> Assignments</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-white"><Layers3 size={17} className="text-emerald-300" /> Assignments</div>
+          <div className="mt-1 text-xs text-slate-500">Connect this resource to grades, classes, teachers, and school years.</div>
+        </div>
+        {selectedResource && (
+          <ActionButton type="button" onClick={startNewAssignment} disabled={!canManage || busy}>
+            <Plus size={14} /> New Assignment
+          </ActionButton>
+        )}
+      </div>
       {!selectedResource ? (
         <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm text-slate-500">Select or save a curriculum resource to add assignments.</div>
       ) : (
         <>
+          {assignmentDraft.id && (
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-100">
+              <span>Editing assignment</span>
+              <button type="button" onClick={startNewAssignment} className="text-sky-100 underline-offset-2 hover:underline">Cancel edit</button>
+            </div>
+          )}
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <Field label="Grade">
               <Select value={assignmentDraft.gradeLevel} onChange={(event) => update("gradeLevel", event.target.value)} disabled={!canManage}>
@@ -203,22 +287,40 @@ function AssignmentPanel({ selectedResource, assignments, assignmentDraft, setAs
           </div>
           <div className="mt-3 flex justify-end">
             <ActionButton type="button" tone="emerald" onClick={onSaveAssignment} disabled={!canManage || busy}>
-              <Save size={14} /> Save Assignment
+              <Save size={14} /> {assignmentDraft.id ? "Update Assignment" : "Save Assignment"}
             </ActionButton>
           </div>
           <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
             {assignments.map((assignment) => (
-              <button
+              <div
                 key={assignment.id}
-                type="button"
-                onClick={() => setAssignmentDraft({ ...assignment })}
-                className="grid w-full gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-slate-800 md:grid-cols-[90px_130px_1fr_140px]"
+                className={`grid gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 text-xs last:border-b-0 md:grid-cols-[90px_130px_1fr_140px_auto] md:items-center ${assignmentDraft.id === assignment.id ? "ring-1 ring-inset ring-sky-500/50" : ""}`}
               >
                 <span className="font-bold text-sky-200">{gradeLabel(assignment.gradeLevel)}</span>
                 <span className="font-semibold text-white">{assignment.subject}</span>
                 <span className="text-slate-300">{assignment.courseName || "General curriculum"}{assignment.teacherName ? ` - ${assignment.teacherName}` : ""}</span>
                 <span className="text-slate-500">{assignment.schoolYear}</span>
-              </button>
+                <span className="flex gap-1 md:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentDraft({ ...assignment })}
+                    className="rounded-md border border-sky-500/40 bg-sky-500/10 p-1.5 text-sky-100 hover:bg-sky-500/20"
+                    title="Edit assignment"
+                    aria-label="Edit assignment"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onArchiveAssignment(assignment)}
+                    className="rounded-md border border-rose-500/40 bg-rose-500/10 p-1.5 text-rose-100 hover:bg-rose-500/20"
+                    title="Archive assignment"
+                    aria-label="Archive assignment"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </span>
+              </div>
             ))}
             {!assignments.length && <div className="bg-slate-950 px-3 py-3 text-xs font-semibold text-slate-500">No assignments for this resource yet.</div>}
           </div>
@@ -294,6 +396,8 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
   const [filters, setFilters] = useState({ query: "", grade: "all", subject: "all", schoolYear: "2026-2027", activeOnly: true });
   const [status, setStatus] = useState("Loading curriculum catalog...");
   const [lookupStatus, setLookupStatus] = useState("");
+  const [resourceEditorOpen, setResourceEditorOpen] = useState(false);
+  const [resourceEditorMode, setResourceEditorMode] = useState("add");
   const [busy, setBusy] = useState(false);
 
   const selectedResource = useMemo(() => resources.find((resource) => resource.id === selectedId) || null, [resources, selectedId]);
@@ -331,6 +435,21 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
     setLookupStatus("");
   }
 
+  function openNewResource() {
+    setResourceEditorMode("add");
+    setResourceDraft({ ...emptyCurriculumResource });
+    setLookupStatus("");
+    setResourceEditorOpen(true);
+  }
+
+  function openEditResource() {
+    if (!selectedResource) return;
+    setResourceEditorMode("edit");
+    setResourceDraft({ ...selectedResource });
+    setLookupStatus("");
+    setResourceEditorOpen(true);
+  }
+
   async function handleLookup() {
     try {
       setBusy(true);
@@ -338,6 +457,8 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
       const result = await lookupCurriculumIsbn(resourceDraft.isbn13 || resourceDraft.isbn10);
       if (result.existing) {
         selectResource(result.existing);
+        setResourceEditorMode("edit");
+        setResourceEditorOpen(true);
         setLookupStatus("That ISBN already exists. Loaded the existing curriculum resource.");
         return;
       }
@@ -371,6 +492,7 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
         setSelectedId(saved.id);
         setResourceDraft(saved);
       }
+      setResourceEditorOpen(false);
       setStatus(archived ? "Curriculum resource archived." : "Curriculum resource saved.");
     } catch (error) {
       setStatus(`Unable to save curriculum: ${error.message}`);
@@ -388,6 +510,22 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
       setStatus("Curriculum assignment saved.");
     } catch (error) {
       setStatus(`Unable to save assignment: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleArchiveAssignment(assignment) {
+    if (!assignment?.id) return;
+    if (!window.confirm(`Archive this ${assignment.gradeLevel} ${assignment.subject} assignment?`)) return;
+    try {
+      setBusy(true);
+      await archiveCurriculumAssignment(assignment.id, currentUserEmail);
+      setAssignmentDraft({ ...emptyCurriculumAssignment, resourceId: selectedId });
+      await loadData();
+      setStatus("Curriculum assignment archived.");
+    } catch (error) {
+      setStatus(`Unable to archive assignment: ${error.message}`);
     } finally {
       setBusy(false);
     }
@@ -414,9 +552,14 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
             <div className="flex items-center gap-2 text-lg font-bold text-white"><BookOpen size={20} className="text-sky-300" /> Curriculum</div>
             <div className="mt-1 text-xs text-slate-500">Private first-version catalog for K-12 resources, assignments, ISBN lookup, and year-end inventory counts.</div>
           </div>
-          <ActionButton type="button" onClick={loadData} disabled={busy}>
-            <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Refresh
-          </ActionButton>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton type="button" tone="sky" onClick={openNewResource} disabled={!canManage || busy}>
+              <Plus size={14} /> Add Curriculum
+            </ActionButton>
+            <ActionButton type="button" onClick={loadData} disabled={busy}>
+              <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Refresh
+            </ActionButton>
+          </div>
         </div>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_140px_170px_150px_auto]">
           <Field label="Search"><Input value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Title, author, publisher, ISBN..." /></Field>
@@ -441,11 +584,14 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
         <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{status}</div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[430px_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[460px_1fr]">
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-bold text-white">Catalog</div>
-            <div className="text-xs font-semibold text-slate-500">{filteredResources.length} shown</div>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-bold text-white">Catalog</div>
+              <div className="mt-0.5 text-xs text-slate-500">Browse, filter, and select a resource.</div>
+            </div>
+            <div className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs font-bold text-slate-300">{filteredResources.length} shown</div>
           </div>
           <div className="max-h-[760px] space-y-2 overflow-y-auto pr-1">
             {filteredResources.map((resource) => {
@@ -455,7 +601,7 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
                   key={resource.id}
                   type="button"
                   onClick={() => selectResource(resource)}
-                  className={`grid w-full grid-cols-[72px_1fr] gap-3 rounded-lg border p-2 text-left transition hover:bg-slate-800 ${selectedId === resource.id ? "border-sky-500/60 bg-sky-500/10" : "border-slate-800 bg-slate-950"}`}
+                  className={`grid w-full grid-cols-[72px_1fr] gap-3 rounded-lg border p-2 text-left transition hover:-translate-y-0.5 hover:bg-slate-800 ${selectedId === resource.id ? "border-sky-500/60 bg-sky-500/10 shadow-lg shadow-sky-950/20" : "border-slate-800 bg-slate-950"}`}
                 >
                   {coverBlock(resource, true)}
                   <span className="min-w-0">
@@ -476,11 +622,30 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
         </div>
 
         <div className="space-y-4">
-          <ResourceEditor draft={resourceDraft} setDraft={setResourceDraft} onSave={handleSaveResource} onLookup={handleLookup} lookupStatus={lookupStatus} busy={busy} canManage={canManage} />
-          <AssignmentPanel selectedResource={selectedResource} assignments={selectedAssignments} assignmentDraft={assignmentDraft.resourceId ? assignmentDraft : { ...assignmentDraft, resourceId: selectedId }} setAssignmentDraft={setAssignmentDraft} onSaveAssignment={handleSaveAssignment} canManage={canManage} busy={busy} />
+          <ResourceDetail resource={selectedResource} assignments={selectedAssignments} submissions={selectedSubmissions} onEdit={openEditResource} canManage={canManage} />
+          <AssignmentPanel selectedResource={selectedResource} assignments={selectedAssignments} assignmentDraft={assignmentDraft.resourceId ? assignmentDraft : { ...assignmentDraft, resourceId: selectedId }} setAssignmentDraft={setAssignmentDraft} onSaveAssignment={handleSaveAssignment} onArchiveAssignment={handleArchiveAssignment} canManage={canManage} busy={busy} />
           <InventoryPanel selectedResource={selectedResource} assignments={selectedAssignments} submissions={selectedSubmissions} currentUserEmail={currentUserEmail} onSubmit={handleInventorySubmit} busy={busy} />
         </div>
       </div>
+
+      {resourceEditorOpen && (
+        <Modal
+          title={resourceEditorMode === "edit" ? "Edit Curriculum" : "Add Curriculum"}
+          subtitle={resourceEditorMode === "edit" ? "Update the selected resource without changing other catalog items." : "Create a new title by ISBN lookup or manual entry."}
+          onClose={() => setResourceEditorOpen(false)}
+        >
+          <ResourceEditor
+            draft={resourceDraft}
+            setDraft={setResourceDraft}
+            onSave={handleSaveResource}
+            onLookup={handleLookup}
+            lookupStatus={lookupStatus}
+            busy={busy}
+            canManage={canManage}
+            onCancel={() => setResourceEditorOpen(false)}
+          />
+        </Modal>
+      )}
     </div>
   );
 }
