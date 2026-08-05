@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BriefcaseBusiness, ChevronDown } from "lucide-react";
 import StaffContractsModule from "../staffContracts/StaffContractsModule.jsx";
+import CurriculumModule from "./CurriculumModule.jsx";
 import StaffPayrollModule from "./StaffPayrollModule.jsx";
 import { STAFF_CONTRACT_ADMIN_EMAIL } from "../../lib/staffContractsData.js";
 
@@ -38,6 +39,7 @@ export default function StaffModule({ currentUserEmail = "" }) {
           >
             <option value="contracts">Staff Contracts</option>
             <option value="payroll">Staff Payroll</option>
+            <option value="curriculum">Curriculum</option>
           </select>
           <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
         </label>
@@ -45,6 +47,7 @@ export default function StaffModule({ currentUserEmail = "" }) {
 
       {view === "contracts" && <StaffContractsModule currentUserEmail={currentUserEmail} payrollContractSeed={contractSeed} />}
       {view === "payroll" && <StaffPayrollModule currentUserEmail={currentUserEmail} onCreateContractFromPayroll={createContractFromPayroll} />}
+      {view === "curriculum" && <CurriculumModule currentUserEmail={currentUserEmail} />}
     </section>
   );
 }
