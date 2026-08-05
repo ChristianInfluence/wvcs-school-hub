@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, BookOpen, CheckCircle2, History, Layers3, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { Archive, BookOpen, CheckCircle2, Database, History, Layers3, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import {
   CURRICULUM_GRADES,
   CURRICULUM_SUBJECTS,
@@ -15,6 +15,8 @@ import {
   saveCurriculumResource,
   submitCurriculumInventory,
 } from "../../lib/curriculumData.js";
+import { normalizeIsbn } from "../../lib/isbnUtils.js";
+import { MS_HS_CURRICULUM_STARTER } from "../../lib/curriculumStarterData.js";
 
 function cleanAuthors(authors) {
   if (Array.isArray(authors)) return authors.join(", ");
@@ -22,6 +24,7 @@ function cleanAuthors(authors) {
 }
 
 function gradeLabel(grade) {
+  if (grade === "MS/HS") return "MS/HS";
   return grade === "K" ? "Kindergarten" : `Grade ${grade}`;
 }
 
@@ -122,6 +125,38 @@ function assignmentSummary(assignments = []) {
     .slice(0, 3)
     .map((assignment) => `${assignment.gradeLevel} ${assignment.subject}${assignment.courseName ? `: ${assignment.courseName}` : ""}`)
     .join(" | ");
+}
+
+function normalizeComparable(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function starterResourceKey(item = {}) {
+  const normalized = normalizeIsbn(item.sourceCode || item.isbn13 || item.isbn10 || "");
+  return [
+    item.title,
+    item.publisher,
+    normalized.valid ? normalized.isbn13 || normalized.isbn10 || normalized.isbn : "",
+  ].map(normalizeComparable).join("|");
+}
+
+function starterItemToResource(item = {}) {
+  const normalized = normalizeIsbn(item.sourceCode || "");
+  const notes = [
+    "Imported from MS/HS curriculum inventory spreadsheet.",
+    item.notes || "",
+  ].filter(Boolean).join(" ");
+  return {
+    ...emptyCurriculumResource,
+    title: item.title || "",
+    publisher: item.publisher || "",
+    isbn10: normalized.valid ? normalized.isbn10 || (normalized.type === "ISBN-10" ? normalized.isbn : "") : "",
+    isbn13: normalized.valid ? normalized.isbn13 : "",
+    quantityOnHand: item.quantityOnHand || 0,
+    materialType: item.materialType || "Textbook",
+    reusable: item.reusable !== false,
+    description: notes,
+  };
 }
 
 function ResourceEditor({ draft, setDraft, onSave, onLookup, lookupStatus, busy, canManage, onCancel }) {
@@ -404,6 +439,10 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
   const selectedAssignments = useMemo(() => assignments.filter((assignment) => assignment.resourceId === selectedId && assignment.active), [assignments, selectedId]);
   const selectedSubmissions = useMemo(() => submissions.filter((submission) => submission.resourceId === selectedId), [submissions, selectedId]);
   const filteredResources = useMemo(() => resources.filter((resource) => resourceMatches(resource, assignments, filters)), [resources, assignments, filters]);
+  const starterImportCount = useMemo(() => {
+    const existingKeys = new Set(resources.map((resource) => starterResourceKey({ title: resource.title, publisher: resource.publisher, sourceCode: resource.isbn13 || resource.isbn10 })));
+    return MS_HS_CURRICULUM_STARTER.filter((item) => !existingKeys.has(starterResourceKey(item))).length;
+  }, [resources]);
 
   async function loadData() {
     try {
@@ -531,6 +570,58 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
     }
   }
 
+  async function importStarterCurriculum() {
+    if (!canManage) return;
+    const confirmed = window.confirm(`Import ${MS_HS_CURRICULUM_STARTER.length} MS/HS curriculum starter rows from the spreadsheet? Existing matching titles will be skipped.`);
+    if (!confirmed) return;
+    try {
+      setBusy(true);
+      setStatus("Importing MS/HS starter curriculum...");
+      const existingByKey = new Map(resources.map((resource) => [starterResourceKey({ title: resource.title, publisher: resource.publisher, sourceCode: resource.isbn13 || resource.isbn10 }), resource]));
+      let created = 0;
+      let skipped = 0;
+      let assignmentCount = 0;
+      for (const item of MS_HS_CURRICULUM_STARTER) {
+        const key = starterResourceKey(item);
+        let resource = existingByKey.get(key);
+        if (resource) {
+          skipped += 1;
+        } else {
+          resource = await saveCurriculumResource(starterItemToResource(item), currentUserEmail);
+          existingByKey.set(key, resource);
+          created += 1;
+        }
+        const grades = item.gradeLevels?.length ? item.gradeLevels : ["MS/HS"];
+        for (const grade of grades) {
+          const alreadyAssigned = assignments.some((assignment) =>
+            assignment.resourceId === resource.id &&
+            assignment.gradeLevel === grade &&
+            normalizeComparable(assignment.subject) === normalizeComparable(item.subject) &&
+            assignment.schoolYear === "2026-2027" &&
+            assignment.active
+          );
+          if (alreadyAssigned) continue;
+          await saveCurriculumAssignment({
+            ...emptyCurriculumAssignment,
+            resourceId: resource.id,
+            gradeLevel: grade,
+            subject: item.subject || "Other",
+            courseName: item.title || "",
+            schoolYear: "2026-2027",
+            notes: item.notes || "Imported from MS/HS curriculum inventory spreadsheet.",
+          }, currentUserEmail);
+          assignmentCount += 1;
+        }
+      }
+      await loadData();
+      setStatus(`MS/HS starter import complete: ${created} created, ${skipped} skipped, ${assignmentCount} assignment${assignmentCount === 1 ? "" : "s"} added.`);
+    } catch (error) {
+      setStatus(`Unable to import starter curriculum: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleInventorySubmit(draft) {
     try {
       setBusy(true);
@@ -555,6 +646,9 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
           <div className="flex flex-wrap gap-2">
             <ActionButton type="button" tone="sky" onClick={openNewResource} disabled={!canManage || busy}>
               <Plus size={14} /> Add Curriculum
+            </ActionButton>
+            <ActionButton type="button" tone="emerald" onClick={importStarterCurriculum} disabled={!canManage || busy || !starterImportCount}>
+              <Database size={14} /> Load MS/HS Base
             </ActionButton>
             <ActionButton type="button" onClick={loadData} disabled={busy}>
               <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Refresh
@@ -582,6 +676,9 @@ export default function CurriculumModule({ currentUserEmail = "" }) {
           </label>
         </div>
         <div className="mt-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{status}</div>
+        <div className="mt-2 text-[11px] font-semibold text-slate-500">
+          MS/HS starter list: {MS_HS_CURRICULUM_STARTER.length} spreadsheet rows available{starterImportCount ? `, about ${starterImportCount} not yet loaded` : ", already loaded or matched"}.
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[460px_1fr]">

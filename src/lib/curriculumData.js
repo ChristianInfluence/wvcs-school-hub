@@ -6,8 +6,8 @@ const RESOURCES_STORE_KEY = "wvcs-curriculum-resources-v1";
 const ASSIGNMENTS_STORE_KEY = "wvcs-curriculum-assignments-v1";
 const SUBMISSIONS_STORE_KEY = "wvcs-curriculum-inventory-submissions-v1";
 
-export const CURRICULUM_GRADES = ["K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-export const CURRICULUM_SUBJECTS = ["Bible", "Language Arts", "Math", "Science", "Social Studies", "History", "Writing", "Reading", "Spelling", "Art", "Music", "PE", "Elective", "Other"];
+export const CURRICULUM_GRADES = ["K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "MS/HS"];
+export const CURRICULUM_SUBJECTS = ["Bible", "Language Arts", "Math", "Science", "Social Studies", "Foreign Language", "Career Development", "Home Economics", "Yearbook", "Health", "History", "Writing", "Reading", "Spelling", "Art", "Music", "PE", "Elective", "Other"];
 export const MATERIAL_TYPES = ["Textbook", "Workbook", "Teacher Guide", "Reader", "Lab Manual", "Digital Resource", "Other"];
 
 export const emptyCurriculumResource = {
