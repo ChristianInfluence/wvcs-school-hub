@@ -217,6 +217,12 @@ export async function saveStaffContract(contract, currentUserEmail = "") {
   return mapRow(data);
 }
 
+export async function deleteStaffContract(contractId, currentUserEmail = "") {
+  if (!isSupabaseConfigured) throw new Error("Supabase is not configured.");
+  if (!contractId) throw new Error("Select a contract to delete.");
+  return staffContractAction("delete", { contractId, currentUserEmail });
+}
+
 export async function staffContractAction(action, body = {}) {
   if (!isSupabaseConfigured) throw new Error("Supabase is not configured.");
   const { data, error } = await supabase.functions.invoke("staff-contract-action", { body: { action, ...body } });

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, FileSignature, Mail, Plus, Printer, RefreshCw, Save, Send, UserCheck } from "lucide-react";
+import { CheckCircle2, FileSignature, Mail, Plus, Printer, RefreshCw, Save, Send, Trash2, UserCheck } from "lucide-react";
 import {
   calculateStaffCompensation,
   currency,
   DEFAULT_STAFF_CONTRACT,
   DEFAULT_WORK_DAY_BREAKDOWN,
+  deleteStaffContract,
   fetchStaffContracts,
   formatHours,
   saveStaffContract,
@@ -365,6 +366,7 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
   const [contractSort, setContractSort] = useState("name-asc");
   const [boardEmail, setBoardEmail] = useState("");
   const [selectedBoardIds, setSelectedBoardIds] = useState([]);
+  const [contractToDelete, setContractToDelete] = useState(null);
 
   const compensation = useMemo(() => calculateStaffCompensation(draft), [draft]);
   const filtered = useMemo(() => {
@@ -413,12 +415,14 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
   function selectContract(contract) {
     setSelectedId(contract.id);
     setDraft({ ...DEFAULT_STAFF_CONTRACT, ...contract });
+    setContractToDelete(null);
     setStatus("");
   }
 
   function newContract() {
     setSelectedId("");
     setDraft({ ...DEFAULT_STAFF_CONTRACT, customAdjustments: [] });
+    setContractToDelete(null);
     setStatus("Started a new contract packet.");
   }
 
@@ -434,6 +438,25 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
     } catch (error) {
       setStatus(error.message);
       throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteContract(contract) {
+    if (!contract?.id) return;
+    setBusy(true);
+    try {
+      await deleteStaffContract(contract.id, currentUserEmail);
+      if (selectedId === contract.id) {
+        setSelectedId("");
+        setDraft({ ...DEFAULT_STAFF_CONTRACT, customAdjustments: [] });
+      }
+      setContractToDelete(null);
+      await load();
+      setStatus(`Deleted ${contract.staffName || "contract"}${contract.schoolYear ? ` (${contract.schoolYear})` : ""}.`);
+    } catch (error) {
+      setStatus(`Unable to delete contract: ${error.message}`);
     } finally {
       setBusy(false);
     }
@@ -630,13 +653,52 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
         </details>
         <div className="mt-2 max-h-[74vh] space-y-1 overflow-auto pr-1">
           {filtered.map((contract) => (
-            <button key={contract.id} type="button" onClick={() => selectContract(contract)} className={`w-full rounded-md border px-2 py-1.5 text-left transition ${selectedId === contract.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950 hover:bg-slate-800"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 truncate text-xs font-bold text-white">{contract.staffName || "Unnamed"}</div>
-                <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold leading-none ${statusTone(contract.status)}`}>{contract.status}</span>
+            <div key={contract.id} className={`rounded-md border transition ${selectedId === contract.id ? "border-sky-400 bg-sky-500/15" : "border-slate-800 bg-slate-950"}`}>
+              <div className="grid grid-cols-[1fr_auto] items-stretch">
+                <button type="button" onClick={() => selectContract(contract)} className="min-w-0 px-2 py-1.5 text-left hover:bg-slate-800/70">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 truncate text-xs font-bold text-white">{contract.staffName || "Unnamed"}</div>
+                    <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold leading-none ${statusTone(contract.status)}`}>{contract.status}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{contract.schoolYear || "No year"}{contract.positionTitle ? ` | ${contract.positionTitle}` : ""}</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContractToDelete(contract)}
+                  className="border-l border-slate-800 px-2 text-slate-500 hover:bg-rose-500/10 hover:text-rose-200"
+                  title={`Delete ${contract.staffName || "contract"}`}
+                  aria-label={`Delete ${contract.staffName || "contract"}`}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
-              <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{contract.schoolYear || "No year"}{contract.positionTitle ? ` | ${contract.positionTitle}` : ""}</div>
-            </button>
+              {contractToDelete?.id === contract.id && (
+                <div className="border-t border-rose-500/30 bg-rose-500/10 p-2">
+                  <div className="text-[11px] font-bold text-rose-50">Delete this contract?</div>
+                  <div className="mt-0.5 text-[10px] leading-4 text-rose-100/80">
+                    This removes the saved contract record for {contract.staffName || "this staff member"}.
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setContractToDelete(null)}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-200 hover:bg-slate-800"
+                    >
+                      Keep
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-busy={busy}
+                      onClick={() => deleteContract(contract)}
+                      className="rounded-md border border-rose-400 bg-rose-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </aside>

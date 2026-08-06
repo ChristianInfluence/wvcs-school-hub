@@ -360,6 +360,21 @@ Deno.serve(async (request) => {
       return new Response(JSON.stringify({ ok: true, contract: mapRow(updated) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "delete") {
+      await requireAdmin(supabase, request);
+      const contractId = String(payload.contractId || "");
+      if (!contractId) throw new Error("Select a contract to delete.");
+      const { data, error } = await supabase
+        .from("staff_contracts")
+        .delete()
+        .eq("id", contractId)
+        .select("id, staff_name, school_year")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error("Contract record was not found.");
+      return new Response(JSON.stringify({ ok: true, deleted: true, contractId: data.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "bulk-send-board") {
       const actorEmail = await requireAdmin(supabase, request);
       const recipient = normalizeEmail(payload.boardEmail || "");
