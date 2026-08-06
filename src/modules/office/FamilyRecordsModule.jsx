@@ -118,6 +118,19 @@ function sanitizeFamilyInviteRecipients(family, recipients = []) {
   return uniqueBy((recipients || []).map(normalizeEmail).filter((email) => allowedEmails.includes(email)), (email) => email);
 }
 
+function familyInviteParentOptions(family) {
+  return uniqueBy(
+    (family?.parents || [])
+      .map((parent) => ({
+        ...parent,
+        email: normalizeEmail(parent.email),
+        name: String(parent.name || "").trim(),
+      }))
+      .filter((parent) => parent.email),
+    (parent) => parent.email
+  );
+}
+
 function familyMergeKey(family) {
   const emails = familyContactEmails(family).sort();
   if (emails.length) return `emails:${emails.join("|")}`;
@@ -528,6 +541,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
   const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey || family.familyKeys?.includes(selectedFamilyKey)) || filteredFamilies[0] || null;
+  const selectedInviteParentOptions = useMemo(() => familyInviteParentOptions(selectedFamily), [selectedFamily]);
+  const selectedInviteOptionEmails = useMemo(() => selectedInviteParentOptions.map((parent) => parent.email), [selectedInviteParentOptions]);
   const selectedInviteRecipients = selectedFamily ? sanitizeFamilyInviteRecipients(selectedFamily, inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || []) : [];
   const backgroundContactOptions = useMemo(() => familySummaries.flatMap((family) => (family.parents || [])
     .filter((parent) => parent.email || parent.name)
@@ -563,6 +578,16 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       .filter((row) => !backgroundMasterSearch.trim() || row.searchText.includes(backgroundMasterSearch.trim().toLowerCase()))
       .sort((a, b) => a.parentName.localeCompare(b.parentName, undefined, { sensitivity: "base" }));
   }, [backgroundContactOptions, backgroundMasterSearch, data.backgroundChecks]);
+
+  useEffect(() => {
+    if (!selectedFamily) return;
+    setInviteDrafts((current) => {
+      const cleanRecipients = sanitizeFamilyInviteRecipients(selectedFamily, current[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || []);
+      const currentRecipients = current[selectedFamily.familyKey] || [];
+      if (cleanRecipients.join("|") === currentRecipients.map(normalizeEmail).join("|")) return current;
+      return { ...current, [selectedFamily.familyKey]: cleanRecipients };
+    });
+  }, [selectedFamily]);
   const timeline = selectedFamily
     ? [
         ...selectedFamily.incidentalInvoices.map((invoice) => ({
@@ -1229,8 +1254,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                   <div className="mt-3 border-t border-slate-200 pt-3">
                     <div className="font-bold text-slate-900">Send Family Portal Invite</div>
                     <div className="mt-2 grid gap-2">
-                      {(selectedFamily.parents || []).filter((parent) => parent.email).map((parent) => {
-                        const email = parent.email.toLowerCase();
+                      {selectedInviteParentOptions.map((parent) => {
+                        const email = parent.email;
                         const checked = selectedInviteRecipients.includes(email);
                         return (
                           <label key={email} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white px-2 py-2">
@@ -1242,7 +1267,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                           </label>
                         );
                       })}
-                      {!(selectedFamily.parents || []).some((parent) => parent.email) && <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900">No parent emails are attached to this family.</div>}
+                      {!selectedInviteOptionEmails.length && <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900">No parent emails are attached to this family.</div>}
                     </div>
                     <button
                       type="button"
