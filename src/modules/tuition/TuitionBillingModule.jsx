@@ -48,7 +48,7 @@ const DISCOUNT_OPTIONS = [
 const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cashier's check, or money order by August 28th.";
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
-const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Full-pay Tuition", "Other"];
+const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Tuition", "Other"];
 
 function createBlankParent() {
   return {
@@ -283,7 +283,8 @@ function incidentalTotal(invoice) {
 }
 
 function normalizeIncidentalCharge(charge = {}) {
-  const category = INCIDENTAL_CHARGE_CATEGORIES.includes(charge.category) ? charge.category : "Other";
+  const categoryName = charge.category === "Full-pay Tuition" ? "Tuition" : charge.category;
+  const category = INCIDENTAL_CHARGE_CATEGORIES.includes(categoryName) ? categoryName : "Other";
   return {
     ...charge,
     id: charge.id || uid("charge"),
@@ -457,8 +458,8 @@ function tuitionRecordToReceivable(record) {
       dueDate: tuitionInvoice.dueDate || tuitionInvoice.invoiceDate || String(record.createdAt || today).slice(0, 10),
       charges: [
         {
-          id: "full-pay-tuition",
-          category: "Full-pay Tuition",
+          id: "tuition",
+          category: "Tuition",
           description: `${tuitionInvoice.schoolYear || record.schoolYear || "School year"} tuition breakdown`,
           amount: total.toFixed(2),
         },
@@ -469,7 +470,7 @@ function tuitionRecordToReceivable(record) {
       checkNumber: record.checkNumber || tuitionInvoice.checkNumber || "",
       sentAt: record.sentAt || tuitionInvoice.sentAt || "",
       sentTo: record.sentTo || tuitionInvoice.sentTo || [],
-      note: "Full-pay tuition breakdown. Monthly FACTS payments are not recorded in the Hub.",
+      note: "Tuition breakdown. Monthly FACTS payments are not recorded in the Hub.",
     },
   };
 }
@@ -494,13 +495,51 @@ function getReceivableTotals(records) {
   );
 }
 
-function getChargeCategoryTotals(records) {
+function receivablePaymentReceivedAt(record) {
+  const invoice = getRecordInvoice(record);
+  const paymentDates = getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .map((payment) => payment.date || payment.createdAt || "")
+    .filter(Boolean)
+    .sort();
+  return paymentDates.at(-1) || invoice.paidAt || record.paidAt || "";
+}
+
+function receivableReceivedAt(record) {
+  return receivablePaymentReceivedAt(record) || getRecordInvoice(record).sentAt || record.sentAt || getRecordInvoice(record).invoiceDate || record.updatedAt || record.createdAt || "";
+}
+
+function receivableMonthKey(record) {
+  const receivedAt = receivablePaymentReceivedAt(record);
+  return receivedAt ? String(receivedAt).slice(0, 7) : "";
+}
+
+function formatMonthKey(value) {
+  if (!value) return "";
+  return new Date(`${value}-01T12:00:00`).toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+function sortReceivablesByReceived(records) {
+  return [...records].sort((a, b) => {
+    const dateCompare = String(receivableReceivedAt(b)).localeCompare(String(receivableReceivedAt(a)));
+    if (dateCompare) return dateCompare;
+    return String(getRecordInvoice(a).familyName || "").localeCompare(String(getRecordInvoice(b).familyName || ""), undefined, { sensitivity: "base" });
+  });
+}
+
+function getChargeCategoryTotals(records, { receivedOnly = false } = {}) {
   const totals = Object.fromEntries(INCIDENTAL_CHARGE_CATEGORIES.map((category) => [category, 0]));
   records.forEach((record) => {
     const invoice = getRecordInvoice(record);
+    const received = incidentalPaidTotal(invoice);
+    const invoiceTotal = incidentalTotal(invoice);
+    if (receivedOnly && received <= 0) return;
     (invoice.charges || []).forEach((charge) => {
       const normalized = normalizeIncidentalCharge(charge);
-      totals[normalized.category] = (totals[normalized.category] || 0) + money(normalized.amount);
+      const amount = (receivedOnly || received > 0) && invoiceTotal > 0
+        ? Math.min(money(normalized.amount), money(normalized.amount) / invoiceTotal * received)
+        : money(normalized.amount);
+      totals[normalized.category] = (totals[normalized.category] || 0) + amount;
     });
   });
   return INCIDENTAL_CHARGE_CATEGORIES.map((category) => ({ category, amount: totals[category] || 0 }));
@@ -1280,6 +1319,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [receivablesSearch, setReceivablesSearch] = useState("");
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
   const [receivablesCategoryFilter, setReceivablesCategoryFilter] = useState("all");
+  const [receivablesMonthFilter, setReceivablesMonthFilter] = useState("all");
   const [manualReceivableOpen, setManualReceivableOpen] = useState(false);
   const [manualReceivableDraft, setManualReceivableDraft] = useState(createManualReceivableDraft);
   const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
@@ -1333,9 +1373,13 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     ],
     [savedIncidentalInvoices, savedInvoices]
   );
+  const receivableMonthOptions = useMemo(
+    () => [...new Set(accountsReceivableRecords.map(receivableMonthKey).filter(Boolean))].sort().reverse(),
+    [accountsReceivableRecords]
+  );
   const filteredReceivables = useMemo(
     () =>
-      accountsReceivableRecords
+      sortReceivablesByReceived(accountsReceivableRecords
         .filter((record) => {
           const invoice = getRecordInvoice(record);
           const status = getIncidentalPaymentStatus(invoice);
@@ -1345,13 +1389,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           if (receivablesStatusFilter === "voided") return status === "Voided";
           return true;
         })
+        .filter((record) => receivablesMonthFilter === "all" || receivableMonthKey(record) === receivablesMonthFilter)
         .filter((record) => invoiceHasCategory(record, receivablesCategoryFilter))
-        .filter((record) => recordMatchesSearch(record, receivablesSearch)),
-    [accountsReceivableRecords, receivablesSearch, receivablesStatusFilter, receivablesCategoryFilter]
+        .filter((record) => recordMatchesSearch(record, receivablesSearch))),
+    [accountsReceivableRecords, receivablesSearch, receivablesStatusFilter, receivablesCategoryFilter, receivablesMonthFilter]
   );
-  const receivableTotals = useMemo(() => getReceivableTotals(accountsReceivableRecords), [accountsReceivableRecords]);
-  const receivableCategoryTotals = useMemo(() => getChargeCategoryTotals(filteredReceivables), [filteredReceivables]);
-  const agingBuckets = useMemo(() => getAgingBuckets(accountsReceivableRecords), [accountsReceivableRecords]);
+  const receivableTotals = useMemo(() => getReceivableTotals(filteredReceivables), [filteredReceivables]);
+  const receivableCategoryTotals = useMemo(
+    () => getChargeCategoryTotals(filteredReceivables, { receivedOnly: receivablesMonthFilter !== "all" }),
+    [filteredReceivables, receivablesMonthFilter]
+  );
+  const agingBuckets = useMemo(() => getAgingBuckets(filteredReceivables), [filteredReceivables]);
   const compactIncidentalsWorkspace = activeView === "incidentals";
   const ledgerFamilyResults = useMemo(
     () => familyDirectory.filter((family) => familyMatchesSearch(family, ledgerFamilySearch)),
@@ -1978,6 +2026,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       "Charges",
       "Invoice Date",
       "Due Date",
+      "Received Date",
       "Status",
       "Total",
       "Paid",
@@ -1999,6 +2048,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         (invoice.charges || []).map((charge) => `${chargeDisplayName(charge)} ${formatCurrency(charge.amount)}`).join("; "),
         invoice.invoiceDate,
         invoice.dueDate,
+        receivablePaymentReceivedAt(record),
         getIncidentalPaymentStatus(invoice),
         incidentalTotal(invoice).toFixed(2),
         incidentalPaidTotal(invoice).toFixed(2),
@@ -3883,7 +3933,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               </div>
 
               <div className="rounded-lg border border-slate-800 bg-slate-900 p-2">
-                <div className="grid gap-1.5 lg:grid-cols-[minmax(260px,1fr)_120px_140px_92px_88px_82px] lg:items-center">
+                <div className="grid gap-1.5 lg:grid-cols-[minmax(230px,1fr)_120px_128px_132px_92px_88px_82px] lg:items-center">
                   <label className="relative">
                     <Search size={15} className="pointer-events-none absolute left-3 top-2 text-slate-500" />
                     <Input
@@ -3912,6 +3962,16 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     <option value="all">All categories</option>
                     {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
                       <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={receivablesMonthFilter}
+                    onChange={(event) => setReceivablesMonthFilter(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white outline-none focus:border-sky-400"
+                  >
+                    <option value="all">All months</option>
+                    {receivableMonthOptions.map((month) => (
+                      <option key={month} value={month}>{formatMonthKey(month)}</option>
                     ))}
                   </select>
                   <button
@@ -4146,13 +4206,15 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                 <div className="max-h-[720px] overflow-auto">
                   {filteredReceivables.map((record) => {
                     const recordInvoice = getRecordInvoice(record);
+                    const recordReceivedAt = receivablePaymentReceivedAt(record);
+                    const recordActivityAt = receivableReceivedAt(record);
                     return (
                       <div key={record.id} className="grid grid-cols-[minmax(170px,1.25fr)_minmax(125px,.85fr)_76px_76px_86px_84px_112px] gap-1.5 border-b border-slate-800 px-2 py-1.5 text-[11px] last:border-b-0">
                         <div>
                           <div className="font-bold text-white">{recordInvoice.familyName || "Unnamed Family"}</div>
                           {record.receivableType === "tuition" && (
                             <div className="mt-0.5 inline-flex rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-100">
-                              Full-pay Tuition
+                              Tuition
                             </div>
                           )}
                           {isStandaloneReceivable(recordInvoice) ? (
@@ -4162,7 +4224,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           ) : (
                             <div className="mt-0.5 truncate text-slate-500">{getIncidentalStudentSummary(recordInvoice) || "Family roster attached"}</div>
                           )}
-                          {recordInvoice.paidAt && <div className="mt-0.5 text-emerald-300">Paid {formatShortDate(recordInvoice.paidAt)}</div>}
+                          {recordReceivedAt ? (
+                            <div className="mt-0.5 text-emerald-300">Received {formatShortDate(recordReceivedAt)}</div>
+                          ) : (
+                            recordActivityAt && <div className="mt-0.5 text-slate-500">Dated {formatShortDate(recordActivityAt)}</div>
+                          )}
                         </div>
                         <div className="text-slate-300">
                           {(recordInvoice.charges || []).slice(0, 2).map((charge) => (
