@@ -5,7 +5,6 @@ import {
   Calculator,
   CalendarClock,
   CalendarDays,
-  ChevronDown,
   ClipboardCheck,
   Files,
   FileText,
@@ -24,7 +23,6 @@ import {
   Sparkles,
   Utensils,
   X,
-  UserCircle,
   Users,
 } from "lucide-react";
 import ImportantDocumentsModule, { AdminDocumentsModule } from "./modules/documents/ImportantDocumentsModule.jsx";
@@ -46,7 +44,7 @@ import SuggestionsModule, { AdminSuggestionsModule, AdminSupportRequestsModule, 
 import SchedulerModule from "./modules/scheduler/SchedulerModule.jsx";
 import StudentEvaluationModule from "./modules/studentEvaluation/StudentEvaluationModule.jsx";
 import StaffModule from "./modules/staff/StaffModule.jsx";
-import { StaffContractSigningPage } from "./modules/staffContracts/StaffContractsModule.jsx";
+import { buildStaffContractHtml, StaffContractSigningPage } from "./modules/staffContracts/StaffContractsModule.jsx";
 import TuitionBillingModule, { IncidentalPaymentPortalPage } from "./modules/tuition/TuitionBillingModule.jsx";
 import { fetchFormSubmissions } from "./lib/formsData.js";
 import { calculateFosBalance, fetchFamilyPortalAccessRecords, fetchFosEntries, fetchVolunteerDriverApplications } from "./lib/familyPortalData.js";
@@ -54,6 +52,7 @@ import { fetchHubMessageThreads } from "./lib/hubMessagesData.js";
 import { fetchLunchAdminData } from "./lib/lunchData.js";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
 import { fetchIncidentalInvoices } from "./lib/tuitionBillingData.js";
+import { fetchCompletedStaffContractsForEmail } from "./lib/staffContractsData.js";
 import warriorHeadNew from "./assets/warrior-head-new.png";
 
 const WVCS_DOMAIN = "wvcs.org";
@@ -1282,40 +1281,122 @@ function getRoleLabels(access) {
 
 function UserProfileMenu({ user, access, signOut }) {
   const [open, setOpen] = useState(false);
+  const [contracts, setContracts] = useState([]);
+  const [contractStatus, setContractStatus] = useState("");
   const displayName = user.user_metadata?.full_name || user.email;
   const roles = getRoleLabels(access);
+  const initials = String(displayName || user.email || "?")
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+
+  useEffect(() => {
+    if (!open || !user.email) return;
+    let cancelled = false;
+    async function loadContracts() {
+      setContractStatus("Checking completed contracts...");
+      const result = await fetchCompletedStaffContractsForEmail(user.email);
+      if (cancelled) return;
+      setContracts(result.contracts || []);
+      setContractStatus(result.loaded ? "" : result.reason || "Completed contracts are not available yet.");
+    }
+    loadContracts().catch((error) => {
+      if (!cancelled) setContractStatus(error.message || "Unable to load completed contracts.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, user.email]);
+
+  function openContract(contract) {
+    const contractWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!contractWindow) {
+      setContractStatus("Allow pop-ups to open the completed contract.");
+      return;
+    }
+    contractWindow.document.open();
+    contractWindow.document.write(buildStaffContractHtml(contract));
+    contractWindow.document.close();
+    contractWindow.focus();
+  }
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-sky-400/50 bg-sky-500/15 text-sm font-black text-sky-100 shadow-sm shadow-sky-950/30 transition hover:bg-sky-500/25"
+        title="User profile"
+        aria-label="Open user profile"
       >
-        <UserCircle size={16} className="text-sky-300" />
-        <span className="max-w-[180px] truncate">{user.email}</span>
-        <ChevronDown size={14} className={`transition ${open ? "rotate-180" : ""}`} />
+        {initials}
       </button>
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-800 bg-slate-950 p-3 text-left shadow-2xl shadow-black/40">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">User Profile</div>
-          <div className="mt-2 text-sm font-bold text-white">{displayName}</div>
-          <div className="mt-1 break-all text-xs text-slate-500">{user.email}</div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {roles.map((role) => (
-              <span key={role} className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-200">
-                {role}
-              </span>
-            ))}
+        <div className="absolute right-0 z-40 mt-2 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-left shadow-2xl shadow-black/40">
+          <div className="border-b border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-sky-400/50 bg-sky-500/20 text-base font-black text-sky-100">{initials}</div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">User Profile</div>
+                <div className="mt-1 truncate text-sm font-bold text-white">{displayName}</div>
+                <div className="mt-0.5 break-all text-xs text-slate-500">{user.email}</div>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={signOut}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-          >
-            <LogOut size={16} />
-            Sign Out
-          </button>
+          <div className="p-4">
+            <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Roles</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {roles.map((role) => (
+                <span key={role} className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-200">
+                  {role}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="border-t border-slate-800 p-4">
+            <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Completed Contracts</div>
+            <div className="mt-2 space-y-2">
+              {contracts.map((contract) => (
+                <button
+                  key={contract.id}
+                  type="button"
+                  onClick={() => openContract(contract)}
+                  className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-left transition hover:border-sky-500/60 hover:bg-slate-800"
+                >
+                  <div className="truncate text-sm font-bold text-white">{contract.schoolYear || "School year"} Contract</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{contract.positionTitle || "Staff"} · Complete</div>
+                </button>
+              ))}
+              {!contracts.length && (
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs leading-5 text-slate-500">
+                  {contractStatus || "No completed contracts are available in your profile yet."}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="border-t border-slate-800 p-4">
+            <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Customization</div>
+            <div className="mt-2 grid gap-2">
+              <button type="button" disabled className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-slate-500">
+                Preferred name and avatar color
+              </button>
+              <button type="button" disabled className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-slate-500">
+                Personal dashboard defaults
+              </button>
+            </div>
+          </div>
+          <div className="border-t border-slate-800 p-4">
+            <button
+              type="button"
+              onClick={signOut}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+            >
+              <LogOut size={16} />
+              Sign Out
+            </button>
+          </div>
         </div>
       )}
     </div>

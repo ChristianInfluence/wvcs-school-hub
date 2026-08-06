@@ -190,6 +190,20 @@ export async function fetchStaffContracts() {
   return { loaded: true, contracts: (data || []).map(mapRow) };
 }
 
+export async function fetchCompletedStaffContractsForEmail(email = "") {
+  const staffEmail = normalizeEmail(email);
+  if (!isSupabaseConfigured) return { loaded: false, contracts: [], reason: "Supabase is not configured." };
+  if (!staffEmail) return { loaded: true, contracts: [] };
+  const { data, error } = await supabase
+    .from("staff_contracts")
+    .select("*")
+    .eq("staff_email", staffEmail)
+    .eq("status", "Complete")
+    .order("school_year", { ascending: false });
+  if (error) return { loaded: false, contracts: [], reason: "Completed staff contracts are not available yet." };
+  return { loaded: true, contracts: (data || []).map(mapRow) };
+}
+
 export async function saveStaffContract(contract, currentUserEmail = "") {
   if (!isSupabaseConfigured) throw new Error("Supabase is not configured.");
   if (!contract.staffName?.trim()) throw new Error("Enter the staff member's name.");
