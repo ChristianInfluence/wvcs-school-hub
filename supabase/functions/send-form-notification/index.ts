@@ -23,6 +23,11 @@ function sanitizeHeader(value: string) {
   return String(value || "").replace(/[\r\n]/g, " ").trim();
 }
 
+function getValidEmail(value: any) {
+  const email = sanitizeHeader(String(value || "").trim().toLowerCase());
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
 function escapeHtml(value: any) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -263,6 +268,11 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
   const submitted = status === "Submitted";
   const hasAttachments = attachments.length > 0;
   const subject = `${submitted ? "Form submitted for approval" : approved ? "Approved form" : "Form status"}: ${submission.templateTitle}`;
+  const submitterReplyEmail = getValidEmail(submission.submitterEmail || submission.submitter_email);
+  const submitterReplyName = sanitizeHeader(submission.submitterName || submission.submitter_name || "");
+  const replyToHeader = submitterReplyEmail
+    ? `Reply-To: ${submitterReplyName ? `${submitterReplyName} <${submitterReplyEmail}>` : submitterReplyEmail}`
+    : "";
   const answerLines = buildAnswerLines(submission, template);
   const answerRows = buildAnswerRows(submission, template);
   const recipientActions = payload.approvalActions?.[recipientEmail.toLowerCase()] || {};
@@ -311,12 +321,17 @@ function buildMessage(payload: Record<string, any>, senderEmail: string, recipie
     notesText,
   });
 
-  const parts = [
+  const headerLines = [
     `From: WVCS School Hub <${senderEmail}>`,
     `To: ${recipientEmail}`,
+    replyToHeader,
     `Subject: ${sanitizeHeader(subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ].filter(Boolean);
+
+  const parts = [
+    ...headerLines,
     "",
     `--${boundary}`,
     `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
