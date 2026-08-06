@@ -152,6 +152,11 @@ export function familyNamesMatch(a, b) {
   return Boolean(first && second && first === second);
 }
 
+function isSpecificFamilyName(value) {
+  const normalized = normalizeFamilyName(value);
+  return Boolean(normalized && normalized !== "family" && normalized !== "standalone background checks" && normalized.length > 2);
+}
+
 export function normalizeFamilyEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -227,7 +232,14 @@ export function mergeDirectoryFamilies(families = []) {
 
 export function matchesFamilyRecord(record, family) {
   const familyKeys = new Set([family?.familyKey, ...(family?.familyKeys || [])].filter(Boolean));
-  return familyKeys.has(record?.familyKey) || familyKeys.has(record?.invoice?.familyKey) || familyNamesMatch(record?.familyName || record?.invoice?.familyName, family?.familyName);
+  const recordFamilyKey = record?.familyKey || record?.invoice?.familyKey || "";
+  if (recordFamilyKey && familyKeys.has(recordFamilyKey)) return true;
+
+  const recordEmail = normalizeFamilyEmail(record?.parentEmail || record?.invoice?.parentEmail || record?.submitterEmail || "");
+  if (recordEmail && familyContactEmails(family || {}).includes(recordEmail)) return true;
+
+  const recordFamilyName = record?.familyName || record?.invoice?.familyName || "";
+  return !recordFamilyKey && isSpecificFamilyName(recordFamilyName) && isSpecificFamilyName(family?.familyName) && familyNamesMatch(recordFamilyName, family?.familyName);
 }
 
 function mapFamilyDirectoryRows(rows = []) {
