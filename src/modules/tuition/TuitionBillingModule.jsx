@@ -3925,10 +3925,20 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
               </div>
               <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(112px,1fr))]">
                 {receivableCategoryTotals.map(({ category, amount }) => (
-                  <div key={category} className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1">
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setReceivablesCategoryFilter((current) => (current === category ? "all" : category))}
+                    className={`rounded-md border px-2 py-1 text-left transition ${
+                      receivablesCategoryFilter === category
+                        ? "border-sky-400 bg-sky-500/20 shadow-sm shadow-sky-950/30"
+                        : "border-slate-800 bg-slate-900 hover:border-sky-500/60 hover:bg-slate-800"
+                    }`}
+                    title={`Show ${category} receivables`}
+                  >
                     <div className="truncate text-[9px] font-semibold uppercase text-slate-500">{category}</div>
                     <div className="text-xs font-bold text-white">{formatCurrency(amount)}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -4002,6 +4012,20 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     Refresh
                   </button>
                 </div>
+                {receivablesCategoryFilter !== "all" && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1.5 text-xs text-sky-100">
+                    <span>
+                      Showing {filteredReceivables.length} receivable{filteredReceivables.length === 1 ? "" : "s"} in <span className="font-black">{receivablesCategoryFilter}</span>.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReceivablesCategoryFilter("all")}
+                      className="rounded-md border border-sky-400/40 bg-slate-950 px-2 py-1 text-[11px] font-black text-sky-100 hover:bg-sky-500/20"
+                    >
+                      Show all
+                    </button>
+                  </div>
+                )}
               </div>
 
               {manualReceivableOpen && (
