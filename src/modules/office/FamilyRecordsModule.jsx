@@ -113,6 +113,11 @@ function familyContactEmails(family) {
   return uniqueBy((family.parents || []).map((parent) => normalizeEmail(parent.email)).filter(Boolean), (email) => email);
 }
 
+function sanitizeFamilyInviteRecipients(family, recipients = []) {
+  const allowedEmails = familyContactEmails(family);
+  return uniqueBy((recipients || []).map(normalizeEmail).filter((email) => allowedEmails.includes(email)), (email) => email);
+}
+
 function familyMergeKey(family) {
   const emails = familyContactEmails(family).sort();
   if (emails.length) return `emails:${emails.join("|")}`;
@@ -405,10 +410,14 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         error: directoryResult.reason || tuitionResult.reason || incidentalResult.reason || lunchResult.reason || fosResult.reason || accessResult.reason || adjustmentResult.reason || auditResult.reason || driverResult.reason || studentDriverResult.reason || offCampusLunchResult.reason || backgroundResult.reason || permissionEventsResult.reason || permissionRecipientsResult.reason || permissionSubmissionsResult.reason || formSubmissionsResult.reason || "",
       });
       const inviteMap = {};
+      const familiesByKey = new Map((directoryResult.families || []).flatMap((family) => [
+        [family.familyKey, family],
+        ...((family.familyKeys || []).map((key) => [key, family])),
+      ]));
       (accessResult.access || []).forEach((access) => {
-        inviteMap[access.familyKey] = access.contactEmails || [];
+        inviteMap[access.familyKey] = sanitizeFamilyInviteRecipients(familiesByKey.get(access.familyKey) || {}, access.contactEmails || []);
       });
-      setInviteDrafts((current) => ({ ...inviteMap, ...current }));
+      setInviteDrafts(inviteMap);
       setFosAdjustmentDrafts((current) => ({ ...(adjustmentResult.settings?.families || {}), ...current }));
     } catch (error) {
       setData((current) => ({ ...current, loading: false, error: error.message }));
@@ -519,7 +528,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     .sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 
   const selectedFamily = familySummaries.find((family) => family.familyKey === selectedFamilyKey || family.familyKeys?.includes(selectedFamilyKey)) || filteredFamilies[0] || null;
-  const selectedInviteRecipients = selectedFamily ? inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || [] : [];
+  const selectedInviteRecipients = selectedFamily ? sanitizeFamilyInviteRecipients(selectedFamily, inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || []) : [];
   const backgroundContactOptions = useMemo(() => familySummaries.flatMap((family) => (family.parents || [])
     .filter((parent) => parent.email || parent.name)
     .map((parent) => ({
@@ -608,7 +617,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   }
 
   async function sendPortalInvite(family) {
-    const recipients = inviteDrafts[family.familyKey] || family.access?.contactEmails || [];
+    const recipients = sanitizeFamilyInviteRecipients(family, inviteDrafts[family.familyKey] || family.access?.contactEmails || []);
     if (!recipients.length) {
       setActionStatus("Select at least one parent or guardian email before sending a portal invite.");
       return;
