@@ -81,6 +81,22 @@ export function formatHours(value) {
   return amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+function parseContractDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+export function calculatePaymentMonths(contract = {}) {
+  const start = parseContractDate(contract.contractStart);
+  const end = parseContractDate(contract.contractEnd);
+  if (!start || !end || end <= start) return 12;
+  const averageMonthInMs = 1000 * 60 * 60 * 24 * 30.4375;
+  const estimatedMonths = Math.round((end.getTime() - start.getTime()) / averageMonthInMs);
+  return Math.min(Math.max(estimatedMonths || 12, 1), 24);
+}
+
 export function calculateStaffCompensation(contract = {}) {
   const fte = Math.min(Math.max(Number(contract.fte ?? 1), 0), 1);
   const baseSalary = money(contract.baseSalary || 32000);
@@ -99,6 +115,7 @@ export function calculateStaffCompensation(contract = {}) {
       : DEFAULT_WORK_DAY_BREAKDOWN;
   const sickHours = 40 * fte;
   const personalHours = 16 * fte;
+  const paymentMonths = calculatePaymentMonths(contract);
   return {
     fte,
     baseSalary,
@@ -109,7 +126,8 @@ export function calculateStaffCompensation(contract = {}) {
     customTotal,
     additionalTotal,
     annualSalary,
-    monthlyPayment: annualSalary / 12,
+    paymentMonths,
+    monthlyPayment: annualSalary / paymentMonths,
     sickHours,
     personalHours,
     workDayBreakdown,

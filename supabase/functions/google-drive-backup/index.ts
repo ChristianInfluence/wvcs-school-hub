@@ -781,8 +781,9 @@ async function createStaffContractPdfBlob(row: Record<string, any>) {
   pair("State Certification / Endorsement", currency(compensation.certification));
   custom.forEach((item: Record<string, any>) => pair(item.label || "Custom Adjustment", currency(item.amount)));
   pair("Total Annual Salary", currency(compensation.annualSalary));
+  pair("Payment Term", `${compensation.paymentMonths || 12} monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"}`);
   pair("Monthly Payment", currency(compensation.monthlyPayment));
-  draw("The total annual salary shall be paid in 12 equal monthly payments, September through August. Paychecks will be issued on the 30th day of each month.", margin, 9);
+  draw(`The total salary shall be paid in ${compensation.paymentMonths || 12} equal monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"} during the contract term. Paychecks will be issued on the 30th day of each month unless otherwise arranged by the school office.`, margin, 9);
 
   section("Paid Days and Time Off");
   workDayBreakdown.forEach((item: Record<string, any>) => {

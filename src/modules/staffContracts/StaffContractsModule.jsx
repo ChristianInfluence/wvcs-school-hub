@@ -164,7 +164,7 @@ export function buildStaffContractHtml(contract) {
       <h1>Teacher Contract</h1>
       <p class="lead">Believing that God has led in this decision, the school board of Willamette Valley Christian School has appointed <span class="fill">${contract.staffName || "________________"}</span> as ${contract.positionTitle || "teacher"} for the <span class="fill">${contract.schoolYear || "2026-2027"}</span> school year. This contract begins <span class="fill">${contract.contractStart || "__________"}</span>, and ends <span class="fill">${contract.contractEnd || "__________"}</span>, depending on satisfactory performance of assigned duties. In so doing, we recognize and affirm the ministry of teaching as a God-ordained vocation.</p>
       <p>By accepting this appointment, said teacher specifically acknowledges that this contract is for a limited duration and that all rights and privileges herein shall terminate upon the expiration date of this contract, unless voided earlier pursuant to the provisions below. No rights of tenure or presumption of continued employment are conferred or implied.</p>
-      <p>Gross salary for this period of employment will be <span class="fill">${currency(compensation.annualSalary)}</span>, payable in equal monthly installments on the 30th of each month.</p>
+      <p>Gross salary for this period of employment will be <span class="fill">${currency(compensation.annualSalary)}</span>, payable in ${compensation.paymentMonths || 12} equal monthly installment${(compensation.paymentMonths || 12) === 1 ? "" : "s"} during the contract term on the 30th of each month.</p>
       <h2>Paid Days and Time Off</h2>
       <table>
         <thead><tr><th>Category</th><th>Count</th><th>Dates Included</th></tr></thead>
@@ -207,7 +207,8 @@ export function buildStaffContractHtml(contract) {
           <tr><td>State Certification / Endorsement</td><td class="amount">${currency(compensation.certification)}</td></tr>
           ${customRows.map((item) => `<tr><td>${item.label || "Custom adjustment"}</td><td class="amount">${currency(item.amount)}</td></tr>`).join("")}
           <tr class="total"><td>Total Annual Salary / Compensation</td><td class="amount">${currency(compensation.annualSalary)}</td></tr>
-          <tr><td>Monthly Payment (12 equal payments)</td><td class="amount">${currency(compensation.monthlyPayment)}</td></tr>
+          <tr><td>Payment Term</td><td class="amount">${compensation.paymentMonths || 12} monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"}</td></tr>
+          <tr><td>Monthly Payment</td><td class="amount">${currency(compensation.monthlyPayment)}</td></tr>
         </tbody>
       </table>
       <h2>Paid Days / Leave Hours</h2>
@@ -219,7 +220,7 @@ export function buildStaffContractHtml(contract) {
         </tbody>
       </table>
       <h2>Method of Payment</h2>
-      <p>The total annual salary shall be paid in 12 equal monthly payments, September through August. Paychecks will be issued on the 30th day of each month. Teachers not returning for the next school year will be paid their two remaining months salary on July 30 and August 30.</p>
+      <p>The total salary shall be paid in ${compensation.paymentMonths || 12} equal monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"} during the contract term. Paychecks will be issued on the 30th day of each month unless otherwise arranged by the school office.</p>
       <h2>School Board Action</h2>
       <p>Employment authorized at WVCS School Board meeting of: <span class="fill">${contract.boardMeetingDate || "________________"}</span></p>
       <div class="grid">
@@ -265,6 +266,7 @@ function MobileContractReview({ contract }) {
     ["Contract Dates", `${contract.contractStart || ""} - ${contract.contractEnd || ""}`],
     ["FTE", `${formatFtePercent(compensation.fte)}%`],
     ["Annual Salary", currency(compensation.annualSalary)],
+    ["Payment Term", `${compensation.paymentMonths || 12} monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"}`],
     ["Monthly Payment", currency(compensation.monthlyPayment)],
   ];
   const payRows = [
@@ -843,6 +845,9 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
                     <span className="font-bold text-white">{currency(value)}</span>
                   </div>
                 ))}
+                <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100">
+                  Payment term: {compensation.paymentMonths || 12} monthly payment{(compensation.paymentMonths || 12) === 1 ? "" : "s"} based on contract dates.
+                </div>
               </div>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
