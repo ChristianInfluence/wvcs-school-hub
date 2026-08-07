@@ -789,8 +789,8 @@ async function createStaffContractPdfBlob(row: Record<string, any>) {
   workDayBreakdown.forEach((item: Record<string, any>) => {
     pair(item.category || "Paid Day Category", `${item.count || 0} ${item.unit || "days"}${item.datesIncluded ? ` - ${item.datesIncluded}` : ""}`);
   });
-  pair("Sick / Emergency Time", `${hoursValue(compensation.sickHours)} at ${percentValue(row.fte || 1)} FTE`);
-  pair("Personal Time", `${hoursValue(compensation.personalHours)} at ${percentValue(row.fte || 1)} FTE`);
+  pair("Sick / Emergency Time", `${hoursValue(compensation.sickHours)} at ${percentValue(row.fte || 1)} FTE over ${compensation.paymentMonths || 12} payment month(s)`);
+  pair("Personal Time", `${hoursValue(compensation.personalHours)} at ${percentValue(row.fte || 1)} FTE over ${compensation.paymentMonths || 12} payment month(s)`);
 
   section("Teacher Contract Summary");
   draw(`Believing that God has led in this decision, the school board of Willamette Valley Christian School has appointed ${row.staff_name || "the staff member"} as ${row.position_title || "teacher"} for the ${row.school_year || ""} school year. This contract begins ${row.contract_start || ""} and ends ${row.contract_end || ""}, depending on satisfactory performance of assigned duties.`, margin, 9);

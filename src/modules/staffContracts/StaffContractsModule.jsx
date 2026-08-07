@@ -107,6 +107,10 @@ function formatFtePercent(value) {
   return percent.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+function formatDayCount(value) {
+  return formatHours(value);
+}
+
 function normalizedWorkDayBreakdown(contract) {
   return Array.isArray(contract.workDayBreakdown) && contract.workDayBreakdown.length
     ? contract.workDayBreakdown
@@ -118,7 +122,7 @@ function normalizedWorkDayBreakdown(contract) {
 export function buildStaffContractHtml(contract) {
   const compensation = calculateStaffCompensation(contract);
   const customRows = (contract.customAdjustments || []).filter((item) => item.label || Number(item.amount));
-  const workDayBreakdown = normalizedWorkDayBreakdown(contract);
+  const workDayBreakdown = compensation.workDayBreakdown || normalizedWorkDayBreakdown(contract);
   return `<!doctype html>
 <html>
   <head>
@@ -169,10 +173,10 @@ export function buildStaffContractHtml(contract) {
       <table>
         <thead><tr><th>Category</th><th>Count</th><th>Dates Included</th></tr></thead>
         <tbody>
-          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${item.count || 0} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
+          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${formatDayCount(item.count)} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
         </tbody>
       </table>
-      <p>Annual paid time off is prorated by FTE. At ${formatFtePercent(compensation.fte)}% FTE, this contract includes <span class="fill">${formatHours(compensation.sickHours)} hours</span> of sick/emergency time and <span class="fill">${formatHours(compensation.personalHours)} hours</span> of personal time.</p>
+      <p>Annual paid time off is prorated by FTE and contract term. At ${formatFtePercent(compensation.fte)}% FTE over ${compensation.paymentMonths || 12} monthly payment${(compensation.paymentMonths || 12) === 1 ? "" : "s"}, this contract includes <span class="fill">${formatHours(compensation.sickHours)} hours</span> of sick/emergency time and <span class="fill">${formatHours(compensation.personalHours)} hours</span> of personal time.</p>
       <h2>Conditions of Employment</h2>
       <ol>${conditionItems.map((item) => `<li>${item}</li>`).join("")}</ol>
       <p>I have read and understand the duties, responsibilities, salary, and terms and conditions of this contract.</p>
@@ -214,9 +218,9 @@ export function buildStaffContractHtml(contract) {
       <h2>Paid Days / Leave Hours</h2>
       <table>
         <tbody>
-          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${item.count || 0} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
-          <tr class="total"><td>Sick / Emergency Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.sickHours)} hours</td><td>40 hours annually at 100% FTE, prorated by FTE.</td></tr>
-          <tr class="total"><td>Personal Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.personalHours)} hours</td><td>16 hours annually at 100% FTE, prorated by FTE.</td></tr>
+          ${workDayBreakdown.map((item) => `<tr><td>${item.category || ""}</td><td class="amount">${formatDayCount(item.count)} ${item.unit || "days"}</td><td>${item.datesIncluded || ""}</td></tr>`).join("")}
+          <tr class="total"><td>Sick / Emergency Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.sickHours)} hours</td><td>40 hours annually at 100% FTE, prorated by FTE and contract term.</td></tr>
+          <tr class="total"><td>Personal Time (${formatFtePercent(compensation.fte)}% FTE)</td><td class="amount">${formatHours(compensation.personalHours)} hours</td><td>16 hours annually at 100% FTE, prorated by FTE and contract term.</td></tr>
         </tbody>
       </table>
       <h2>Method of Payment</h2>
@@ -258,7 +262,7 @@ function PrimaryButton({ children, className = "", ...props }) {
 function MobileContractReview({ contract }) {
   const compensation = calculateStaffCompensation(contract);
   const customRows = (contract.customAdjustments || []).filter((item) => item.label || Number(item.amount));
-  const workDayBreakdown = normalizedWorkDayBreakdown(contract);
+  const workDayBreakdown = compensation.workDayBreakdown || normalizedWorkDayBreakdown(contract);
   const detailRows = [
     ["Staff Member", contract.staffName || ""],
     ["Position", contract.positionTitle || "Teacher"],
@@ -341,7 +345,7 @@ function MobileContractReview({ contract }) {
           {workDayBreakdown.map((item, index) => (
             <div key={`${item.category}-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm">
               <div className="font-black text-slate-950">{item.category}</div>
-              <div className="mt-1 text-slate-600">{item.count || 0} {item.unit || "days"} | {item.datesIncluded || ""}</div>
+              <div className="mt-1 text-slate-600">{formatDayCount(item.count)} {item.unit || "days"} | {item.datesIncluded || ""}</div>
             </div>
           ))}
         </div>
@@ -794,7 +798,7 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
             <details className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <summary className="cursor-pointer text-sm font-bold text-white">Paid Days & Time Off</summary>
               <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-                Sick and personal time are calculated from FTE and saved with the contract for future time-off tracking.
+                These are the full-year baseline days. The generated contract prorates contracted days, sick time, and personal time by the selected contract dates.
               </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">

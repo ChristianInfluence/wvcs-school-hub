@@ -108,16 +108,26 @@ export function calculateStaffCompensation(contract = {}) {
   const customTotal = custom.reduce((sum, item) => sum + money(item.amount), 0);
   const additionalTotal = loyalty + masters + certification + customTotal;
   const annualSalary = proratedBase + additionalTotal;
-  const workDayBreakdown = Array.isArray(contract.workDayBreakdown)
+  const baseWorkDayBreakdown = Array.isArray(contract.workDayBreakdown)
     ? contract.workDayBreakdown
     : Array.isArray(contract.compensation?.workDayBreakdown)
       ? contract.compensation.workDayBreakdown
       : DEFAULT_WORK_DAY_BREAKDOWN;
-  const sickHours = 40 * fte;
-  const personalHours = 16 * fte;
   const paymentMonths = calculatePaymentMonths(contract);
+  const termRatio = Math.min(Math.max(paymentMonths / 12, 0), 2);
+  const workDayBreakdown = baseWorkDayBreakdown.map((item) => {
+    const count = Number(item.count || 0);
+    return {
+      ...item,
+      count: Number.isFinite(count) ? Math.round(count * termRatio * 100) / 100 : item.count,
+      fullYearCount: item.fullYearCount ?? item.count,
+    };
+  });
+  const sickHours = 40 * fte * termRatio;
+  const personalHours = 16 * fte * termRatio;
   return {
     fte,
+    termRatio,
     baseSalary,
     proratedBase,
     loyalty,
@@ -130,9 +140,10 @@ export function calculateStaffCompensation(contract = {}) {
     monthlyPayment: annualSalary / paymentMonths,
     sickHours,
     personalHours,
+    baseWorkDayBreakdown,
     workDayBreakdown,
-    totalPaidStaffEmploymentDays: workDayBreakdown.find((item) => item.category === "Total Paid Staff Employment Days")?.count || 187,
-    totalStaffWorkDays: workDayBreakdown.find((item) => item.category === "Total Staff Work Days")?.count || 179,
+    totalPaidStaffEmploymentDays: workDayBreakdown.find((item) => item.category === "Total Paid Staff Employment Days")?.count || Math.round(187 * termRatio * 100) / 100,
+    totalStaffWorkDays: workDayBreakdown.find((item) => item.category === "Total Staff Work Days")?.count || Math.round(179 * termRatio * 100) / 100,
   };
 }
 
@@ -154,7 +165,7 @@ function mapRow(row) {
     hasStateCertification: Boolean(row.has_state_certification),
     customAdjustments: row.custom_adjustments || [],
     compensation: row.compensation || {},
-    workDayBreakdown: row.compensation?.workDayBreakdown || DEFAULT_WORK_DAY_BREAKDOWN,
+    workDayBreakdown: row.compensation?.baseWorkDayBreakdown || row.compensation?.workDayBreakdown || DEFAULT_WORK_DAY_BREAKDOWN,
     adminSignature: row.admin_signature || {},
     staffSignature: row.staff_signature || {},
     boardSignature: row.board_signature || {},
