@@ -715,8 +715,39 @@ export default function StaffContractsModule({ currentUserEmail = "", payrollCon
             <button type="button" disabled={busy || !draft.id} onClick={signAsAdmin} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/50 bg-emerald-500/15 px-3 py-2 text-sm font-bold text-emerald-100 disabled:opacity-50"><UserCheck size={16} /> Sign Admin</button>
             <button type="button" disabled={busy || !draft.id || !draft.adminSignature?.name} onClick={sendToStaff} className="inline-flex items-center gap-2 rounded-lg border border-sky-500/50 bg-sky-500/15 px-3 py-2 text-sm font-bold text-sky-100 disabled:opacity-50"><Mail size={16} /> Send Staff</button>
             <button type="button" disabled={busy || !draft.id || !draft.staffSignature?.name} onClick={sendToBoard} className="inline-flex items-center gap-2 rounded-lg border border-violet-500/50 bg-violet-500/15 px-3 py-2 text-sm font-bold text-violet-100 disabled:opacity-50"><Send size={16} /> Send Board</button>
+            <button type="button" disabled={busy || !draft.id} onClick={() => setContractToDelete(draft)} className="inline-flex items-center gap-2 rounded-lg border border-rose-500/50 bg-rose-500/15 px-3 py-2 text-sm font-bold text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"><Trash2 size={16} /> Delete Contract</button>
           </div>
         </div>
+        {contractToDelete?.id && contractToDelete.id === draft.id && (
+          <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-rose-50">Delete this staff contract?</div>
+                <div className="mt-1 text-xs leading-5 text-rose-100/80">
+                  This removes {contractToDelete.staffName || "this staff member"}{contractToDelete.schoolYear ? ` (${contractToDelete.schoolYear})` : ""} from saved staff contracts.
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setContractToDelete(null)}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  Keep Contract
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-busy={busy}
+                  onClick={() => deleteContract(contractToDelete)}
+                  className="rounded-lg border border-rose-400 bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy ? "Deleting..." : "Delete Contract"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {status && <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200">{status}</div>}
 
         <div className="grid gap-4 xl:grid-cols-[1fr_430px]">
