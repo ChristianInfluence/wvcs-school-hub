@@ -3340,9 +3340,9 @@ function SettingsModal({ settings, onClose, onSave }) {
 function VersionHistoryModal({ versions, versionLabel, status, saving, onClose, onRefresh, onLoad, onDelete, onRename, onDuplicate }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <Card className="w-full max-w-3xl rounded-2xl shadow-xl">
-        <CardContent className="p-5 space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <Card className="relative w-full max-w-3xl rounded-2xl shadow-xl">
+        <CardContent className="max-h-[88vh] space-y-4 overflow-y-auto p-5">
+          <div className="sticky top-0 z-10 -mx-5 -mt-5 flex flex-col gap-3 border-b border-slate-700 bg-slate-900 px-5 py-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-xl font-bold text-white">{versionLabel} Versions</h2>
               <div className="mt-1 text-xs text-slate-400">{status}</div>
@@ -3351,8 +3351,14 @@ function VersionHistoryModal({ versions, versionLabel, status, saving, onClose, 
               <Button variant="outline" onClick={onRefresh} disabled={saving}>
                 <RefreshCw size={16} className="mr-1 inline" /> Refresh
               </Button>
-              <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-800">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-100 shadow-sm transition hover:bg-slate-800"
+                aria-label="Close versions"
+              >
                 <X size={18} />
+                Close
               </button>
             </div>
           </div>
