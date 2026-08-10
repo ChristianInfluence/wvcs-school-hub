@@ -682,7 +682,10 @@ function FieldInput({ field, value, onChange, template = null, error = "" }) {
     const updateEntry = (index, patch) => {
       emit({ entries: entries.map((entry, itemIndex) => (itemIndex === index ? { ...entry, ...patch } : entry)) });
     };
-    const addDate = () => emit({ entries: [...entries.filter((entry) => entry.date || entry.startTime || entry.endTime), { date: "", startTime: "", endTime: "" }] });
+    const addDate = () => onChange({
+      differentTimes: timesAlwaysVisible ? true : repeatable.differentTimes,
+      entries: [...entries, { date: "", startTime: "", endTime: "" }],
+    });
     const removeDate = (index) => {
       const nextEntries = entries.filter((_, itemIndex) => itemIndex !== index);
       emit({ entries: nextEntries.length ? nextEntries : [{ date: "", startTime: "", endTime: "" }] });
