@@ -1403,7 +1403,7 @@ function UserProfileMenu({ user, access, signOut }) {
   );
 }
 
-function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null }) {
+function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null, canManageUsers = false }) {
   const [officeView, setOfficeView] = useState("incidentals");
 
   useEffect(() => {
@@ -1459,7 +1459,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
         />
       )}
       {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} currentUserEmail={currentUserEmail} />}
-      {officeView === "office-settings" && <OfficeFinanceSettingsModule currentUserEmail={currentUserEmail} />}
+      {officeView === "office-settings" && <OfficeFinanceSettingsModule currentUserEmail={currentUserEmail} canManageUsers={canManageUsers} />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "fos" && <FosAdminModule currentUserEmail={currentUserEmail} />}
       {officeView === "substitutes" && <SubstituteCalendarModule />}
@@ -2000,7 +2000,7 @@ export default function App() {
       )}
 
       {activeModule === "office-finance" && access.canUseOfficePayroll && (
-        <OfficePayrollWorkspace currentUserEmail={user.email} officeFinanceTarget={officeFinanceTarget} />
+        <OfficePayrollWorkspace currentUserEmail={user.email} officeFinanceTarget={officeFinanceTarget} canManageUsers={access.canManageUsers} />
       )}
 
       {activeModule === "staff-contracts" && user.email?.toLowerCase() === "mconniry@wvcs.org" && (

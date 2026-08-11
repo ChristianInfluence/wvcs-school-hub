@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, ClipboardCheck, Clock, DollarSign, ExternalLink, FileSignature, FileText, History, Info, Mail, Plus, RefreshCw, Save, Search, ShieldCheck, Utensils, Users, X } from "lucide-react";
 import { createDriverAttachmentUrl, fetchFamilyPortalAccessRecords, fetchFosAuditEvents, fetchFosEntries, fetchOffCampusLunchPermissions, fetchParentBackgroundChecks, fetchStudentDriverRegistrations, fetchVolunteerDriverApplications, calculateFosBalance, ensureFamilyPortalAccess, FOS_BUYOUT_AMOUNT, FOS_HOUR_VALUE, FOS_SCHOOL_YEAR, reviewOffCampusLunchPermission, reviewStudentDriverRegistration, reviewVolunteerDriverApplication, saveParentBackgroundCheck, sendFamilyPortalInvite, updateFamilyFosSettings } from "../../lib/familyPortalData.js";
-import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
+import { DEFAULT_FAMILY_PORTAL_SETTINGS, DEFAULT_OFFICE_EMAIL_SETTINGS, DEFAULT_TUITION_RATE_SETTINGS, backfillEmailAuditLog, fetchEmailAuditLog, fetchFamilyPortalSettings, fetchFosAdjustmentSettings, fetchOfficeEmailSettings, fetchTuitionRateSettings, saveFamilyPortalSettings, saveFosAdjustmentSettings, saveOfficeEmailSettings, saveTuitionRateSettings } from "../../lib/officeFinanceSettingsData.js";
 import { fetchLunchAdminData, money } from "../../lib/lunchData.js";
 import { fetchIncidentalInvoices, fetchOfficeFamilyDirectory, fetchTuitionInvoices } from "../../lib/tuitionBillingData.js";
 import { createParentPermissionPdfUrl, fetchPermissionEvents, fetchPermissionRecipients, fetchPermissionSubmissions } from "../../lib/permissionSlipsData.js";
@@ -1941,6 +1941,95 @@ export function OfficeEmailSettingsPanel({ currentUserEmail = "", compact = fals
   );
 }
 
+function TuitionRateSettingsPanel({ currentUserEmail = "", canManageUsers = false }) {
+  const [settings, setSettings] = useState(DEFAULT_TUITION_RATE_SETTINGS);
+  const [status, setStatus] = useState("Loading tuition rates...");
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      try {
+        const result = await fetchTuitionRateSettings();
+        if (!active) return;
+        setSettings(result.settings || DEFAULT_TUITION_RATE_SETTINGS);
+        setStatus(result.loaded ? "Tuition rates loaded." : result.reason);
+      } catch (error) {
+        if (active) setStatus(`Unable to load tuition rates: ${error.message}`);
+      }
+    }
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveSettings() {
+    if (!canManageUsers) {
+      setStatus("Only superusers can edit tuition rates.");
+      return;
+    }
+    setStatus("Saving tuition rates...");
+    try {
+      const result = await saveTuitionRateSettings(settings, currentUserEmail);
+      setSettings(result.settings || settings);
+      setStatus(result.saved ? "Tuition rates saved." : result.reason);
+    } catch (error) {
+      setStatus(`Unable to save tuition rates: ${error.message}`);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+          <DollarSign size={16} className="text-emerald-600" />
+          Tuition Breakdown Rates
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          These rates autofill the tuition amount when a student's grade is selected in Tuition Breakdowns.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {[
+            ["elementary", "K-5", "7350.00"],
+            ["middleSchool", "6-8", "8155.00"],
+            ["highSchool", "9-12", "8630.00"],
+          ].map(([key, label, placeholder]) => (
+            <label key={key} className="grid gap-1 text-sm font-semibold text-slate-700">
+              {label}
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={settings[key] || ""}
+                disabled={!canManageUsers}
+                onChange={(event) => setSettings({ ...settings, [key]: event.target.value })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-500"
+                placeholder={placeholder}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-3">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
+          <div className="font-bold">Superuser-only setting</div>
+          Office staff can use the rates, but only superusers can change next year's tuition amounts here.
+        </div>
+        <button
+          type="button"
+          onClick={saveSettings}
+          disabled={!canManageUsers}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Save size={16} />
+          Save Tuition Rates
+        </button>
+        {status && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">{status}</div>}
+      </div>
+    </div>
+  );
+}
+
 function ParentAccessAuditPanel() {
   const [state, setState] = useState({ loading: true, access: [], families: [], error: "" });
   const [search, setSearch] = useState("");
@@ -2291,10 +2380,11 @@ function SecurityReviewPanel() {
   );
 }
 
-export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
+export function OfficeFinanceSettingsModule({ currentUserEmail = "", canManageUsers = false }) {
   const [settingsView, setSettingsView] = useState("portal");
   const settingsViews = [
     ["portal", "Family Portal Settings"],
+    ...(canManageUsers ? [["tuition-rates", "Tuition Rates"]] : []),
     ["email", "Email Replies"],
     ["email-audit", "Email Audit"],
     ["security", "Security Review"],
@@ -2318,6 +2408,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "" }) {
         </label>
       </div>
       <div className="mt-4">{settingsView === "portal" && <FamilyPortalSettingsPanel currentUserEmail={currentUserEmail} />}</div>
+      <div className="mt-4">{settingsView === "tuition-rates" && <TuitionRateSettingsPanel currentUserEmail={currentUserEmail} canManageUsers={canManageUsers} />}</div>
       <div className="mt-4">{settingsView === "email" && <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "email-audit" && <EmailAuditPanel />}</div>
       <div className="mt-4">{settingsView === "security" && <SecurityReviewPanel />}</div>

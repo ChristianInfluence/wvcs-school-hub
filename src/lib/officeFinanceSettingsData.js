@@ -22,6 +22,12 @@ export const DEFAULT_OFFICE_EMAIL_SETTINGS = {
   setupNote: "Changing the actual sending mailbox requires reconnecting the Google account and updating the Gmail sender secret.",
 };
 
+export const DEFAULT_TUITION_RATE_SETTINGS = {
+  elementary: "7350.00",
+  middleSchool: "8155.00",
+  highSchool: "8630.00",
+};
+
 export function normalizeFamilyPortalSettings(settings = {}) {
   const announcement = settings.announcement || {};
   const help = settings.help || {};
@@ -36,6 +42,14 @@ export function normalizeFamilyPortalSettings(settings = {}) {
       phone: help.phone || DEFAULT_FAMILY_PORTAL_SETTINGS.help.phone,
       message: help.message || DEFAULT_FAMILY_PORTAL_SETTINGS.help.message,
     },
+  };
+}
+
+export function normalizeTuitionRateSettings(settings = {}) {
+  return {
+    elementary: settings.elementary || settings.k5 || DEFAULT_TUITION_RATE_SETTINGS.elementary,
+    middleSchool: settings.middleSchool || settings.sixEight || DEFAULT_TUITION_RATE_SETTINGS.middleSchool,
+    highSchool: settings.highSchool || settings.nineTwelve || DEFAULT_TUITION_RATE_SETTINGS.highSchool,
   };
 }
 
@@ -99,6 +113,24 @@ export async function fetchOfficeEmailSettings() {
   return {
     loaded: true,
     settings: normalizeOfficeEmailSettings(data?.settings || DEFAULT_OFFICE_EMAIL_SETTINGS),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function fetchTuitionRateSettings() {
+  if (!isSupabaseConfigured) return { loaded: false, settings: DEFAULT_TUITION_RATE_SETTINGS, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings,updated_by_email,updated_at")
+    .eq("id", "tuition_rates")
+    .maybeSingle();
+
+  if (error) return { loaded: false, settings: DEFAULT_TUITION_RATE_SETTINGS, reason: "Tuition rate settings are not available yet." };
+  return {
+    loaded: true,
+    settings: normalizeTuitionRateSettings(data?.settings || DEFAULT_TUITION_RATE_SETTINGS),
     updatedByEmail: data?.updated_by_email || "",
     updatedAt: data?.updated_at || "",
   };
@@ -220,6 +252,32 @@ export async function saveOfficeEmailSettings(settings, updatedByEmail = "") {
   return {
     saved: true,
     settings: normalizeOfficeEmailSettings(data?.settings || normalized),
+    updatedByEmail: data?.updated_by_email || "",
+    updatedAt: data?.updated_at || "",
+  };
+}
+
+export async function saveTuitionRateSettings(settings, updatedByEmail = "") {
+  const normalized = normalizeTuitionRateSettings(settings);
+  if (!isSupabaseConfigured) return { saved: false, settings: normalized, reason: "Supabase is not configured." };
+
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .upsert(
+      {
+        id: "tuition_rates",
+        settings: normalized,
+        updated_by_email: updatedByEmail || null,
+      },
+      { onConflict: "id" }
+    )
+    .select("settings,updated_by_email,updated_at")
+    .single();
+
+  if (error) throw error;
+  return {
+    saved: true,
+    settings: normalizeTuitionRateSettings(data?.settings || normalized),
     updatedByEmail: data?.updated_by_email || "",
     updatedAt: data?.updated_at || "",
   };

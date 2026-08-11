@@ -32,7 +32,7 @@ import {
 } from "../../lib/tuitionBillingData.js";
 import { recordLunchDepositFromIncidental } from "../../lib/lunchData.js";
 import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
-import { DEFAULT_OFFICE_EMAIL_SETTINGS, fetchOfficeEmailSettings } from "../../lib/officeFinanceSettingsData.js";
+import { DEFAULT_OFFICE_EMAIL_SETTINGS, DEFAULT_TUITION_RATE_SETTINGS, fetchOfficeEmailSettings, fetchTuitionRateSettings } from "../../lib/officeFinanceSettingsData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -49,6 +49,30 @@ const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cas
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
 const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Tuition", "Other"];
+
+function normalizeGradeLevel(value = "") {
+  const grade = String(value || "").trim().toLowerCase();
+  if (!grade) return null;
+  if (grade === "k" || grade.includes("kindergarten")) return 0;
+  const match = grade.match(/\d+/);
+  if (!match) {
+    if (grade.includes("elementary")) return 5;
+    if (grade.includes("middle")) return 8;
+    if (grade.includes("high")) return 12;
+    return null;
+  }
+  const gradeNumber = Number(match[0]);
+  return Number.isFinite(gradeNumber) ? gradeNumber : null;
+}
+
+function tuitionRateForGrade(grade, rateSettings = DEFAULT_TUITION_RATE_SETTINGS) {
+  const gradeLevel = normalizeGradeLevel(grade);
+  if (gradeLevel === null) return "";
+  if (gradeLevel >= 0 && gradeLevel <= 5) return rateSettings.elementary || DEFAULT_TUITION_RATE_SETTINGS.elementary;
+  if (gradeLevel >= 6 && gradeLevel <= 8) return rateSettings.middleSchool || DEFAULT_TUITION_RATE_SETTINGS.middleSchool;
+  if (gradeLevel >= 9 && gradeLevel <= 12) return rateSettings.highSchool || DEFAULT_TUITION_RATE_SETTINGS.highSchool;
+  return "";
+}
 
 function createBlankParent() {
   return {
@@ -1335,6 +1359,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [sendingIncidentalEmail, setSendingIncidentalEmail] = useState(false);
   const [officePaymentOpen, setOfficePaymentOpen] = useState(false);
   const [officeEmailSettings, setOfficeEmailSettings] = useState(DEFAULT_OFFICE_EMAIL_SETTINGS);
+  const [tuitionRateSettings, setTuitionRateSettings] = useState(DEFAULT_TUITION_RATE_SETTINGS);
   const [tuitionPaymentOpen, setTuitionPaymentOpen] = useState(false);
   const [tuitionPaymentDraft, setTuitionPaymentDraft] = useState({
     amount: "",
@@ -1534,6 +1559,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     loadSavedIncidentalInvoices();
     loadFamilyDirectory();
     loadOfficeEmailSettings();
+    loadTuitionRateSettings();
   }, []);
 
   async function loadOfficeEmailSettings() {
@@ -1542,6 +1568,15 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       setOfficeEmailSettings(result.settings || DEFAULT_OFFICE_EMAIL_SETTINGS);
     } catch {
       setOfficeEmailSettings(DEFAULT_OFFICE_EMAIL_SETTINGS);
+    }
+  }
+
+  async function loadTuitionRateSettings() {
+    try {
+      const result = await fetchTuitionRateSettings();
+      setTuitionRateSettings(result.settings || DEFAULT_TUITION_RATE_SETTINGS);
+    } catch {
+      setTuitionRateSettings(DEFAULT_TUITION_RATE_SETTINGS);
     }
   }
 
@@ -1803,7 +1838,15 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   function updateStudent(studentId, patch) {
     setInvoice((current) => ({
       ...current,
-      students: current.students.map((student) => (student.id === studentId ? { ...student, ...patch } : student)),
+      students: current.students.map((student) => {
+        if (student.id !== studentId) return student;
+        const next = { ...student, ...patch };
+        if ("grade" in patch) {
+          const rate = tuitionRateForGrade(patch.grade, tuitionRateSettings);
+          if (rate) next.tuition = rate;
+        }
+        return next;
+      }),
     }));
   }
 
@@ -2109,6 +2152,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           studentId: student.studentId || existing.studentId || "",
           name: student.name || existing.name || "",
           grade: student.grade || existing.grade || "",
+          tuition: existing.tuition || tuitionRateForGrade(student.grade || existing.grade || "", tuitionRateSettings),
         };
       });
       return {
@@ -3178,6 +3222,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       </Field>
                       <Field label="Tuition">
                         <MoneyInput value={student.tuition} onChange={(event) => updateStudent(student.id, { tuition: event.target.value })} />
+                        {tuitionRateForGrade(student.grade, tuitionRateSettings) && (
+                          <div className="mt-1 text-xs text-slate-500">
+                            Grade-based rate: {formatCurrency(tuitionRateForGrade(student.grade, tuitionRateSettings))}
+                          </div>
+                        )}
                       </Field>
                       <Field label="Comprehensive Fee">
                         <MoneyInput value={student.comprehensiveFee} onChange={(event) => updateStudent(student.id, { comprehensiveFee: event.target.value })} />
