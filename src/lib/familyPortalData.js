@@ -168,6 +168,7 @@ function mapBackgroundCheck(row) {
     familyName: row.family_name || "",
     parentName: row.parent_name || "",
     parentEmail: row.parent_email || "",
+    personKey: row.person_key || backgroundPersonKey(row.parent_email, row.parent_name),
     verifiedAt: row.verified_at || "",
     expiresAt: row.expires_at || "",
     status: row.status === "Verified" ? "Approved" : row.status || "No Application",
@@ -175,6 +176,15 @@ function mapBackgroundCheck(row) {
     verifiedByEmail: row.verified_by_email || "",
     updatedAt: row.updated_at || "",
   };
+}
+
+function backgroundNameKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function backgroundPersonKey(email, name) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  return `${normalizedEmail || "no-email"}:${backgroundNameKey(name) || "person"}`;
 }
 
 function mapFosReminderTemplate(row) {
@@ -324,25 +334,36 @@ export async function saveParentBackgroundCheck(record, currentUserEmail = "") {
   if (!parentName && !providedEmail) throw new Error("Enter a name before saving the background check.");
   const parentEmail = providedEmail || `background-${parentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "person"}@wvcs.local`;
   const familyKey = record.familyKey || `standalone-background:${parentEmail}`;
+  const personKey = record.personKey || backgroundPersonKey(parentEmail, parentName);
+  const row = {
+    family_key: familyKey,
+    family_name: record.familyName || "Standalone Background Checks",
+    parent_name: parentName,
+    parent_email: parentEmail,
+    person_key: personKey,
+    verified_at: record.verifiedAt || new Date().toISOString().slice(0, 10),
+    expires_at: record.expiresAt,
+    status: record.status || "No Application",
+    office_note: record.officeNote || "",
+    verified_by_email: currentUserEmail || null,
+  };
   const { data, error } = await supabase
     .from("parent_background_checks")
-    .upsert(
-      {
-        family_key: familyKey,
-        family_name: record.familyName || "Standalone Background Checks",
-        parent_name: parentName,
-        parent_email: parentEmail,
-        verified_at: record.verifiedAt || new Date().toISOString().slice(0, 10),
-        expires_at: record.expiresAt,
-        status: record.status || "No Application",
-        office_note: record.officeNote || "",
-        verified_by_email: currentUserEmail || null,
-      },
-      { onConflict: "family_key,parent_email" }
-    )
+    .upsert(row, { onConflict: "family_key,person_key" })
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) {
+    const message = String(error.message || "");
+    if (!message.includes("person_key") && !message.includes("parent_background_checks_family_person_uidx")) throw error;
+    const { person_key: _personKey, ...legacyRow } = row;
+    const legacyResult = await supabase
+      .from("parent_background_checks")
+      .upsert(legacyRow, { onConflict: "family_key,parent_email" })
+      .select("*")
+      .single();
+    if (legacyResult.error) throw legacyResult.error;
+    return { saved: true, backgroundCheck: mapBackgroundCheck(legacyResult.data), needsPersonKeyMigration: true };
+  }
   return { saved: true, backgroundCheck: mapBackgroundCheck(data) };
 }
 
