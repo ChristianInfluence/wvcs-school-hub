@@ -533,6 +533,16 @@ function receivableReceivedAt(record) {
   return receivablePaymentReceivedAt(record) || getRecordInvoice(record).sentAt || record.sentAt || getRecordInvoice(record).invoiceDate || record.updatedAt || record.createdAt || "";
 }
 
+function receivableEnteredAt(record) {
+  const invoice = getRecordInvoice(record);
+  const paymentDates = getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .map((payment) => payment.createdAt || payment.date || "")
+    .filter(Boolean)
+    .sort();
+  return paymentDates.at(-1) || record.createdAt || record.updatedAt || invoice.sentAt || record.sentAt || invoice.invoiceDate || "";
+}
+
 function receivableMonthKey(record) {
   const receivedAt = receivablePaymentReceivedAt(record);
   return receivedAt ? String(receivedAt).slice(0, 7) : "";
@@ -545,7 +555,7 @@ function formatMonthKey(value) {
 
 function sortReceivablesByReceived(records) {
   return [...records].sort((a, b) => {
-    const dateCompare = String(receivableReceivedAt(b)).localeCompare(String(receivableReceivedAt(a)));
+    const dateCompare = String(receivableEnteredAt(b)).localeCompare(String(receivableEnteredAt(a)));
     if (dateCompare) return dateCompare;
     return String(getRecordInvoice(a).familyName || "").localeCompare(String(getRecordInvoice(b).familyName || ""), undefined, { sensitivity: "base" });
   });
@@ -2254,6 +2264,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
             id: uid("payment"),
             type: "payment",
             date: paidAt,
+            createdAt: new Date().toISOString(),
             amount: amount.toFixed(2),
             processingFee: money(manualReceivableDraft.processingFee) ? money(manualReceivableDraft.processingFee).toFixed(2) : "",
             netAmount: Math.max(amount - money(manualReceivableDraft.processingFee), 0).toFixed(2),
@@ -2450,6 +2461,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           id: uid("payment"),
           type: "payment",
           date: paidAt,
+          createdAt: new Date().toISOString(),
           amount: paymentAmount.toFixed(2),
           processingFee: processingFee ? processingFee.toFixed(2) : "",
           netAmount: Math.max(paymentAmount - processingFee, 0).toFixed(2),
