@@ -113,6 +113,61 @@ function familyContactEmails(family) {
   return uniqueBy((family.parents || []).map((parent) => normalizeEmail(parent.email)).filter(Boolean), (email) => email);
 }
 
+function backgroundNameKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function syntheticBackgroundEmailForName(value) {
+  return `background-${backgroundNameKey(value) || "person"}@wvcs.local`;
+}
+
+function backgroundPersonIdentity(person = {}) {
+  const parentName = String(person.name || person.parentName || "").trim();
+  const rawEmail = normalizeEmail(person.email || person.parentEmail);
+  const parentEmail = rawEmail || syntheticBackgroundEmailForName(parentName);
+  return {
+    parentName,
+    parentEmail,
+    displayEmail: isSyntheticBackgroundEmail(parentEmail) ? "" : parentEmail,
+    personKey: parentEmail || `name:${backgroundNameKey(parentName)}`,
+  };
+}
+
+function backgroundRecordMatchesPerson(record, person) {
+  const identity = backgroundPersonIdentity(person);
+  const recordEmail = normalizeEmail(record?.parentEmail);
+  if (recordEmail && recordEmail === identity.parentEmail) return true;
+  if (!identity.displayEmail && isSyntheticBackgroundEmail(recordEmail)) {
+    return backgroundNameKey(record?.parentName) === backgroundNameKey(identity.parentName);
+  }
+  return false;
+}
+
+function familyBackgroundPeople(family) {
+  const people = [
+    ...(family?.parents || []).map((parent) => ({ name: parent.name || "", email: parent.email || "", source: "roster" })),
+    ...(family?.backgroundChecks || []).map((record) => ({
+      name: record.parentName || "Parent / Guardian",
+      email: isSyntheticBackgroundEmail(record.parentEmail) ? "" : record.parentEmail,
+      source: "background",
+    })),
+  ].filter((person) => String(person.name || "").trim() || normalizeEmail(person.email));
+
+  return uniqueBy(
+    people.map((person) => {
+      const identity = backgroundPersonIdentity(person);
+      return {
+        ...person,
+        name: identity.parentName || person.name || "Parent / Guardian",
+        email: identity.displayEmail,
+        backgroundEmail: identity.parentEmail,
+        personKey: identity.personKey,
+      };
+    }),
+    (person) => person.personKey
+  ).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+}
+
 function sanitizeFamilyInviteRecipients(family, recipients = []) {
   const allowedEmails = familyContactEmails(family);
   return uniqueBy((recipients || []).map(normalizeEmail).filter((email) => allowedEmails.includes(email)), (email) => email);
@@ -142,11 +197,16 @@ function mergeDirectoryFamilies(families = []) {
 
   families.forEach((family) => {
     const mergeKey = familyMergeKey(family);
-    const existing = groups.get(mergeKey);
+    const emails = familyContactEmails(family);
+    const existing = groups.get(mergeKey) || [...groups.values()].find((candidate) => {
+      const candidateEmails = familyContactEmails(candidate);
+      return emails.length && candidateEmails.some((email) => emails.includes(email));
+    });
     if (!existing) {
       groups.set(mergeKey, {
         ...family,
         familyKeys: uniqueBy([family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key),
+        familyNames: uniqueBy([family.familyName, ...(family.familyNames || [])].filter(Boolean), (name) => normalizeFamilyName(name)),
         parents: uniqueBy(family.parents || [], (parent) => `${normalizeEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`),
         students: uniqueBy(family.students || [], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`),
       });
@@ -154,14 +214,18 @@ function mergeDirectoryFamilies(families = []) {
     }
 
     existing.familyKeys = uniqueBy([...(existing.familyKeys || []), family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key);
+    existing.familyNames = uniqueBy([...(existing.familyNames || []), family.familyName, ...(family.familyNames || [])].filter(Boolean), (name) => normalizeFamilyName(name));
     existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`);
     existing.students = uniqueBy([...(existing.students || []), ...(family.students || [])], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`);
-    if ((family.students || []).length > (existing.students || []).length) {
-      existing.familyName = family.familyName || existing.familyName;
-    }
   });
 
-  return [...groups.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
+  return [...groups.values()].map((family) => {
+    const familyNames = uniqueBy([...(family.familyNames || [])].map((name) => String(name || "").trim().replace(/\s+Family$/i, "")).filter(Boolean), (name) => name.toLowerCase());
+    return {
+      ...family,
+      familyName: familyNames.length > 1 ? `${familyNames.slice(0, 2).join(" / ")}${familyNames.length > 2 ? " +" : ""} Family` : family.familyName,
+    };
+  }).sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 }
 
 function matchesFamilyRecord(record, family) {
@@ -544,15 +608,16 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   const selectedInviteParentOptions = useMemo(() => familyInviteParentOptions(selectedFamily), [selectedFamily]);
   const selectedInviteOptionEmails = useMemo(() => selectedInviteParentOptions.map((parent) => parent.email), [selectedInviteParentOptions]);
   const selectedInviteRecipients = selectedFamily ? sanitizeFamilyInviteRecipients(selectedFamily, inviteDrafts[selectedFamily.familyKey] || selectedFamily.access?.contactEmails || []) : [];
-  const backgroundContactOptions = useMemo(() => familySummaries.flatMap((family) => (family.parents || [])
-    .filter((parent) => parent.email || parent.name)
-    .map((parent) => ({
+  const backgroundContactOptions = useMemo(() => familySummaries.flatMap((family) => familyBackgroundPeople(family)
+    .map((person) => ({
       familyKey: family.familyKey,
       familyName: family.familyName,
-      parentName: parent.name || "Parent / Guardian",
-      parentEmail: normalizeEmail(parent.email),
+      parentName: person.name || "Parent / Guardian",
+      parentEmail: person.backgroundEmail,
+      displayEmail: person.email,
+      personKey: person.personKey,
       studentNote: (family.students || []).map((student) => student.name).filter(Boolean).join(", "),
-      label: `${parent.name || "Parent / Guardian"} · ${family.familyName}${parent.email ? ` · ${parent.email}` : ""}`,
+      label: `${person.name || "Parent / Guardian"} · ${family.familyName}${person.email ? ` · ${person.email}` : ""}`,
     }))), [familySummaries]);
   const backgroundMasterRows = useMemo(() => {
     return data.backgroundChecks
@@ -565,7 +630,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         familyKey: contact?.familyKey || record.familyKey,
         familyName: contact?.familyName || record.familyName || "Standalone Background Checks",
         parentName: contact?.parentName || record.parentName || "Person",
-        parentEmail: isSyntheticBackgroundEmail(record.parentEmail) ? "" : record.parentEmail,
+        parentEmail: contact?.parentEmail || record.parentEmail,
+        displayEmail: contact?.displayEmail || (isSyntheticBackgroundEmail(record.parentEmail) ? "" : record.parentEmail),
         studentNote: contact?.studentNote || (record.familyName && record.familyName !== "Standalone Background Checks" ? record.familyName : ""),
         record,
         status: record.status || "No Application",
@@ -832,9 +898,10 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   }
 
   function openBackgroundCheckEditor(parent, existingRecord) {
-    if (!selectedFamily || !parent?.email) return;
-    const email = String(parent.email).toLowerCase();
-    const draftKey = `${selectedFamily.familyKey}:${email}`;
+    if (!selectedFamily || !parent) return;
+    const identity = backgroundPersonIdentity(parent);
+    const email = identity.parentEmail;
+    const draftKey = `${selectedFamily.familyKey}:${identity.personKey}`;
     setBackgroundDrafts((current) => ({
       ...current,
       [draftKey]: current[draftKey] || {
@@ -844,14 +911,15 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         officeNote: existingRecord?.officeNote || "",
       },
     }));
-    setBackgroundEditor({ familyKey: selectedFamily.familyKey, parentEmail: email, parentName: parent.name || "Parent / Guardian" });
+    setBackgroundEditor({ familyKey: selectedFamily.familyKey, parentEmail: email, displayEmail: identity.displayEmail, parentName: identity.parentName || "Parent / Guardian", personKey: identity.personKey });
     setActionStatus("");
   }
 
   async function saveBackgroundCheckForParent(parent, existingRecord) {
-    if (!selectedFamily || !parent?.email) return;
-    const email = String(parent.email).toLowerCase();
-    const draftKey = `${selectedFamily.familyKey}:${email}`;
+    if (!selectedFamily || !parent) return;
+    const identity = backgroundPersonIdentity(parent);
+    const email = identity.parentEmail;
+    const draftKey = `${selectedFamily.familyKey}:${identity.personKey}`;
     const draft = backgroundDrafts[draftKey] || {};
     const verifiedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
     const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(verifiedAt, 2);
@@ -861,12 +929,12 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     }
     try {
       setBackgroundSavingKey(draftKey);
-      setActionStatus(`Saving background check for ${parent.name || email}...`);
+      setActionStatus(`Saving background check for ${identity.parentName || identity.displayEmail || "this person"}...`);
       await saveParentBackgroundCheck(
         {
           familyKey: selectedFamily.familyKey,
           familyName: selectedFamily.familyName,
-          parentName: parent.name || "",
+          parentName: identity.parentName || "",
           parentEmail: email,
           verifiedAt,
           expiresAt,
@@ -875,7 +943,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         },
         currentUserEmail
       );
-      setActionStatus(`Background check saved for ${parent.name || email}.`);
+      setActionStatus(`Background check saved for ${identity.parentName || identity.displayEmail || "this person"}.`);
       setBackgroundEditor(null);
       await loadData();
     } catch (error) {
@@ -902,7 +970,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
   }
 
   function selectBackgroundContact(optionKey) {
-    const contact = backgroundContactOptions.find((option) => `${option.familyKey}|${option.parentEmail}` === optionKey);
+    const contact = backgroundContactOptions.find((option) => `${option.familyKey}|${option.personKey}` === optionKey);
     if (!contact) return;
     setBackgroundMasterEditor((current) => ({
       ...(current || {}),
@@ -911,6 +979,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
       familyName: contact.familyName,
       parentName: contact.parentName,
       parentEmail: contact.parentEmail,
+      displayEmail: contact.displayEmail,
     }));
   }
 
@@ -1047,13 +1116,13 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                       <label className="grid gap-1 text-xs font-bold text-slate-700">Choose roster contact
                         <select value={`${backgroundMasterEditor.familyKey}|${backgroundMasterEditor.parentEmail}`} onChange={(event) => selectBackgroundContact(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500">
                           <option value="|">Select a parent or guardian</option>
-                          {backgroundContactOptions.map((option) => <option key={`${option.familyKey}|${option.parentEmail}`} value={`${option.familyKey}|${option.parentEmail}`}>{option.label}</option>)}
+                          {backgroundContactOptions.map((option) => <option key={`${option.familyKey}|${option.personKey}`} value={`${option.familyKey}|${option.personKey}`}>{option.label}</option>)}
                         </select>
                       </label>
                     )}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="grid gap-1 text-xs font-bold text-slate-700">Person name<input value={backgroundMasterEditor.parentName} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentName: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
-                      <label className="grid gap-1 text-xs font-bold text-slate-700">Email optional<input type="email" value={backgroundMasterEditor.parentEmail} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentEmail: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} placeholder="Optional for standalone records" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-700">Email optional<input type="email" value={isSyntheticBackgroundEmail(backgroundMasterEditor.parentEmail) ? "" : backgroundMasterEditor.parentEmail} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, parentEmail: event.target.value, displayEmail: event.target.value, source: current?.source === "roster" ? "roster" : "standalone" }))} placeholder="Optional for standalone records" className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-500" /></label>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <label className="grid gap-1 text-xs font-bold text-slate-700">Filled out<input type="date" value={backgroundMasterEditor.verifiedAt} onChange={(event) => setBackgroundMasterEditor((current) => ({ ...current, verifiedAt: event.target.value, expiresAt: addYears(event.target.value, 2) }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-sky-500" /></label>
@@ -1135,16 +1204,21 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                 <div>
                   <h3 className="text-xl font-bold text-slate-950">{selectedFamily.familyName}</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedFamily.parents.map((parent) => {
-                      const parentEmail = String(parent.email || "").toLowerCase();
-                      const verified = selectedFamily.verifiedDrivers.find((application) => String(application.parentEmail || "").toLowerCase() === parentEmail);
-                      const backgroundCheck = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === parentEmail);
+                    {familyBackgroundPeople(selectedFamily).map((parent) => {
+                      const parentEmail = normalizeEmail(parent.email);
+                      const verified = selectedFamily.verifiedDrivers.find((application) => parentEmail && String(application.parentEmail || "").toLowerCase() === parentEmail);
+                      const backgroundCheck = selectedFamily.backgroundChecks.find((record) => backgroundRecordMatchesPerson(record, parent));
                       return (
-                        <div key={`${parent.email}-${parent.name}`} className="flex min-w-[230px] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-700">
+                        <div key={parent.personKey || `${parent.email}-${parent.name}`} className="flex min-w-[230px] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-semibold text-slate-700">
                           <Mail size={12} className="shrink-0" />
                           <span className="min-w-0 flex-1 truncate">{parent.name || "Parent"} {parent.email ? `· ${parent.email}` : ""}</span>
-                          {backgroundCheck && <StatusPill tone={backgroundCheckTone(backgroundCheck)}>{backgroundCheckLabel(backgroundCheck)}</StatusPill>}
-                          {parent.email && (
+                          <StatusPill tone={backgroundCheckTone(backgroundCheck)}>{backgroundCheckLabel(backgroundCheck)}</StatusPill>
+                          {isCurrentBackgroundCheck(backgroundCheck) && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
+                              <ShieldCheck size={11} />
+                              Verified
+                            </span>
+                          )}
                             <button
                               type="button"
                               onClick={() => openBackgroundCheckEditor(parent, backgroundCheck)}
@@ -1152,7 +1226,6 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                             >
                               Background
                             </button>
-                          )}
                           {verified && (
                             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">
                               <ShieldCheck size={11} />
@@ -1287,9 +1360,14 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
             {actionStatus && <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">{actionStatus}</div>}
 
             {backgroundEditor && selectedFamily && (() => {
-              const parent = (selectedFamily.parents || []).find((item) => String(item.email || "").toLowerCase() === backgroundEditor.parentEmail);
-              const existingRecord = selectedFamily.backgroundChecks.find((record) => String(record.parentEmail || "").toLowerCase() === backgroundEditor.parentEmail);
-              const draftKey = `${selectedFamily.familyKey}:${backgroundEditor.parentEmail}`;
+              const parent = familyBackgroundPeople(selectedFamily).find((item) => item.personKey === backgroundEditor.personKey) || {
+                name: backgroundEditor.parentName,
+                email: backgroundEditor.displayEmail,
+                backgroundEmail: backgroundEditor.parentEmail,
+                personKey: backgroundEditor.personKey,
+              };
+              const existingRecord = selectedFamily.backgroundChecks.find((record) => backgroundRecordMatchesPerson(record, parent));
+              const draftKey = `${selectedFamily.familyKey}:${backgroundEditor.personKey}`;
               const draft = backgroundDrafts[draftKey] || {};
               const completedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
               const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(completedAt, 2);
@@ -1303,7 +1381,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
                         <div className="text-sm font-black text-slate-950">Background Check</div>
                         <StatusPill tone={backgroundCheckTone(previewRecord)}>{backgroundCheckLabel(previewRecord)}</StatusPill>
                       </div>
-                      <div className="mt-1 text-xs text-slate-600">{backgroundEditor.parentName} · {backgroundEditor.parentEmail}</div>
+                      <div className="mt-1 text-xs text-slate-600">{backgroundEditor.parentName}{backgroundEditor.displayEmail ? ` · ${backgroundEditor.displayEmail}` : ""}</div>
                       {isExpiredBackgroundCheck(previewRecord) && <div className="mt-2 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-bold text-rose-800">This background check is expired.</div>}
                     </div>
                     <button type="button" onClick={() => setBackgroundEditor(null)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50">
