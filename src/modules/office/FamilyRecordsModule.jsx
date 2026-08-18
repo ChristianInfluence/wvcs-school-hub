@@ -2134,9 +2134,10 @@ function TuitionRateSettingsPanel({ currentUserEmail = "", canManageUsers = fals
   );
 }
 
-function ParentAccessAuditPanel() {
+function ParentAccessAuditPanel({ currentUserEmail = "" }) {
   const [state, setState] = useState({ loading: true, access: [], families: [], error: "" });
   const [search, setSearch] = useState("");
+  const [bulkInvite, setBulkInvite] = useState({ sending: false, status: "", sent: 0, failed: 0, skipped: 0 });
 
   async function loadAudit() {
     setState((current) => ({ ...current, loading: true, error: "" }));
@@ -2179,6 +2180,50 @@ function ParentAccessAuditPanel() {
 
   const loggedInCount = state.access.filter((record) => record.lastParentLoginAt).length;
   const missingPortalRecordCount = state.families.filter((family) => !state.access.some((record) => matchesFamilyRecord(record, family))).length;
+  const bulkInviteTargets = useMemo(() => state.families.map((family) => {
+    const recipients = sanitizeFamilyInviteRecipients(family, familyInviteParentOptions(family).map((parent) => parent.email));
+    return { family, recipients };
+  }), [state.families]);
+  const bulkInviteEligible = bulkInviteTargets.filter((target) => target.recipients.length);
+  const bulkInviteRecipientCount = bulkInviteEligible.reduce((total, target) => total + target.recipients.length, 0);
+  const bulkInviteSkippedCount = bulkInviteTargets.length - bulkInviteEligible.length;
+
+  async function sendBulkPortalInvites() {
+    if (!bulkInviteEligible.length) {
+      setBulkInvite({ sending: false, status: "No roster families have parent emails available for portal invites.", sent: 0, failed: 0, skipped: bulkInviteSkippedCount });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Send family portal invites to all roster parent emails?\n\n${bulkInviteEligible.length} families\n${bulkInviteRecipientCount} email recipient(s)\n${bulkInviteSkippedCount} families without parent email(s) will be skipped.`
+    );
+    if (!confirmed) return;
+
+    setBulkInvite({ sending: true, status: "Starting bulk family portal invites...", sent: 0, failed: 0, skipped: bulkInviteSkippedCount });
+    const failures = [];
+    let sent = 0;
+    let failed = 0;
+    for (const target of bulkInviteEligible) {
+      try {
+        setBulkInvite({ sending: true, status: `Sending ${target.family.familyName}...`, sent, failed, skipped: bulkInviteSkippedCount });
+        await sendFamilyPortalInvite(target.family, currentUserEmail, target.recipients);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        failures.push(`${target.family.familyName}: ${error.message}`);
+      }
+      setBulkInvite({ sending: true, status: `Progress: ${sent} sent, ${failed} failed, ${bulkInviteSkippedCount} skipped.`, sent, failed, skipped: bulkInviteSkippedCount });
+    }
+    await loadAudit();
+    setBulkInvite({
+      sending: false,
+      status: failures.length
+        ? `Bulk invite finished with ${failed} issue(s). ${failures.slice(0, 3).join(" ")}${failures.length > 3 ? " More issues were skipped from this summary." : ""}`
+        : `Bulk invite complete. Sent invites for ${sent} families; skipped ${bulkInviteSkippedCount} without parent emails.`,
+      sent,
+      failed,
+      skipped: bulkInviteSkippedCount,
+    });
+  }
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -2190,10 +2235,21 @@ function ParentAccessAuditPanel() {
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">Review which families have portal access, who last signed in, and which contacts are connected.</p>
         </div>
-        <button type="button" onClick={loadAudit} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={sendBulkPortalInvites}
+            disabled={state.loading || bulkInvite.sending || !bulkInviteEligible.length}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Mail size={16} />
+            {bulkInvite.sending ? "Sending..." : "Bulk Invite All Parents"}
+          </button>
+          <button type="button" onClick={loadAudit} disabled={bulkInvite.sending} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -2202,6 +2258,15 @@ function ParentAccessAuditPanel() {
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Logged In</div><div className="mt-1 text-xl font-black text-slate-950">{loggedInCount}</div></div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Needs Portal Setup</div><div className="mt-1 text-xl font-black text-slate-950">{missingPortalRecordCount}</div></div>
       </div>
+
+      <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+        Bulk invite will send one secure invite per unique parent email on each roster family. Ready: <span className="font-black">{bulkInviteEligible.length}</span> families / <span className="font-black">{bulkInviteRecipientCount}</span> recipient(s). Skipped without parent email: <span className="font-black">{bulkInviteSkippedCount}</span>.
+      </div>
+      {bulkInvite.status && (
+        <div className={`mt-3 rounded-lg border px-3 py-2 text-sm font-semibold ${bulkInvite.failed ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+          {bulkInvite.status}
+        </div>
+      )}
 
       <div className="mt-4 relative">
         <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
@@ -2516,7 +2581,7 @@ export function OfficeFinanceSettingsModule({ currentUserEmail = "", canManageUs
       <div className="mt-4">{settingsView === "email" && <OfficeEmailSettingsPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "email-audit" && <EmailAuditPanel />}</div>
       <div className="mt-4">{settingsView === "security" && <SecurityReviewPanel />}</div>
-      <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel />}</div>
+      <div className="mt-4">{settingsView === "audit" && <ParentAccessAuditPanel currentUserEmail={currentUserEmail} />}</div>
       <div className="mt-4">{settingsView === "rollover" && <OfficeRolloverModule embedded />}</div>
     </section>
   );
