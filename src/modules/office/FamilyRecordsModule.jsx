@@ -226,6 +226,28 @@ function familyMergeKey(family) {
   return `name:${normalizeFamilyName(family.familyName) || normalizeFamilyName(family.students?.[0]?.name) || family.familyKey}`;
 }
 
+function studentLastNameParts(family = {}) {
+  return uniqueBy(
+    (family.students || [])
+      .map((student) => String(student.studentLastName || "").trim())
+      .filter(Boolean),
+    (name) => name.toLowerCase()
+  );
+}
+
+function familyDisplayNameFromParts(names = [], fallback = "Family") {
+  if (!names.length) return fallback || "Family";
+  if (names.length === 1) return `${names[0]} Family`;
+  return `${names.slice(0, 2).join(" / ")}${names.length > 2 ? " +" : ""} Family`;
+}
+
+function currentFamilyDisplayName(family = {}) {
+  const currentStudentLastNames = studentLastNameParts(family);
+  if (currentStudentLastNames.length) return familyDisplayNameFromParts(currentStudentLastNames, family.familyName || "Family");
+  const familyNames = uniqueBy([...(family.familyNames || [])].map((name) => String(name || "").trim().replace(/\s+Family$/i, "")).filter(Boolean), (name) => name.toLowerCase());
+  return familyDisplayNameFromParts(familyNames, family.familyName || "Family");
+}
+
 function mergeDirectoryFamilies(families = []) {
   const groups = new Map();
 
@@ -254,10 +276,9 @@ function mergeDirectoryFamilies(families = []) {
   });
 
   return [...groups.values()].map((family) => {
-    const familyNames = uniqueBy([...(family.familyNames || [])].map((name) => String(name || "").trim().replace(/\s+Family$/i, "")).filter(Boolean), (name) => name.toLowerCase());
     return {
       ...family,
-      familyName: familyNames.length > 1 ? `${familyNames.slice(0, 2).join(" / ")}${familyNames.length > 2 ? " +" : ""} Family` : family.familyName,
+      familyName: currentFamilyDisplayName(family),
     };
   }).sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
 }
@@ -271,7 +292,8 @@ function matchesFamilyRecord(record, family) {
   if (recordEmail && familyContactEmails(family).includes(recordEmail)) return true;
 
   const recordFamilyName = record?.familyName || record?.invoice?.familyName || "";
-  return !recordFamilyKey && isSpecificFamilyName(recordFamilyName) && isSpecificFamilyName(family.familyName) && familyNamesMatch(recordFamilyName, family.familyName);
+  const candidateFamilyNames = uniqueBy([family.familyName, ...(family.familyNames || [])].filter(Boolean), (name) => normalizeFamilyName(name));
+  return !recordFamilyKey && isSpecificFamilyName(recordFamilyName) && candidateFamilyNames.some((name) => isSpecificFamilyName(name) && familyNamesMatch(recordFamilyName, name));
 }
 
 function mergeAccessRecords(records = []) {

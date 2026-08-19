@@ -191,11 +191,25 @@ function familyNameParts(family = {}) {
   );
 }
 
-function mergedFamilyDisplayName(family = {}) {
-  const names = familyNameParts(family);
-  if (!names.length) return family.familyName || "Family";
+function studentLastNameParts(family = {}) {
+  return uniqueBy(
+    (family.students || [])
+      .map((student) => String(student.studentLastName || "").trim())
+      .filter(Boolean),
+    (name) => name.toLowerCase()
+  );
+}
+
+function familyDisplayNameFromParts(names = [], fallback = "Family") {
+  if (!names.length) return fallback || "Family";
   if (names.length === 1) return `${names[0]} Family`;
   return `${names.slice(0, 2).join(" / ")}${names.length > 2 ? " +" : ""} Family`;
+}
+
+function mergedFamilyDisplayName(family = {}) {
+  const currentStudentLastNames = studentLastNameParts(family);
+  if (currentStudentLastNames.length) return familyDisplayNameFromParts(currentStudentLastNames, family.familyName || "Family");
+  return familyDisplayNameFromParts(familyNameParts(family), family.familyName || "Family");
 }
 
 export function mergeDirectoryFamilies(families = []) {
@@ -239,7 +253,8 @@ export function matchesFamilyRecord(record, family) {
   if (recordEmail && familyContactEmails(family || {}).includes(recordEmail)) return true;
 
   const recordFamilyName = record?.familyName || record?.invoice?.familyName || "";
-  return !recordFamilyKey && isSpecificFamilyName(recordFamilyName) && isSpecificFamilyName(family?.familyName) && familyNamesMatch(recordFamilyName, family?.familyName);
+  const candidateFamilyNames = uniqueBy([family?.familyName, ...(family?.familyNames || [])].filter(Boolean), (name) => normalizeFamilyName(name));
+  return !recordFamilyKey && isSpecificFamilyName(recordFamilyName) && candidateFamilyNames.some((name) => isSpecificFamilyName(name) && familyNamesMatch(recordFamilyName, name));
 }
 
 function mapFamilyDirectoryRows(rows = []) {
@@ -268,6 +283,7 @@ function mapFamilyDirectoryRows(rows = []) {
     family.students.push({
       studentId: row.student_id,
       name: [row.student_first_name, row.student_last_name].filter(Boolean).join(" "),
+      studentLastName: row.student_last_name || "",
       grade: row.grade || "",
     });
 
