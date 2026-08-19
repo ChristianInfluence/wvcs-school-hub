@@ -55,23 +55,29 @@ Deno.serve(async (request) => {
 
     if (insertError) throw insertError;
 
+    let emailWarning = "";
     if (parentEmail) {
-      await sendEmail(
-        buildFosMessage({
-          recipientEmail: parentEmail,
-          subject: `WVCS FOS Hours Received: ${access.family_name}`,
-          title: "FOS Hours Received",
-          body: [
-            `Hello ${entry.parentName || "WVCS Family"},`,
-            `We received your FOS hour submission for ${access.family_name}.`,
-            `${entry.hours} hour(s) for ${entry.activity} are now pending office verification.`,
-            "You will receive another email after the office approves, denies, or adjusts the submission.",
-          ],
-        }),
-      );
+      try {
+        await sendEmail(
+          buildFosMessage({
+            recipientEmail: parentEmail,
+            subject: `WVCS FOS Hours Received: ${access.family_name}`,
+            title: "FOS Hours Received",
+            body: [
+              `Hello ${entry.parentName || "WVCS Family"},`,
+              `We received your FOS hour submission for ${access.family_name}.`,
+              `${entry.hours} hour(s) for ${entry.activity} are now pending office verification.`,
+              "You will receive another email after the office approves, denies, or adjusts the submission.",
+            ],
+          }),
+        );
+      } catch (emailError) {
+        emailWarning = emailError.message || "Confirmation email could not be sent.";
+        console.error("FOS confirmation email failed", emailError);
+      }
     }
 
-    return new Response(JSON.stringify({ submitted: true, entryId: inserted.id }), {
+    return new Response(JSON.stringify({ submitted: true, entryId: inserted.id, emailWarning }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
