@@ -134,9 +134,15 @@ function backgroundPersonIdentity(person = {}) {
   };
 }
 
+function backgroundPersonMergeKey(person = {}) {
+  const identity = backgroundPersonIdentity(person);
+  return `${identity.parentEmail || "no-email"}:${backgroundNameKey(identity.parentName) || "person"}`;
+}
+
 function backgroundRecordMatchesPerson(record, person) {
   const identity = backgroundPersonIdentity(person);
   if (record?.personKey && record.personKey === identity.personKey) return true;
+  if (backgroundPersonMergeKey(record) === backgroundPersonMergeKey(person)) return true;
   const recordEmail = normalizeEmail(record?.parentEmail);
   if (recordEmail && recordEmail === identity.parentEmail) {
     return backgroundNameKey(record?.parentName) === backgroundNameKey(identity.parentName);
@@ -158,19 +164,33 @@ function familyBackgroundPeople(family) {
     })),
   ].filter((person) => String(person.name || "").trim() || normalizeEmail(person.email));
 
-  return uniqueBy(
-    people.map((person) => {
-      const identity = backgroundPersonIdentity(person);
-      return {
-        ...person,
-        name: identity.parentName || person.name || "Parent / Guardian",
-        email: identity.displayEmail,
-        backgroundEmail: identity.parentEmail,
-        personKey: identity.personKey,
-      };
-    }),
-    (person) => person.personKey
-  ).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+  const merged = new Map();
+  people.forEach((person) => {
+    const identity = backgroundPersonIdentity(person);
+    const normalized = {
+      ...person,
+      name: identity.parentName || person.name || "Parent / Guardian",
+      email: identity.displayEmail,
+      backgroundEmail: identity.parentEmail,
+      personKey: identity.personKey,
+    };
+    const mergeKey = backgroundPersonMergeKey(normalized);
+    const existing = merged.get(mergeKey);
+    if (!existing) {
+      merged.set(mergeKey, normalized);
+      return;
+    }
+    merged.set(mergeKey, {
+      ...existing,
+      name: existing.source === "roster" ? existing.name : normalized.name || existing.name,
+      email: existing.email || normalized.email,
+      backgroundEmail: existing.backgroundEmail || normalized.backgroundEmail,
+      personKey: normalized.source === "background" && normalized.personKey ? normalized.personKey : existing.personKey,
+      source: existing.source === "roster" ? existing.source : normalized.source,
+    });
+  });
+
+  return [...merged.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
 }
 
 function sanitizeFamilyInviteRecipients(family, recipients = []) {
@@ -916,7 +936,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     if (!selectedFamily || !parent) return;
     const identity = backgroundPersonIdentity(parent);
     const email = identity.parentEmail;
-    const draftKey = `${selectedFamily.familyKey}:${identity.personKey}`;
+    const personKey = existingRecord?.personKey || identity.personKey;
+    const draftKey = `${selectedFamily.familyKey}:${personKey}`;
     setBackgroundDrafts((current) => ({
       ...current,
       [draftKey]: current[draftKey] || {
@@ -926,7 +947,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         officeNote: existingRecord?.officeNote || "",
       },
     }));
-    setBackgroundEditor({ familyKey: selectedFamily.familyKey, parentEmail: email, displayEmail: identity.displayEmail, parentName: identity.parentName || "Parent / Guardian", personKey: identity.personKey });
+    setBackgroundEditor({ familyKey: selectedFamily.familyKey, parentEmail: email, displayEmail: identity.displayEmail, parentName: identity.parentName || "Parent / Guardian", personKey });
     setActionStatus("");
   }
 
@@ -934,7 +955,8 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     if (!selectedFamily || !parent) return;
     const identity = backgroundPersonIdentity(parent);
     const email = identity.parentEmail;
-    const draftKey = `${selectedFamily.familyKey}:${identity.personKey}`;
+    const personKey = existingRecord?.personKey || identity.personKey;
+    const draftKey = `${selectedFamily.familyKey}:${personKey}`;
     const draft = backgroundDrafts[draftKey] || {};
     const verifiedAt = draft.verifiedAt || existingRecord?.verifiedAt || today;
     const expiresAt = draft.expiresAt || existingRecord?.expiresAt || addYears(verifiedAt, 2);
@@ -951,7 +973,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
           familyName: selectedFamily.familyName,
           parentName: identity.parentName || "",
           parentEmail: email,
-          personKey: identity.personKey,
+          personKey,
           verifiedAt,
           expiresAt,
           status: draft.status || existingRecord?.status || "No Application",
