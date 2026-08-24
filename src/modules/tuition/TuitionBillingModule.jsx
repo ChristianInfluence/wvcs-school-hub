@@ -58,6 +58,13 @@ const DEFAULT_PAYMENT_NOTE = "Early pay discount applies when paid by check, cas
 const DEFAULT_FEE_NOTE = "Includes consumable materials, field trips, retreats, and yearbooks.";
 const EARLY_PAY_DISCOUNT_RATE = 0.05;
 const INCIDENTAL_CHARGE_CATEGORIES = ["Lunch Payment", "Childcare", "FOS Charge", "Registration Fee", "Athletic Fees", "Special Events", "Tuition", "Other"];
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "check", label: "Check" },
+  { value: "cash", label: "Cash" },
+  { value: "card", label: "Card" },
+  { value: "money_order", label: "Money Order" },
+  { value: "other", label: "Other" },
+];
 
 function normalizeGradeLevel(value = "") {
   const grade = String(value || "").trim().toLowerCase();
@@ -362,6 +369,16 @@ function createTuitionPaymentLine(category = "Tuition", amount = "") {
   };
 }
 
+function createPaymentTender(method = "check", amount = "") {
+  return {
+    id: uid("payment-tender"),
+    method,
+    amount,
+    checkNumber: "",
+    reference: "",
+  };
+}
+
 function normalizeTuitionPaymentLine(line = {}) {
   const category = normalizePaymentCategory(line.category || "Tuition");
   return {
@@ -373,13 +390,35 @@ function normalizeTuitionPaymentLine(line = {}) {
   };
 }
 
+function normalizePaymentTender(tender = {}) {
+  const method = PAYMENT_METHOD_OPTIONS.some((option) => option.value === tender.method) ? tender.method : "check";
+  return {
+    ...tender,
+    id: tender.id || uid("payment-tender"),
+    method,
+    amount: tender.amount || "",
+    checkNumber: method === "check" ? tender.checkNumber || tender.reference || "" : "",
+    reference: method === "check" ? "" : tender.reference || tender.checkNumber || "",
+  };
+}
+
 function tuitionPaymentLinesTotal(lines = []) {
   return lines.reduce((total, line) => total + money(line.amount), 0);
+}
+
+function paymentTenderTotal(tenders = []) {
+  return tenders.reduce((total, tender) => total + money(tender.amount), 0);
 }
 
 function paymentLineLabel(line = {}) {
   const normalized = normalizeTuitionPaymentLine(line);
   return normalized.category === "Other" ? normalized.description || "Other" : normalized.category;
+}
+
+function paymentMethodLabel(method = "") {
+  if (method === "split") return "Split";
+  if (method === "office") return "Office";
+  return PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label || "Other";
 }
 
 function paymentTuitionAmount(payment = {}) {
@@ -393,6 +432,67 @@ function paymentTuitionAmount(payment = {}) {
 function paymentTotalAmount(payment = {}) {
   if (Array.isArray(payment.items) && payment.items.length) return tuitionPaymentLinesTotal(payment.items);
   return money(payment.amount);
+}
+
+function getPaymentTenders(payment = {}) {
+  if (Array.isArray(payment.tenderLines) && payment.tenderLines.length) {
+    return payment.tenderLines.map(normalizePaymentTender);
+  }
+  if (payment.method || payment.paymentMethod) {
+    return [
+      normalizePaymentTender({
+        id: payment.id ? `${payment.id}-tender` : uid("payment-tender"),
+        method: payment.method || payment.paymentMethod,
+        amount: paymentTotalAmount(payment) ? paymentTotalAmount(payment).toFixed(2) : payment.amount || "",
+        checkNumber: payment.checkNumber || "",
+        reference: payment.checkNumber || "",
+      }),
+    ];
+  }
+  return [];
+}
+
+function paymentTenderReference(tender = {}) {
+  const normalized = normalizePaymentTender(tender);
+  return normalized.method === "check" ? normalized.checkNumber : normalized.reference;
+}
+
+function paymentTenderLabel(tender = {}, includeAmount = true) {
+  const normalized = normalizePaymentTender(tender);
+  const reference = paymentTenderReference(normalized);
+  const methodLabel = paymentMethodLabel(normalized.method);
+  const referenceText = reference ? ` #${reference}` : "";
+  const amountText = includeAmount ? ` ${formatCurrency(normalized.amount)}` : "";
+  return `${methodLabel}${referenceText}${amountText}`;
+}
+
+function paymentMethodSummary(payment = {}, includeAmounts = true) {
+  const tenders = getPaymentTenders(payment).filter((tender) => money(tender.amount) > 0 || paymentTenderReference(tender));
+  if (!tenders.length) return payment.method || payment.paymentMethod || "";
+  if (tenders.length === 1) return paymentTenderLabel(tenders[0], includeAmounts && Array.isArray(payment.tenderLines));
+  return tenders.map((tender) => paymentTenderLabel(tender, includeAmounts)).join("; ");
+}
+
+function invoicePaymentMethodSummary(invoice = {}) {
+  const payments = getPaymentHistory(invoice).filter((payment) => payment.type !== "refund" && payment.type !== "void");
+  if (payments.length) return payments.map((payment) => paymentMethodSummary(payment)).filter(Boolean).join("; ");
+  if (!invoice.paymentMethod) return "";
+  return `${paymentMethodLabel(invoice.paymentMethod)}${invoice.checkNumber ? ` #${invoice.checkNumber}` : ""}`;
+}
+
+function invoicePaymentReferenceSummary(invoice = {}) {
+  const payments = getPaymentHistory(invoice).filter((payment) => payment.type !== "refund" && payment.type !== "void");
+  const references = payments.flatMap((payment) => getPaymentTenders(payment).map(paymentTenderReference).filter(Boolean));
+  if (references.length) return references.join("; ");
+  return invoice.checkNumber || "";
+}
+
+function syncSingleTenderToAllocation(current, nextLines) {
+  const priorTotal = tuitionPaymentLinesTotal(current.lines || []);
+  const nextTotal = tuitionPaymentLinesTotal(nextLines || []);
+  const tenders = (current.tenders || [createPaymentTender(current.method || "check", priorTotal ? priorTotal.toFixed(2) : "")]).map(normalizePaymentTender);
+  const shouldSync = tenders.length === 1 && Math.abs(paymentTenderTotal(tenders) - priorTotal) < 0.005;
+  return shouldSync ? [{ ...tenders[0], amount: nextTotal > 0 ? nextTotal.toFixed(2) : "" }] : tenders;
 }
 
 function tuitionPaymentAddOnCharges(invoice = {}) {
@@ -740,7 +840,13 @@ function recordMatchesSearch(record, query) {
       payment.payerName,
       payment.method,
       payment.checkNumber,
+      paymentMethodSummary(payment),
       payment.note,
+      ...getPaymentTenders(payment).flatMap((tender) => [
+        paymentMethodLabel(tender.method),
+        tender.checkNumber,
+        tender.reference,
+      ]),
       ...(payment.items || []).flatMap((item) => [item.category, item.description]),
     ]),
   ]
@@ -1472,8 +1578,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     payerName: "",
     lines: [createTuitionPaymentLine()],
     paymentDate: currentLocalDate(),
-    method: "check",
-    checkNumber: "",
+    tenders: [createPaymentTender("check")],
     note: "",
   });
   const [actionFeedback, setActionFeedback] = useState({});
@@ -1848,40 +1953,89 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   }
 
   function openTuitionPaymentPanel() {
+    const defaultAmount = tuitionDue > 0 ? tuitionDue.toFixed(2) : "";
     setTuitionPaymentDraft({
       payerName: "",
-      lines: [createTuitionPaymentLine("Tuition", tuitionDue > 0 ? tuitionDue.toFixed(2) : "")],
+      lines: [createTuitionPaymentLine("Tuition", defaultAmount)],
       paymentDate: currentLocalDate(),
-      method: "check",
-      checkNumber: "",
+      tenders: [createPaymentTender("check", defaultAmount)],
       note: "",
     });
     setTuitionPaymentOpen(true);
   }
 
   function updateTuitionPaymentLine(lineId, patch) {
-    setTuitionPaymentDraft((current) => ({
-      ...current,
-      lines: (current.lines || [createTuitionPaymentLine()]).map((line) => {
+    setTuitionPaymentDraft((current) => {
+      const nextLines = (current.lines || [createTuitionPaymentLine()]).map((line) => {
         if (line.id !== lineId) return normalizeTuitionPaymentLine(line);
         return normalizeTuitionPaymentLine({ ...line, ...patch });
-      }),
-    }));
+      });
+      return {
+        ...current,
+        lines: nextLines,
+        tenders: syncSingleTenderToAllocation(current, nextLines),
+      };
+    });
   }
 
   function addTuitionPaymentLine(category = "Athletic Fees") {
-    setTuitionPaymentDraft((current) => ({
-      ...current,
-      lines: [...(current.lines || [createTuitionPaymentLine()]).map(normalizeTuitionPaymentLine), createTuitionPaymentLine(category)],
-    }));
+    setTuitionPaymentDraft((current) => {
+      const nextLines = [...(current.lines || [createTuitionPaymentLine()]).map(normalizeTuitionPaymentLine), createTuitionPaymentLine(category)];
+      return {
+        ...current,
+        lines: nextLines,
+        tenders: syncSingleTenderToAllocation(current, nextLines),
+      };
+    });
   }
 
   function removeTuitionPaymentLine(lineId) {
     setTuitionPaymentDraft((current) => {
       const lines = (current.lines || []).filter((line) => line.id !== lineId);
+      const nextLines = lines.length ? lines.map(normalizeTuitionPaymentLine) : [createTuitionPaymentLine()];
       return {
         ...current,
-        lines: lines.length ? lines.map(normalizeTuitionPaymentLine) : [createTuitionPaymentLine()],
+        lines: nextLines,
+        tenders: syncSingleTenderToAllocation(current, nextLines),
+      };
+    });
+  }
+
+  function updateTuitionPaymentTender(tenderId, patch) {
+    setTuitionPaymentDraft((current) => ({
+      ...current,
+      tenders: (current.tenders || [createPaymentTender("check")]).map((tender) => {
+        if (tender.id !== tenderId) return normalizePaymentTender(tender);
+        return normalizePaymentTender({ ...tender, ...patch });
+      }),
+    }));
+  }
+
+  function addTuitionPaymentTender(method = "cash") {
+    setTuitionPaymentDraft((current) => ({
+      ...current,
+      tenders: [...(current.tenders || [createPaymentTender("check")]).map(normalizePaymentTender), createPaymentTender(method)],
+    }));
+  }
+
+  function removeTuitionPaymentTender(tenderId) {
+    setTuitionPaymentDraft((current) => {
+      const tenders = (current.tenders || []).filter((tender) => tender.id !== tenderId);
+      return {
+        ...current,
+        tenders: tenders.length ? tenders.map(normalizePaymentTender) : [createPaymentTender("check", tuitionPaymentLinesTotal(current.lines || []).toFixed(2))],
+      };
+    });
+  }
+
+  function matchTenderTotalToAllocation() {
+    setTuitionPaymentDraft((current) => {
+      const total = tuitionPaymentLinesTotal(current.lines || []);
+      const tenders = (current.tenders || [createPaymentTender("check")]).map(normalizePaymentTender);
+      const firstTender = tenders[0] || createPaymentTender("check");
+      return {
+        ...current,
+        tenders: [{ ...firstTender, amount: total > 0 ? total.toFixed(2) : "" }, ...tenders.slice(1).map((tender) => ({ ...tender, amount: "" }))],
       };
     });
   }
@@ -1890,6 +2044,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     const lines = (tuitionPaymentDraft.lines || []).map(normalizeTuitionPaymentLine).filter((line) => money(line.amount) > 0);
     const amount = tuitionPaymentLinesTotal(lines);
     const tuitionAmount = lines.reduce((total, line) => line.category === "Tuition" ? total + money(line.amount) : total, 0);
+    const tenders = (tuitionPaymentDraft.tenders || []).map(normalizePaymentTender).filter((tender) => money(tender.amount) > 0);
+    const tenderTotal = paymentTenderTotal(tenders);
     if (amount <= 0) {
       setStatus("Enter at least one payment allocation amount greater than zero.");
       setActionState("recordTuitionPayment", "error", "Needs Amount");
@@ -1900,14 +2056,29 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       setActionState("recordTuitionPayment", "error", "Needs Description");
       return;
     }
-    if (tuitionPaymentDraft.method === "check" && !String(tuitionPaymentDraft.checkNumber || "").trim()) {
-      setStatus("Enter the check number before recording a check payment.");
+    if (!tenders.length) {
+      setStatus("Enter at least one payment method amount greater than zero.");
+      setActionState("recordTuitionPayment", "error", "Needs Method");
+      return;
+    }
+    if (Math.abs(tenderTotal - amount) >= 0.005) {
+      setStatus(`Payment methods must match the allocation total. Allocation: ${formatCurrency(amount)}. Methods: ${formatCurrency(tenderTotal)}.`);
+      setActionState("recordTuitionPayment", "error", "Totals Differ");
+      return;
+    }
+    if (tenders.some((tender) => tender.method === "check" && !String(tender.checkNumber || "").trim())) {
+      setStatus("Enter the check number for each check payment method.");
       setActionState("recordTuitionPayment", "error", "Needs Check #");
       return;
     }
 
     setActionState("recordTuitionPayment", "working", "Recording...");
     try {
+      const tenderLines = tenders.map((tender) => ({
+        ...tender,
+        amount: money(tender.amount).toFixed(2),
+      }));
+      const primaryTender = tenderLines[0] || {};
       const payment = {
         id: uid("tuition-payment"),
         type: "payment",
@@ -1919,8 +2090,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           amount: money(line.amount).toFixed(2),
         })),
         payerName: String(tuitionPaymentDraft.payerName || "").trim(),
-        method: tuitionPaymentDraft.method,
-        checkNumber: tuitionPaymentDraft.method === "check" ? String(tuitionPaymentDraft.checkNumber || "").trim() : "",
+        tenderLines,
+        method: tenderLines.length > 1 ? "split" : primaryTender.method || "office",
+        checkNumber: tenderLines.length === 1 && primaryTender.method === "check" ? String(primaryTender.checkNumber || "").trim() : "",
+        reference: tenderLines.length === 1 ? paymentTenderReference(primaryTender) : "",
         note: tuitionPaymentDraft.note || "",
         recordedBy: currentUserEmail,
         recordedAt: new Date().toISOString(),
@@ -1934,7 +2107,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         paidAt: nextStatus === "Paid" ? payment.date : invoice.paidAt || "",
         paymentHistory: nextHistory,
         paymentMethod: payment.method,
-        checkNumber: payment.checkNumber,
+        checkNumber: paymentMethodSummary(payment, false),
       });
       setTuitionPaymentOpen(false);
       setStatus(`${saved.familyName || "Tuition invoice"} payment recorded. Balance due: ${formatCurrency(tuitionBalance(saved.invoice || nextInvoice))}.`);
@@ -1961,7 +2134,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
         paymentHistory: nextHistory,
         paymentMethod: lastPayment.method || "",
-        checkNumber: lastPayment.checkNumber || "",
+        checkNumber: lastPayment.id ? paymentMethodSummary(lastPayment, false) : "",
       });
       setStatus("Tuition payment removed and invoice totals updated.");
       setActionState(`removeTuitionPayment-${paymentId}`, "done", "Removed");
@@ -1992,13 +2165,13 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
           paymentHistory: nextHistory,
           paymentMethod: lastPayment.method || "",
-          checkNumber: lastPayment.checkNumber || "",
+          checkNumber: lastPayment.id ? paymentMethodSummary(lastPayment, false) : "",
         },
         paymentStatus: nextStatus,
         paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
         paymentHistory: nextHistory,
         paymentMethod: lastPayment.method || "",
-        checkNumber: lastPayment.checkNumber || "",
+        checkNumber: lastPayment.id ? paymentMethodSummary(lastPayment, false) : "",
       };
       const result = await saveTuitionInvoice(nextRecord, currentUserEmail);
       setSavedInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
@@ -2293,7 +2466,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       "Balance",
       "Receipt Number",
       "Payment Method",
-      "Check Number",
+      "Payment References",
       "Last Paid",
       "Void Note",
     ];
@@ -2314,8 +2487,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         incidentalNetTotal(invoice).toFixed(2),
         incidentalBalance(invoice).toFixed(2),
         invoice.receiptNumber,
-        invoice.paymentMethod,
-        invoice.checkNumber,
+        invoicePaymentMethodSummary(invoice),
+        invoicePaymentReferenceSummary(invoice),
         invoice.paidAt,
         invoice.voidNote,
       ];
@@ -3348,26 +3521,6 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, paymentDate: event.target.value }))}
                       />
                     </Field>
-                    <Field label="Payment Method">
-                      <select
-                        value={tuitionPaymentDraft.method}
-                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, method: event.target.value, checkNumber: event.target.value === "check" ? current.checkNumber : "" }))}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                      >
-                        <option value="check">Check</option>
-                        <option value="cash">Cash</option>
-                        <option value="card">Card</option>
-                        <option value="money_order">Money Order</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </Field>
-                    <Field label={tuitionPaymentDraft.method === "check" ? "Check Number" : "Reference"}>
-                      <Input
-                        value={tuitionPaymentDraft.checkNumber}
-                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, checkNumber: event.target.value }))}
-                        placeholder={tuitionPaymentDraft.method === "check" ? "Required for check" : "Optional"}
-                      />
-                    </Field>
                     <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
@@ -3428,6 +3581,84 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         Add Category
                       </button>
                     </div>
+                    <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-white">Payment Methods</div>
+                          <div className="text-xs text-slate-500">Split one received payment across cash, card, check, or money order.</div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                          <div>
+                            <div>Allocation</div>
+                            <div className="mt-1 text-sm font-black normal-case tracking-normal text-emerald-200">{formatCurrency(tuitionPaymentLinesTotal(tuitionPaymentDraft.lines || []))}</div>
+                          </div>
+                          <div>
+                            <div>Methods</div>
+                            <div className="mt-1 text-sm font-black normal-case tracking-normal text-sky-200">{formatCurrency(paymentTenderTotal(tuitionPaymentDraft.tenders || []))}</div>
+                          </div>
+                          <div>
+                            <div>Difference</div>
+                            <div className={`mt-1 text-sm font-black normal-case tracking-normal ${Math.abs(tuitionPaymentLinesTotal(tuitionPaymentDraft.lines || []) - paymentTenderTotal(tuitionPaymentDraft.tenders || [])) < 0.005 ? "text-emerald-200" : "text-amber-200"}`}>
+                              {formatCurrency(tuitionPaymentLinesTotal(tuitionPaymentDraft.lines || []) - paymentTenderTotal(tuitionPaymentDraft.tenders || []))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(tuitionPaymentDraft.tenders || [createPaymentTender("check")]).map((tender) => {
+                          const normalizedTender = normalizePaymentTender(tender);
+                          return (
+                            <div key={normalizedTender.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:grid-cols-[145px_1fr_110px_auto]">
+                              <select
+                                value={normalizedTender.method}
+                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { method: event.target.value })}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-white outline-none focus:border-sky-400"
+                              >
+                                {PAYMENT_METHOD_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                              <Input
+                                value={normalizedTender.method === "check" ? normalizedTender.checkNumber : normalizedTender.reference}
+                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, normalizedTender.method === "check" ? { checkNumber: event.target.value } : { reference: event.target.value })}
+                                placeholder={normalizedTender.method === "check" ? "Check number required" : "Optional reference"}
+                                className="text-xs"
+                              />
+                              <MoneyInput
+                                value={normalizedTender.amount}
+                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { amount: event.target.value })}
+                                className="text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeTuitionPaymentTender(normalizedTender.id)}
+                                className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                                aria-label="Remove payment method"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => addTuitionPaymentTender()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+                        >
+                          <Plus size={14} />
+                          Add Method
+                        </button>
+                        <button
+                          type="button"
+                          onClick={matchTenderTotalToAllocation}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                        >
+                          Match Allocation Total
+                        </button>
+                      </div>
+                    </div>
                     <label className="grid gap-1 text-sm font-medium text-slate-200 sm:col-span-2">
                       Office Note
                       <textarea
@@ -3454,8 +3685,17 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                       <div key={payment.id} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="font-bold text-white">{formatShortDate(payment.date || payment.recordedAt)} · {String(payment.method || "office").replace("_", " ")}</div>
+                            <div className="font-bold text-white">{formatShortDate(payment.date || payment.recordedAt)} · {paymentMethodSummary(payment, false) || String(payment.method || "office").replace("_", " ")}</div>
                             {payment.payerName && <div className="mt-0.5 text-slate-500">Paid by {payment.payerName}</div>}
+                            {getPaymentTenders(payment).length > 1 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {getPaymentTenders(payment).map((tender) => (
+                                  <span key={tender.id} className="rounded-full border border-sky-900/60 bg-sky-950/50 px-2 py-0.5 text-[10px] text-sky-100">
+                                    {paymentTenderLabel(tender)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {Array.isArray(payment.items) && payment.items.length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {payment.items.map((item) => (
@@ -4634,9 +4874,9 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             {getIncidentalPaymentStatus(recordInvoice)}
                           </div>
                           {recordInvoice.receiptNumber && <div className="mt-1 text-sky-300">{recordInvoice.receiptNumber}</div>}
-                          {recordInvoice.paymentMethod && (
+                          {invoicePaymentMethodSummary(recordInvoice) && (
                             <div className="mt-1 text-slate-500">
-                              {recordInvoice.paymentMethod}{recordInvoice.checkNumber ? ` #${recordInvoice.checkNumber}` : ""}
+                              {invoicePaymentMethodSummary(recordInvoice)}
                             </div>
                           )}
                         </div>
@@ -4900,11 +5140,20 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           <div key={payment.id || `${payment.date}-${payment.amount}`} className="rounded-lg border border-slate-800 bg-slate-950 p-2 text-xs text-slate-300">
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <div className="font-bold text-white">{formatShortDate(payment.date || payment.createdAt)} · {String(payment.method || "office").replace("_", " ")}</div>
+                                <div className="font-bold text-white">{formatShortDate(payment.date || payment.createdAt)} · {paymentMethodSummary(payment, false) || String(payment.method || "office").replace("_", " ")}</div>
                                 {payment.payerName && <div className="mt-0.5 text-slate-500">Paid by {payment.payerName}</div>}
                               </div>
                               <div className="text-right font-black text-white">{formatCurrency(paymentTotalAmount(payment))}</div>
                             </div>
+                            {getPaymentTenders(payment).length > 1 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {getPaymentTenders(payment).map((tender) => (
+                                  <span key={tender.id} className="rounded-full border border-sky-900/60 bg-sky-950/50 px-2 py-0.5 text-[10px] text-sky-100">
+                                    {paymentTenderLabel(tender)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {Array.isArray(payment.items) && payment.items.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-1">
                                 {payment.items.map((item) => (
