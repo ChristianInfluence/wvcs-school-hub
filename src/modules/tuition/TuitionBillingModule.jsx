@@ -14,6 +14,7 @@ import {
   Save,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   deleteIncidentalInvoice,
@@ -35,7 +36,15 @@ import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
 import { DEFAULT_OFFICE_EMAIL_SETTINGS, DEFAULT_TUITION_RATE_SETTINGS, fetchOfficeEmailSettings, fetchTuitionRateSettings } from "../../lib/officeFinanceSettingsData.js";
 import warriorHeadNew from "../../assets/warrior-head-new.png";
 
-const today = new Date().toISOString().slice(0, 10);
+function currentLocalDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const today = currentLocalDate();
 
 const DISCOUNT_OPTIONS = [
   "Staff Discount",
@@ -165,10 +174,10 @@ function createManualReceivableDraft() {
     category: "Other",
     description: "",
     amount: "",
-    invoiceDate: today,
+    invoiceDate: currentLocalDate(),
     dueDate: "",
     markPaid: false,
-    paidAt: today,
+    paidAt: currentLocalDate(),
     paymentMethod: "",
     checkNumber: "",
     processingFee: "",
@@ -766,7 +775,11 @@ function groupInvoicesByYear(invoices) {
 
 function formatShortDate(value) {
   if (!value) return "";
-  return new Date(value).toLocaleDateString([], {
+  const dateOnly = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+  return date.toLocaleDateString([], {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -1437,6 +1450,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [receivablesStatusFilter, setReceivablesStatusFilter] = useState("all");
   const [receivablesCategoryFilter, setReceivablesCategoryFilter] = useState("all");
   const [receivablesMonthFilter, setReceivablesMonthFilter] = useState("all");
+  const [receivableModalRecord, setReceivableModalRecord] = useState(null);
   const [manualReceivableOpen, setManualReceivableOpen] = useState(false);
   const [manualReceivableDraft, setManualReceivableDraft] = useState(createManualReceivableDraft);
   const [ledgerFamilySearch, setLedgerFamilySearch] = useState("");
@@ -1457,7 +1471,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [tuitionPaymentDraft, setTuitionPaymentDraft] = useState({
     payerName: "",
     lines: [createTuitionPaymentLine()],
-    paymentDate: today,
+    paymentDate: currentLocalDate(),
     method: "check",
     checkNumber: "",
     note: "",
@@ -1837,7 +1851,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     setTuitionPaymentDraft({
       payerName: "",
       lines: [createTuitionPaymentLine("Tuition", tuitionDue > 0 ? tuitionDue.toFixed(2) : "")],
-      paymentDate: today,
+      paymentDate: currentLocalDate(),
       method: "check",
       checkNumber: "",
       note: "",
@@ -1897,7 +1911,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       const payment = {
         id: uid("tuition-payment"),
         type: "payment",
-        date: tuitionPaymentDraft.paymentDate || today,
+        date: tuitionPaymentDraft.paymentDate || currentLocalDate(),
         amount: amount.toFixed(2),
         tuitionAmount: tuitionAmount.toFixed(2),
         items: lines.map((line) => ({
@@ -1954,6 +1968,46 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     } catch (error) {
       setStatus(`Unable to remove tuition payment: ${error.message}`);
       setActionState(`removeTuitionPayment-${paymentId}`, "error", "Remove Failed");
+    }
+  }
+
+  async function removeTuitionPaymentFromReceivable(record, paymentId) {
+    const sourceRecord = record?.sourceTuitionRecord || record;
+    const sourceInvoice = { ...defaultInvoice, ...(sourceRecord?.invoice || {}) };
+    const payment = getPaymentHistory(sourceInvoice).find((item) => item.id === paymentId);
+    if (!sourceRecord?.id || !payment) return;
+    const confirmed = window.confirm(`Remove this recorded payment of ${formatCurrency(paymentTotalAmount(payment))}?`);
+    if (!confirmed) return;
+    setActionState(`arRemoveTuitionPayment-${paymentId}`, "working", "Removing...");
+    try {
+      const nextHistory = getPaymentHistory(sourceInvoice).filter((item) => item.id !== paymentId);
+      const nextInvoice = { ...sourceInvoice, paymentHistory: nextHistory };
+      const nextStatus = getTuitionPaymentStatus(nextInvoice);
+      const lastPayment = nextHistory.filter((item) => item.type !== "refund" && item.type !== "void").at(-1) || {};
+      const nextRecord = {
+        ...sourceRecord,
+        invoice: {
+          ...nextInvoice,
+          paymentStatus: nextStatus,
+          paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
+          paymentHistory: nextHistory,
+          paymentMethod: lastPayment.method || "",
+          checkNumber: lastPayment.checkNumber || "",
+        },
+        paymentStatus: nextStatus,
+        paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
+        paymentHistory: nextHistory,
+        paymentMethod: lastPayment.method || "",
+        checkNumber: lastPayment.checkNumber || "",
+      };
+      const result = await saveTuitionInvoice(nextRecord, currentUserEmail);
+      setSavedInvoices((current) => [result.invoice, ...current.filter((item) => item.id !== result.invoice.id)]);
+      setReceivableModalRecord(totalPaymentReceived({ ...defaultInvoice, ...(result.invoice.invoice || {}) }) > 0 ? tuitionRecordToReceivable(result.invoice) : null);
+      setStatus("Tuition payment removed from Accounts Receivable.");
+      setActionState(`arRemoveTuitionPayment-${paymentId}`, "done", "Removed");
+    } catch (error) {
+      setStatus(`Unable to remove payment: ${error.message}`);
+      setActionState(`arRemoveTuitionPayment-${paymentId}`, "error", "Remove Failed");
     }
   }
 
@@ -2068,7 +2122,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       ...defaultInvoice,
       id: "",
       status: "Draft",
-      invoiceDate: today,
+      invoiceDate: currentLocalDate(),
       paymentStatus: "Unpaid",
       paidAt: "",
       paymentHistory: [],
@@ -2492,7 +2546,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       ...defaultIncidentalInvoice,
       id: "",
       publicToken: "",
-      invoiceDate: today,
+      invoiceDate: currentLocalDate(),
       charges: defaultIncidentalInvoice.charges.map((charge) => ({ ...charge, id: uid("charge") })),
     });
     setSelectedIncidentalInvoiceId("");
@@ -4033,7 +4087,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         <Field label="Date Paid">
                           <Input
                             type="date"
-                            value={incidentalInvoice.paidAt ? String(incidentalInvoice.paidAt).slice(0, 10) : today}
+                            value={incidentalInvoice.paidAt ? String(incidentalInvoice.paidAt).slice(0, 10) : currentLocalDate()}
                             onChange={(event) =>
                               updateIncidentalInvoice({
                                 paidAt: event.target.value ? new Date(`${event.target.value}T12:00:00`).toISOString() : "",
@@ -4589,17 +4643,10 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         <div className="grid gap-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (record.receivableType === "tuition") {
-                                setActiveView("tuition");
-                                loadInvoiceRecord(record.sourceTuitionRecord || record);
-                              } else {
-                                loadIncidentalRecord(record);
-                              }
-                            }}
+                            onClick={() => setReceivableModalRecord(record)}
                             className="rounded-md border border-slate-700 px-1.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800"
                           >
-                            Open
+                            Open/Edit
                           </button>
                           {getIncidentalPaymentStatus(recordInvoice) === "Paid" ? (
                             <div className="grid grid-cols-2 gap-1">
@@ -4630,7 +4677,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                                   setTuitionPaymentDraft({
                                     payerName: "",
                                     lines: [createTuitionPaymentLine("Tuition", tuitionBalance(tuitionInvoice) > 0 ? tuitionBalance(tuitionInvoice).toFixed(2) : "")],
-                                    paymentDate: today,
+                                    paymentDate: currentLocalDate(),
                                     method: "check",
                                     checkNumber: "",
                                     note: "",
@@ -4801,6 +4848,101 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
           )}
           </>
         )}
+        {receivableModalRecord && (() => {
+          const modalRecord = receivableModalRecord;
+          const modalInvoice = getRecordInvoice(modalRecord);
+          const sourceTuitionRecord = modalRecord.sourceTuitionRecord || modalRecord;
+          const sourceTuitionInvoice = modalRecord.receivableType === "tuition"
+            ? { ...defaultInvoice, ...(sourceTuitionRecord.invoice || {}) }
+            : null;
+          const receivedAt = receivablePaymentReceivedAt(modalRecord);
+          const payments = getPaymentHistory(modalRecord.receivableType === "tuition" ? sourceTuitionInvoice : modalInvoice)
+            .filter((payment) => payment.type !== "refund" && payment.type !== "void");
+          return (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 px-4 py-6 backdrop-blur-sm">
+              <div className="w-full max-w-6xl overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
+                <div className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-[0.16em] text-sky-300">Accounts Receivable</div>
+                    <h2 className="mt-1 text-lg font-bold text-white">{modalInvoice.familyName || "Receivable Record"}</h2>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
+                      <span>{modalRecord.receivableType === "tuition" ? "Tuition Breakdown" : modalInvoice.status || "Invoice"}</span>
+                      <span>Received: {receivedAt ? formatShortDate(receivedAt) : "Not received"}</span>
+                      <span>Status: {getIncidentalPaymentStatus(modalInvoice)}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReceivableModalRecord(null)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800"
+                  >
+                    <X size={16} />
+                    Close
+                  </button>
+                </div>
+
+                <div className="grid gap-4 p-4 lg:grid-cols-[310px_1fr]">
+                  <aside className="space-y-3">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Summary</div>
+                      <div className="mt-3 grid gap-2 text-sm">
+                        <div className="flex justify-between gap-3"><span className="text-slate-400">Total</span><span className="font-bold text-white">{formatCurrency(incidentalTotal(modalInvoice))}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-slate-400">Paid</span><span className="font-bold text-emerald-200">{formatCurrency(incidentalPaidTotal(modalInvoice))}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-slate-400">Balance</span><span className="font-bold text-amber-200">{formatCurrency(incidentalBalance(modalInvoice))}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-slate-400">Fees</span><span className="font-bold text-rose-200">{formatCurrency(incidentalProcessingFeeTotal(modalInvoice))}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-slate-400">Net</span><span className="font-bold text-sky-200">{formatCurrency(incidentalNetTotal(modalInvoice))}</span></div>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Payments</div>
+                      <div className="mt-3 space-y-2">
+                        {payments.map((payment) => (
+                          <div key={payment.id || `${payment.date}-${payment.amount}`} className="rounded-lg border border-slate-800 bg-slate-950 p-2 text-xs text-slate-300">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="font-bold text-white">{formatShortDate(payment.date || payment.createdAt)} · {String(payment.method || "office").replace("_", " ")}</div>
+                                {payment.payerName && <div className="mt-0.5 text-slate-500">Paid by {payment.payerName}</div>}
+                              </div>
+                              <div className="text-right font-black text-white">{formatCurrency(paymentTotalAmount(payment))}</div>
+                            </div>
+                            {Array.isArray(payment.items) && payment.items.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {payment.items.map((item) => (
+                                  <span key={item.id || `${item.category}-${item.amount}`} className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300">
+                                    {paymentLineLabel(item)} {formatCurrency(item.amount)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {modalRecord.receivableType === "tuition" && (
+                              <button
+                                type="button"
+                                onClick={() => removeTuitionPaymentFromReceivable(modalRecord, payment.id)}
+                                className={actionButtonClass(`arRemoveTuitionPayment-${payment.id}`, "mt-2 inline-flex items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[10px] font-bold text-rose-100 hover:bg-rose-500/10")}
+                              >
+                                {actionIcon(`arRemoveTuitionPayment-${payment.id}`, <Trash2 size={12} />)}
+                                {actionLabel(`arRemoveTuitionPayment-${payment.id}`, "Remove")}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {!payments.length && <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">No payment history recorded.</div>}
+                      </div>
+                    </div>
+                  </aside>
+
+                  <div className="max-h-[78vh] overflow-auto rounded-lg bg-slate-200 p-3">
+                    {modalRecord.receivableType === "tuition" ? (
+                      <InvoicePreview invoice={sourceTuitionInvoice} />
+                    ) : (
+                      <IncidentalInvoicePreview invoice={modalInvoice} />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </section>
   );
