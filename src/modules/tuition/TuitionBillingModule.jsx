@@ -229,6 +229,9 @@ function getInvoiceParents(invoice) {
       id: parent.id || uid("parent"),
       name: parent.name || "",
       email: parent.email || "",
+      additionalEmails: parent.additionalEmails || [],
+      workPhones: parent.workPhones || [],
+      sendEmail: parent.sendEmail !== false,
     }));
   }
 
@@ -243,7 +246,7 @@ function getInvoiceParents(invoice) {
 
 function getParentRecipients(invoice) {
   return Array.from(
-    new Set(getInvoiceParents(invoice).map((parent) => String(parent.email || "").trim()).filter(Boolean))
+    new Set(getInvoiceParents(invoice).flatMap((parent) => [parent.email, ...(parent.additionalEmails || [])]).map((email) => String(email || "").trim()).filter(Boolean))
   );
 }
 
@@ -804,7 +807,7 @@ function familyMatchesSearch(family, query) {
   if (!needle) return true;
   return [
     family.familyName,
-    ...(family.parents || []).flatMap((parent) => [parent.name, parent.email]),
+    ...(family.parents || []).flatMap((parent) => [parent.name, parent.email, ...(parent.additionalEmails || []), ...(parent.workPhones || [])]),
     ...(family.students || []).flatMap((student) => [student.name, student.grade]),
   ]
     .join(" ")
@@ -2521,6 +2524,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       id: parent.id || uid("parent"),
       name: parent.name || "",
       email: parent.email || "",
+      additionalEmails: parent.additionalEmails || [],
+      workPhones: parent.workPhones || [],
     }));
     const primaryParent = parents.find((parent) => parent.email) || parents[0] || { name: "", email: "" };
     setInvoice((current) => {
@@ -2564,6 +2569,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
       id: parent.id || uid("parent"),
       name: parent.name || "",
       email: parent.email || "",
+      additionalEmails: parent.additionalEmails || [],
+      workPhones: parent.workPhones || [],
       sendEmail: parent.sendEmail !== false,
     }));
     const primaryParent = parents.find((parent) => parent.email) || parents[0] || { name: "", email: "" };

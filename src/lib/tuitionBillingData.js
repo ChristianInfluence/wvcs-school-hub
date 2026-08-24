@@ -161,6 +161,15 @@ export function normalizeFamilyEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeContactList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!value) return [];
+  return String(value)
+    .split(/[,\n;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function uniqueBy(items, keyFn) {
   const seen = new Set();
   return items.filter((item) => {
@@ -172,7 +181,13 @@ function uniqueBy(items, keyFn) {
 }
 
 function familyContactEmails(family) {
-  return uniqueBy((family.parents || []).map((parent) => normalizeFamilyEmail(parent.email)).filter(Boolean), (email) => email);
+  return uniqueBy(
+    (family.parents || [])
+      .flatMap((parent) => [parent.email, ...(parent.additionalEmails || [])])
+      .map((email) => normalizeFamilyEmail(email))
+      .filter(Boolean),
+    (email) => email
+  );
 }
 
 function familyMergeKey(family) {
@@ -227,7 +242,7 @@ export function mergeDirectoryFamilies(families = []) {
         ...family,
         familyKeys: uniqueBy([family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key),
         familyNames: familyNameParts(family),
-        parents: uniqueBy(family.parents || [], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`),
+        parents: uniqueBy(family.parents || [], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}|${(parent.additionalEmails || []).map(normalizeFamilyEmail).join("|")}`),
         students: uniqueBy(family.students || [], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`),
       });
       return;
@@ -235,7 +250,7 @@ export function mergeDirectoryFamilies(families = []) {
 
     existing.familyKeys = uniqueBy([...(existing.familyKeys || []), family.familyKey, ...(family.familyKeys || [])].filter(Boolean), (key) => key);
     existing.familyNames = uniqueBy([...(existing.familyNames || []), ...familyNameParts(family)], (name) => name.toLowerCase());
-    existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}`);
+    existing.parents = uniqueBy([...(existing.parents || []), ...(family.parents || [])], (parent) => `${normalizeFamilyEmail(parent.email)}|${String(parent.name || "").trim().toLowerCase()}|${(parent.additionalEmails || []).map(normalizeFamilyEmail).join("|")}`);
     existing.students = uniqueBy([...(existing.students || []), ...(family.students || [])], (student) => student.studentId || `${String(student.name || "").trim().toLowerCase()}|${String(student.grade || "").trim().toLowerCase()}`);
   });
 
@@ -270,12 +285,25 @@ function mapFamilyDirectoryRows(rows = []) {
     };
 
     [
-      { name: [row.parent1_first_name, row.parent1_last_name].filter(Boolean).join(" "), email: row.email1 || "" },
-      { name: [row.parent2_first_name, row.parent2_last_name].filter(Boolean).join(" "), email: row.email2 || "" },
+      {
+        name: [row.parent1_first_name, row.parent1_last_name].filter(Boolean).join(" "),
+        email: row.email1 || "",
+        phone: row.phone1 || "",
+        additionalEmails: normalizeContactList(row.parent1_additional_emails),
+        workPhones: normalizeContactList(row.parent1_work_phones),
+      },
+      {
+        name: [row.parent2_first_name, row.parent2_last_name].filter(Boolean).join(" "),
+        email: row.email2 || "",
+        phone: row.phone2 || "",
+        additionalEmails: normalizeContactList(row.parent2_additional_emails),
+        workPhones: normalizeContactList(row.parent2_work_phones),
+      },
     ].forEach((parent) => {
       const emailKey = parent.email.toLowerCase();
       const nameKey = parent.name.toLowerCase();
-      if ((parent.email || parent.name) && !family.parents.some((item) => item.email.toLowerCase() === emailKey && item.name.toLowerCase() === nameKey)) {
+      const extraEmailKey = parent.additionalEmails.map(normalizeFamilyEmail).join("|");
+      if ((parent.email || parent.name || parent.additionalEmails.length || parent.workPhones.length) && !family.parents.some((item) => item.email.toLowerCase() === emailKey && item.name.toLowerCase() === nameKey && (item.additionalEmails || []).map(normalizeFamilyEmail).join("|") === extraEmailKey)) {
         family.parents.push(parent);
       }
     });

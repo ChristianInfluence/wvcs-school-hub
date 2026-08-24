@@ -16,11 +16,19 @@ const emptyStudent = {
   parent1LastName: "",
   email1: "",
   phone1: "",
+  parent1AdditionalEmails: [],
+  parent1WorkPhones: [],
   parent2FirstName: "",
   parent2LastName: "",
   phone2: "",
   email2: "",
+  parent2AdditionalEmails: [],
+  parent2WorkPhones: [],
 };
+
+function contactList(value) {
+  return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
 
 function studentLastNamesLabel(students = []) {
   const lastNames = [...new Set(students.map((student) => String(student.studentLastName || "").trim()).filter(Boolean))];
@@ -34,7 +42,12 @@ function defaultFamilyName(student = {}) {
 }
 
 function defaultFamilyKey(student = {}) {
-  const parentEmails = [student.email1, student.email2].map((email) => String(email || "").trim().toLowerCase()).filter(Boolean).sort();
+  const parentEmails = [
+    student.email1,
+    ...(student.parent1AdditionalEmails || []),
+    student.email2,
+    ...(student.parent2AdditionalEmails || []),
+  ].map((email) => String(email || "").trim().toLowerCase()).filter(Boolean).sort();
   if (parentEmails.length) return `parents:${parentEmails.join("|")}`;
   return `name:${String(student.studentLastName || "").replace(/\s+/g, "").toLowerCase()}`;
 }
@@ -52,14 +65,22 @@ function familyOptionsFromStudents(students = []) {
       parent1LastName: student.parent1LastName || "",
       email1: student.email1 || "",
       phone1: student.phone1 || "",
+      parent1AdditionalEmails: contactList(student.parent1AdditionalEmails),
+      parent1WorkPhones: contactList(student.parent1WorkPhones),
       parent2FirstName: student.parent2FirstName || "",
       parent2LastName: student.parent2LastName || "",
       email2: student.email2 || "",
       phone2: student.phone2 || "",
+      parent2AdditionalEmails: contactList(student.parent2AdditionalEmails),
+      parent2WorkPhones: contactList(student.parent2WorkPhones),
     };
     family.students.push(`${student.studentFirstName} ${student.studentLastName}`.trim());
     family.studentRecords = [...(family.studentRecords || []), student];
     family.familyName = studentLastNamesLabel(family.studentRecords);
+    family.parent1AdditionalEmails = [...new Set([...contactList(family.parent1AdditionalEmails), ...contactList(student.parent1AdditionalEmails)])];
+    family.parent1WorkPhones = [...new Set([...contactList(family.parent1WorkPhones), ...contactList(student.parent1WorkPhones)])];
+    family.parent2AdditionalEmails = [...new Set([...contactList(family.parent2AdditionalEmails), ...contactList(student.parent2AdditionalEmails)])];
+    family.parent2WorkPhones = [...new Set([...contactList(family.parent2WorkPhones), ...contactList(student.parent2WorkPhones)])];
     families.set(familyKey, family);
   });
   return [...families.values()].sort((a, b) => a.familyName.localeCompare(b.familyName, undefined, { sensitivity: "base" }));
@@ -69,24 +90,75 @@ function parentDisplay(firstName, lastName) {
   return [firstName, lastName].filter(Boolean).join(" ");
 }
 
-function ContactBlock({ label, firstName, lastName, email, phone }) {
+function ContactBlock({ label, firstName, lastName, email, phone, additionalEmails = [], workPhones = [] }) {
   const name = parentDisplay(firstName, lastName);
-  if (!name && !email && !phone) return <span className="text-sm text-slate-500">No {label.toLowerCase()} listed</span>;
+  const emails = [email, ...contactList(additionalEmails)].filter(Boolean);
+  const phones = [phone, ...contactList(workPhones)].filter(Boolean);
+  if (!name && !emails.length && !phones.length) return <span className="text-sm text-slate-500">No {label.toLowerCase()} listed</span>;
   return (
     <div className="space-y-1">
       <div className="text-sm font-semibold text-white">{name || label}</div>
-      {email && (
-        <a className="inline-flex items-center gap-1 text-xs font-medium text-sky-300 hover:text-sky-200" href={`mailto:${email}`}>
+      {emails.map((emailAddress, index) => (
+        <a key={emailAddress} className="flex items-center gap-1 text-xs font-medium text-sky-300 hover:text-sky-200" href={`mailto:${emailAddress}`}>
           <Mail size={13} />
-          {email}
+          {emailAddress}{index > 0 ? <span className="text-slate-500">(alt)</span> : null}
         </a>
-      )}
-      {phone && (
-        <a className="block text-xs font-medium text-slate-300 hover:text-white" href={`tel:${phone}`}>
+      ))}
+      {phones.map((phoneNumber, index) => (
+        <a key={`${phoneNumber}-${index}`} className="block text-xs font-medium text-slate-300 hover:text-white" href={`tel:${phoneNumber}`}>
           <Phone className="mr-1 inline" size={13} />
-          {phone}
+          {phoneNumber}{index > 0 ? <span className="ml-1 text-slate-500">(work)</span> : null}
         </a>
-      )}
+      ))}
+    </div>
+  );
+}
+
+function DynamicContactList({ label, values = [], placeholder, onChange }) {
+  const list = Array.isArray(values) ? values.map((item) => String(item || "")) : [];
+
+  function updateValue(index, value) {
+    const next = [...list];
+    next[index] = value;
+    onChange(next);
+  }
+
+  function removeValue(index) {
+    onChange(list.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{label}</div>
+        <button
+          type="button"
+          onClick={() => onChange([...list, ""])}
+          className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] font-bold text-sky-100 hover:bg-sky-500/20"
+        >
+          <Plus size={12} />
+          Add
+        </button>
+      </div>
+      {list.map((value, index) => (
+        <div key={index} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input
+            value={value}
+            onChange={(event) => updateValue(index, event.target.value)}
+            placeholder={placeholder}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+          />
+          <button
+            type="button"
+            onClick={() => removeValue(index)}
+            className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+            aria-label={`Remove ${label.toLowerCase()}`}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+      {!list.length && <div className="text-xs text-slate-600">None added.</div>}
     </div>
   );
 }
@@ -123,24 +195,20 @@ function StudentFormDialog({ mode, student, familyOptions = [], onClose, onSave 
       parent1LastName: family.parent1LastName,
       email1: family.email1,
       phone1: family.phone1,
+      parent1AdditionalEmails: contactList(family.parent1AdditionalEmails),
+      parent1WorkPhones: contactList(family.parent1WorkPhones),
       parent2FirstName: family.parent2FirstName,
       parent2LastName: family.parent2LastName,
       email2: family.email2,
       phone2: family.phone2,
+      parent2AdditionalEmails: contactList(family.parent2AdditionalEmails),
+      parent2WorkPhones: contactList(family.parent2WorkPhones),
     }));
   }
 
-  const fields = [
+  const studentFields = [
     ["studentFirstName", "Student First Name", "Addie"],
     ["studentLastName", "Student Last Name", "Marks"],
-    ["parent1FirstName", "Parent 1 First Name", "Jordan"],
-    ["parent1LastName", "Parent 1 Last Name", "Marks"],
-    ["email1", "Parent 1 Email", "parent@wvcs.org"],
-    ["phone1", "Parent 1 Phone", "503-000-0000"],
-    ["parent2FirstName", "Parent 2 First Name", "Taylor"],
-    ["parent2LastName", "Parent 2 Last Name", "Marks"],
-    ["phone2", "Parent 2 Phone", "503-000-0000"],
-    ["email2", "Parent 2 Email", "parent2@example.com"],
   ];
 
   return (
@@ -189,11 +257,11 @@ function StudentFormDialog({ mode, student, familyOptions = [], onClose, onSave 
               ))}
             </select>
           </label>
-          {fields.map(([field, label, placeholder]) => (
+          {studentFields.map(([field, label, placeholder]) => (
             <label key={field} className="space-y-1 text-sm font-semibold text-slate-200">
               {label}
               <input
-                type={field.includes("email") ? "email" : "text"}
+                type="text"
                 value={draft[field] || ""}
                 onChange={(event) => updateField(field, event.target.value)}
                 placeholder={placeholder}
@@ -201,6 +269,72 @@ function StudentFormDialog({ mode, student, familyOptions = [], onClose, onSave 
               />
             </label>
           ))}
+          {[1, 2].map((parentNumber) => {
+            const firstNameField = `parent${parentNumber}FirstName`;
+            const lastNameField = `parent${parentNumber}LastName`;
+            const emailField = `email${parentNumber}`;
+            const phoneField = `phone${parentNumber}`;
+            const additionalEmailsField = `parent${parentNumber}AdditionalEmails`;
+            const workPhonesField = `parent${parentNumber}WorkPhones`;
+            return (
+              <div key={parentNumber} className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3 md:col-span-2">
+                <div className="text-sm font-bold text-white">Parent / Guardian {parentNumber}</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    First Name
+                    <input
+                      value={draft[firstNameField] || ""}
+                      onChange={(event) => updateField(firstNameField, event.target.value)}
+                      placeholder={parentNumber === 1 ? "Jordan" : "Taylor"}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Last Name
+                    <input
+                      value={draft[lastNameField] || ""}
+                      onChange={(event) => updateField(lastNameField, event.target.value)}
+                      placeholder="Marks"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Primary Email
+                    <input
+                      type="email"
+                      value={draft[emailField] || ""}
+                      onChange={(event) => updateField(emailField, event.target.value)}
+                      placeholder={parentNumber === 1 ? "parent@wvcs.org" : "parent2@example.com"}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Primary Phone
+                    <input
+                      value={draft[phoneField] || ""}
+                      onChange={(event) => updateField(phoneField, event.target.value)}
+                      placeholder="503-000-0000"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DynamicContactList
+                    label="Additional Emails"
+                    values={draft[additionalEmailsField]}
+                    placeholder="alternate@email.com"
+                    onChange={(values) => updateField(additionalEmailsField, values)}
+                  />
+                  <DynamicContactList
+                    label="Work Phones"
+                    values={draft[workPhonesField]}
+                    placeholder="503-000-0000"
+                    onChange={(values) => updateField(workPhonesField, values)}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {error && <div className="mt-4 rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100">{error}</div>}
@@ -280,10 +414,14 @@ function FamilyContactDialog({ family, onClose, onSave }) {
     parent1LastName: family.parent1LastName || "",
     email1: family.email1 || "",
     phone1: family.phone1 || "",
+    parent1AdditionalEmails: contactList(family.parent1AdditionalEmails),
+    parent1WorkPhones: contactList(family.parent1WorkPhones),
     parent2FirstName: family.parent2FirstName || "",
     parent2LastName: family.parent2LastName || "",
     email2: family.email2 || "",
     phone2: family.phone2 || "",
+    parent2AdditionalEmails: contactList(family.parent2AdditionalEmails),
+    parent2WorkPhones: contactList(family.parent2WorkPhones),
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -302,20 +440,9 @@ function FamilyContactDialog({ family, onClose, onSave }) {
     }
   }
 
-  const fields = [
-    ["parent1FirstName", "Parent 1 First Name"],
-    ["parent1LastName", "Parent 1 Last Name"],
-    ["email1", "Parent 1 Email"],
-    ["phone1", "Parent 1 Phone"],
-    ["parent2FirstName", "Parent 2 First Name"],
-    ["parent2LastName", "Parent 2 Last Name"],
-    ["email2", "Parent 2 Email"],
-    ["phone2", "Parent 2 Phone"],
-  ];
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
             <div className="text-lg font-bold text-white">Edit Household Contacts</div>
@@ -325,18 +452,69 @@ function FamilyContactDialog({ family, onClose, onSave }) {
             <X size={18} />
           </button>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {fields.map(([field, label]) => (
-            <label key={field} className="space-y-1 text-sm font-semibold text-slate-200">
-              {label}
-              <input
-                type={field.includes("email") ? "email" : "text"}
-                value={draft[field] || ""}
-                onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
-              />
-            </label>
-          ))}
+        <div className="mt-4 space-y-4">
+          {[1, 2].map((parentNumber) => {
+            const firstNameField = `parent${parentNumber}FirstName`;
+            const lastNameField = `parent${parentNumber}LastName`;
+            const emailField = `email${parentNumber}`;
+            const phoneField = `phone${parentNumber}`;
+            const additionalEmailsField = `parent${parentNumber}AdditionalEmails`;
+            const workPhonesField = `parent${parentNumber}WorkPhones`;
+            return (
+              <div key={parentNumber} className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div className="text-sm font-bold text-white">Parent / Guardian {parentNumber}</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    First Name
+                    <input
+                      value={draft[firstNameField] || ""}
+                      onChange={(event) => setDraft((current) => ({ ...current, [firstNameField]: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Last Name
+                    <input
+                      value={draft[lastNameField] || ""}
+                      onChange={(event) => setDraft((current) => ({ ...current, [lastNameField]: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Primary Email
+                    <input
+                      type="email"
+                      value={draft[emailField] || ""}
+                      onChange={(event) => setDraft((current) => ({ ...current, [emailField]: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-slate-200">
+                    Primary Phone
+                    <input
+                      value={draft[phoneField] || ""}
+                      onChange={(event) => setDraft((current) => ({ ...current, [phoneField]: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-sky-400"
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DynamicContactList
+                    label="Additional Emails"
+                    values={draft[additionalEmailsField]}
+                    placeholder="alternate@email.com"
+                    onChange={(values) => setDraft((current) => ({ ...current, [additionalEmailsField]: values }))}
+                  />
+                  <DynamicContactList
+                    label="Work Phones"
+                    values={draft[workPhonesField]}
+                    placeholder="503-000-0000"
+                    onChange={(values) => setDraft((current) => ({ ...current, [workPhonesField]: values }))}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
         {error && <div className="mt-4 rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-100">{error}</div>}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -427,10 +605,14 @@ export default function StudentDirectoryModule() {
         parent1LastName: family.parent1LastName,
         email1: family.email1,
         phone1: family.phone1,
+        parent1AdditionalEmails: contactList(family.parent1AdditionalEmails),
+        parent1WorkPhones: contactList(family.parent1WorkPhones),
         parent2FirstName: family.parent2FirstName,
         parent2LastName: family.parent2LastName,
         email2: family.email2,
         phone2: family.phone2,
+        parent2AdditionalEmails: contactList(family.parent2AdditionalEmails),
+        parent2WorkPhones: contactList(family.parent2WorkPhones),
       },
     });
   }
@@ -517,8 +699,24 @@ export default function StudentDirectoryModule() {
                 </div>
               </div>
               <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_1fr]">
-                <ContactBlock label="Parent 1" firstName={family.parent1FirstName} lastName={family.parent1LastName} email={family.email1} phone={family.phone1} />
-                <ContactBlock label="Parent 2" firstName={family.parent2FirstName} lastName={family.parent2LastName} email={family.email2} phone={family.phone2} />
+                <ContactBlock
+                  label="Parent 1"
+                  firstName={family.parent1FirstName}
+                  lastName={family.parent1LastName}
+                  email={family.email1}
+                  phone={family.phone1}
+                  additionalEmails={family.parent1AdditionalEmails}
+                  workPhones={family.parent1WorkPhones}
+                />
+                <ContactBlock
+                  label="Parent 2"
+                  firstName={family.parent2FirstName}
+                  lastName={family.parent2LastName}
+                  email={family.email2}
+                  phone={family.phone2}
+                  additionalEmails={family.parent2AdditionalEmails}
+                  workPhones={family.parent2WorkPhones}
+                />
               </div>
               <div className="mt-3 overflow-hidden rounded-lg border border-slate-800">
                 {(family.studentRecords || []).map((student) => (

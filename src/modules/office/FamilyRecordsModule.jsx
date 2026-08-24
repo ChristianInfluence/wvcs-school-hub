@@ -110,7 +110,13 @@ function uniqueBy(items, keyFn) {
 }
 
 function familyContactEmails(family) {
-  return uniqueBy((family.parents || []).map((parent) => normalizeEmail(parent.email)).filter(Boolean), (email) => email);
+  return uniqueBy(
+    (family.parents || [])
+      .flatMap((parent) => [parent.email, ...(parent.additionalEmails || [])])
+      .map((email) => normalizeEmail(email))
+      .filter(Boolean),
+    (email) => email
+  );
 }
 
 function backgroundNameKey(value) {
@@ -201,22 +207,24 @@ function sanitizeFamilyInviteRecipients(family, recipients = []) {
 function familyInviteParentOptions(family) {
   const grouped = new Map();
   (family?.parents || [])
-    .map((parent) => ({
+    .flatMap((parent) => [parent.email, ...(parent.additionalEmails || [])].map((email) => ({
       ...parent,
-      email: normalizeEmail(parent.email),
+      email: normalizeEmail(email),
       name: String(parent.name || "").trim(),
-    }))
+      isAdditional: normalizeEmail(email) !== normalizeEmail(parent.email),
+    })))
     .filter((parent) => parent.email)
     .forEach((parent) => {
-      const existing = grouped.get(parent.email) || { email: parent.email, names: [] };
+      const existing = grouped.get(parent.email) || { email: parent.email, names: [], isAdditional: false };
       grouped.set(parent.email, {
         ...existing,
         names: uniqueBy([...existing.names, parent.name].filter(Boolean), (name) => name.toLowerCase()),
+        isAdditional: existing.isAdditional || parent.isAdditional,
       });
     });
   return [...grouped.values()].map((parent) => ({
     email: parent.email,
-    name: parent.names.length > 1 ? parent.names.join(" & ") : parent.names[0] || "Parent / Guardian",
+    name: `${parent.names.length > 1 ? parent.names.join(" & ") : parent.names[0] || "Parent / Guardian"}${parent.isAdditional ? " (alternate email)" : ""}`,
   }));
 }
 
@@ -570,7 +578,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
     const eventMap = new Map(data.permissionEvents.map((event) => [event.id, event]));
     return mergeDirectoryFamilies(data.families).map((family) => {
       const familyKeys = new Set([family.familyKey, ...(family.familyKeys || [])].filter(Boolean));
-      const parentEmails = family.parents.map((parent) => String(parent.email || "").trim().toLowerCase()).filter(Boolean);
+      const parentEmails = familyContactEmails(family);
       const studentIds = new Set(family.students.map((student) => student.studentId).filter(Boolean));
       const incidentalInvoices = data.incidentals.filter((invoice) => matchesFamilyRecord(invoice, family));
       const tuitionInvoices = data.tuition.filter((invoice) => matchesFamilyRecord(invoice, family) || familyKeys.has(invoice.invoice?.familyKey));
@@ -645,7 +653,7 @@ function FamilyRecordsModule({ initialSavedView = "all", currentUserEmail = "" }
         backgroundChecks,
         currentBackgroundChecks,
         familyDocuments,
-        searchText: `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
+        searchText: `${family.familyName} ${family.parents.map((parent) => `${parent.name} ${parent.email} ${(parent.additionalEmails || []).join(" ")} ${(parent.workPhones || []).join(" ")}`).join(" ")} ${family.students.map((student) => `${student.name} ${student.grade}`).join(" ")}`.toLowerCase(),
       };
     });
   }, [data]);

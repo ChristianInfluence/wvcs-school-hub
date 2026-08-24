@@ -18,6 +18,15 @@ const gradeSort = {
   12: 14,
 };
 
+function normalizeContactList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!value) return [];
+  return String(value)
+    .split(/[,\n;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizeStudent(row = {}) {
   return {
     studentId: row.student_id,
@@ -28,10 +37,14 @@ function normalizeStudent(row = {}) {
     parent1LastName: row.parent1_last_name || "",
     email1: row.email1 || "",
     phone1: row.phone1 || "",
+    parent1AdditionalEmails: normalizeContactList(row.parent1_additional_emails),
+    parent1WorkPhones: normalizeContactList(row.parent1_work_phones),
     parent2FirstName: row.parent2_first_name || "",
     parent2LastName: row.parent2_last_name || "",
     phone2: row.phone2 || "",
     email2: row.email2 || "",
+    parent2AdditionalEmails: normalizeContactList(row.parent2_additional_emails),
+    parent2WorkPhones: normalizeContactList(row.parent2_work_phones),
   };
 }
 
@@ -44,11 +57,33 @@ function studentToRow(student = {}) {
     parent1_last_name: String(student.parent1LastName || "").trim(),
     email1: String(student.email1 || "").trim(),
     phone1: String(student.phone1 || "").trim(),
+    parent1_additional_emails: normalizeContactList(student.parent1AdditionalEmails),
+    parent1_work_phones: normalizeContactList(student.parent1WorkPhones),
     parent2_first_name: String(student.parent2FirstName || "").trim(),
     parent2_last_name: String(student.parent2LastName || "").trim(),
     phone2: String(student.phone2 || "").trim(),
     email2: String(student.email2 || "").trim(),
+    parent2_additional_emails: normalizeContactList(student.parent2AdditionalEmails),
+    parent2_work_phones: normalizeContactList(student.parent2WorkPhones),
   };
+}
+
+function studentToLegacyRow(student = {}) {
+  const row = studentToRow(student);
+  delete row.parent1_additional_emails;
+  delete row.parent1_work_phones;
+  delete row.parent2_additional_emails;
+  delete row.parent2_work_phones;
+  return row;
+}
+
+function isMissingExtraContactColumnError(error) {
+  const message = String(error?.message || "");
+  return message.includes("parent1_additional_emails")
+    || message.includes("parent1_work_phones")
+    || message.includes("parent2_additional_emails")
+    || message.includes("parent2_work_phones")
+    || message.includes("schema cache");
 }
 
 function sortStudents(students) {
@@ -88,10 +123,14 @@ export async function getStudents({ grade = "all", q = "" } = {}) {
           student.parent1LastName,
           student.email1,
           student.phone1,
+          ...(student.parent1AdditionalEmails || []),
+          ...(student.parent1WorkPhones || []),
           student.parent2FirstName,
           student.parent2LastName,
           student.email2,
           student.phone2,
+          ...(student.parent2AdditionalEmails || []),
+          ...(student.parent2WorkPhones || []),
         ]
           .join(" ")
           .toLowerCase()
@@ -114,25 +153,40 @@ export async function getStudent(studentId) {
 
 export async function createStudent(student) {
   ensureSupabase();
-  const { data, error } = await supabase
+  let result = await supabase
     .from("student_directory")
     .insert(studentToRow(student))
     .select("*")
     .single();
-  if (error) throw error;
-  return normalizeStudent(data);
+  if (result.error && isMissingExtraContactColumnError(result.error)) {
+    result = await supabase
+      .from("student_directory")
+      .insert(studentToLegacyRow(student))
+      .select("*")
+      .single();
+  }
+  if (result.error) throw result.error;
+  return normalizeStudent(result.data);
 }
 
 export async function updateStudent(studentId, student) {
   ensureSupabase();
-  const { data, error } = await supabase
+  let result = await supabase
     .from("student_directory")
     .update(studentToRow(student))
     .eq("student_id", studentId)
     .select("*")
     .single();
-  if (error) throw error;
-  return normalizeStudent(data);
+  if (result.error && isMissingExtraContactColumnError(result.error)) {
+    result = await supabase
+      .from("student_directory")
+      .update(studentToLegacyRow(student))
+      .eq("student_id", studentId)
+      .select("*")
+      .single();
+  }
+  if (result.error) throw result.error;
+  return normalizeStudent(result.data);
 }
 
 export async function removeStudent(studentId, reason = "") {
