@@ -339,10 +339,84 @@ function getPaymentHistory(invoice) {
   return Array.isArray(invoice.paymentHistory) ? invoice.paymentHistory : [];
 }
 
+function normalizePaymentCategory(value) {
+  const categoryName = value === "Full-pay Tuition" ? "Tuition" : value;
+  return INCIDENTAL_CHARGE_CATEGORIES.includes(categoryName) ? categoryName : "Other";
+}
+
+function createTuitionPaymentLine(category = "Tuition", amount = "") {
+  return {
+    id: uid("payment-line"),
+    category,
+    description: category === "Tuition" ? "Tuition payment" : "",
+    amount,
+  };
+}
+
+function normalizeTuitionPaymentLine(line = {}) {
+  const category = normalizePaymentCategory(line.category || "Tuition");
+  return {
+    ...line,
+    id: line.id || uid("payment-line"),
+    category,
+    description: category === "Other" ? line.description || "" : line.description || category,
+    amount: line.amount || "",
+  };
+}
+
+function tuitionPaymentLinesTotal(lines = []) {
+  return lines.reduce((total, line) => total + money(line.amount), 0);
+}
+
+function paymentLineLabel(line = {}) {
+  const normalized = normalizeTuitionPaymentLine(line);
+  return normalized.category === "Other" ? normalized.description || "Other" : normalized.category;
+}
+
+function paymentTuitionAmount(payment = {}) {
+  if (payment.tuitionAmount !== undefined && payment.tuitionAmount !== null && payment.tuitionAmount !== "") return money(payment.tuitionAmount);
+  if (Array.isArray(payment.items) && payment.items.length) {
+    return payment.items.reduce((total, item) => normalizePaymentCategory(item.category) === "Tuition" ? total + money(item.amount) : total, 0);
+  }
+  return money(payment.amount);
+}
+
+function paymentTotalAmount(payment = {}) {
+  if (Array.isArray(payment.items) && payment.items.length) return tuitionPaymentLinesTotal(payment.items);
+  return money(payment.amount);
+}
+
+function tuitionPaymentAddOnCharges(invoice = {}) {
+  const grouped = new Map();
+  getPaymentHistory(invoice).forEach((payment) => {
+    (payment.items || [])
+      .map(normalizeTuitionPaymentLine)
+      .filter((item) => item.category !== "Tuition" && money(item.amount) > 0)
+      .forEach((item) => {
+        const key = `${item.category}|${item.description || item.category}`;
+        const existing = grouped.get(key) || {
+          id: key,
+          category: item.category,
+          description: item.description || item.category,
+          amount: 0,
+        };
+        existing.amount += money(item.amount);
+        grouped.set(key, existing);
+      });
+  });
+  return [...grouped.values()].map((charge) => ({ ...charge, amount: charge.amount.toFixed(2) }));
+}
+
 function tuitionPaidTotal(invoice) {
   return getPaymentHistory(invoice)
     .filter((payment) => payment.type !== "refund" && payment.type !== "void")
-    .reduce((total, payment) => total + money(payment.amount), 0);
+    .reduce((total, payment) => total + paymentTuitionAmount(payment), 0);
+}
+
+function totalPaymentReceived(invoice) {
+  return getPaymentHistory(invoice)
+    .filter((payment) => payment.type !== "refund" && payment.type !== "void")
+    .reduce((total, payment) => total + paymentTotalAmount(payment), 0);
 }
 
 function tuitionBalance(invoice) {
@@ -464,6 +538,7 @@ function tuitionRecordToReceivable(record) {
   const familyName = record.familyName || tuitionInvoice.familyName || "";
   return {
     ...record,
+    sourceTuitionRecord: record,
     receivableType: "tuition",
     invoice: {
       ...defaultIncidentalInvoice,
@@ -487,6 +562,7 @@ function tuitionRecordToReceivable(record) {
           description: `${tuitionInvoice.schoolYear || record.schoolYear || "School year"} tuition breakdown`,
           amount: total.toFixed(2),
         },
+        ...tuitionPaymentAddOnCharges(tuitionInvoice),
       ],
       paymentHistory: record.paymentHistory || tuitionInvoice.paymentHistory || [],
       paidAt: record.paidAt || tuitionInvoice.paidAt || "",
@@ -651,6 +727,13 @@ function recordMatchesSearch(record, query) {
     invoice.checkNumber,
     getIncidentalStudentSummary(invoice),
     ...(invoice.charges || []).flatMap((charge) => [charge.category, charge.description]),
+    ...getPaymentHistory(invoice).flatMap((payment) => [
+      payment.payerName,
+      payment.method,
+      payment.checkNumber,
+      payment.note,
+      ...(payment.items || []).flatMap((item) => [item.category, item.description]),
+    ]),
   ]
     .join(" ")
     .toLowerCase()
@@ -1372,7 +1455,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
   const [tuitionRateSettings, setTuitionRateSettings] = useState(DEFAULT_TUITION_RATE_SETTINGS);
   const [tuitionPaymentOpen, setTuitionPaymentOpen] = useState(false);
   const [tuitionPaymentDraft, setTuitionPaymentDraft] = useState({
-    amount: "",
+    payerName: "",
+    lines: [createTuitionPaymentLine()],
     paymentDate: today,
     method: "check",
     checkNumber: "",
@@ -1403,7 +1487,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     () => [
       ...savedIncidentalInvoices,
       ...savedInvoices
-        .filter((record) => tuitionPaidTotal({ ...defaultInvoice, ...(record.invoice || {}) }) > 0)
+        .filter((record) => totalPaymentReceived({ ...defaultInvoice, ...(record.invoice || {}) }) > 0)
         .map(tuitionRecordToReceivable),
     ],
     [savedIncidentalInvoices, savedInvoices]
@@ -1751,7 +1835,8 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
 
   function openTuitionPaymentPanel() {
     setTuitionPaymentDraft({
-      amount: tuitionDue > 0 ? tuitionDue.toFixed(2) : "",
+      payerName: "",
+      lines: [createTuitionPaymentLine("Tuition", tuitionDue > 0 ? tuitionDue.toFixed(2) : "")],
       paymentDate: today,
       method: "check",
       checkNumber: "",
@@ -1760,11 +1845,45 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     setTuitionPaymentOpen(true);
   }
 
+  function updateTuitionPaymentLine(lineId, patch) {
+    setTuitionPaymentDraft((current) => ({
+      ...current,
+      lines: (current.lines || [createTuitionPaymentLine()]).map((line) => {
+        if (line.id !== lineId) return normalizeTuitionPaymentLine(line);
+        return normalizeTuitionPaymentLine({ ...line, ...patch });
+      }),
+    }));
+  }
+
+  function addTuitionPaymentLine(category = "Athletic Fees") {
+    setTuitionPaymentDraft((current) => ({
+      ...current,
+      lines: [...(current.lines || [createTuitionPaymentLine()]).map(normalizeTuitionPaymentLine), createTuitionPaymentLine(category)],
+    }));
+  }
+
+  function removeTuitionPaymentLine(lineId) {
+    setTuitionPaymentDraft((current) => {
+      const lines = (current.lines || []).filter((line) => line.id !== lineId);
+      return {
+        ...current,
+        lines: lines.length ? lines.map(normalizeTuitionPaymentLine) : [createTuitionPaymentLine()],
+      };
+    });
+  }
+
   async function recordTuitionOfficePayment() {
-    const amount = money(tuitionPaymentDraft.amount);
+    const lines = (tuitionPaymentDraft.lines || []).map(normalizeTuitionPaymentLine).filter((line) => money(line.amount) > 0);
+    const amount = tuitionPaymentLinesTotal(lines);
+    const tuitionAmount = lines.reduce((total, line) => line.category === "Tuition" ? total + money(line.amount) : total, 0);
     if (amount <= 0) {
-      setStatus("Enter a tuition payment amount greater than zero.");
+      setStatus("Enter at least one payment allocation amount greater than zero.");
       setActionState("recordTuitionPayment", "error", "Needs Amount");
+      return;
+    }
+    if (lines.some((line) => line.category === "Other" && !String(line.description || "").trim())) {
+      setStatus("Enter a description for each Other payment allocation.");
+      setActionState("recordTuitionPayment", "error", "Needs Description");
       return;
     }
     if (tuitionPaymentDraft.method === "check" && !String(tuitionPaymentDraft.checkNumber || "").trim()) {
@@ -1780,6 +1899,12 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
         type: "payment",
         date: tuitionPaymentDraft.paymentDate || today,
         amount: amount.toFixed(2),
+        tuitionAmount: tuitionAmount.toFixed(2),
+        items: lines.map((line) => ({
+          ...line,
+          amount: money(line.amount).toFixed(2),
+        })),
+        payerName: String(tuitionPaymentDraft.payerName || "").trim(),
         method: tuitionPaymentDraft.method,
         checkNumber: tuitionPaymentDraft.method === "check" ? String(tuitionPaymentDraft.checkNumber || "").trim() : "",
         note: tuitionPaymentDraft.note || "",
@@ -1803,6 +1928,32 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
     } catch (error) {
       setStatus(`Unable to record tuition payment: ${error.message}`);
       setActionState("recordTuitionPayment", "error", "Payment Failed");
+    }
+  }
+
+  async function removeTuitionPayment(paymentId) {
+    const payment = getPaymentHistory(invoice).find((item) => item.id === paymentId);
+    if (!payment) return;
+    const confirmed = window.confirm(`Remove this recorded payment of ${formatCurrency(paymentTotalAmount(payment))}?`);
+    if (!confirmed) return;
+    setActionState(`removeTuitionPayment-${paymentId}`, "working", "Removing...");
+    try {
+      const nextHistory = getPaymentHistory(invoice).filter((item) => item.id !== paymentId);
+      const nextInvoice = { ...invoice, paymentHistory: nextHistory };
+      const nextStatus = getTuitionPaymentStatus(nextInvoice);
+      const lastPayment = nextHistory.filter((item) => item.type !== "refund" && item.type !== "void").at(-1) || {};
+      await saveCurrentInvoice({
+        paymentStatus: nextStatus,
+        paidAt: nextStatus === "Paid" ? lastPayment.date || lastPayment.recordedAt || "" : "",
+        paymentHistory: nextHistory,
+        paymentMethod: lastPayment.method || "",
+        checkNumber: lastPayment.checkNumber || "",
+      });
+      setStatus("Tuition payment removed and invoice totals updated.");
+      setActionState(`removeTuitionPayment-${paymentId}`, "done", "Removed");
+    } catch (error) {
+      setStatus(`Unable to remove tuition payment: ${error.message}`);
+      setActionState(`removeTuitionPayment-${paymentId}`, "error", "Remove Failed");
     }
   }
 
@@ -2903,7 +3054,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             onClick={() => loadInvoiceRecord(record)}
                             className="flex-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
                           >
-                            Open
+                            Open/Edit
                           </button>
                           <button
                             type="button"
@@ -3129,10 +3280,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                 </button>
                 {tuitionPaymentOpen && (
                   <div className="mt-3 grid gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 sm:grid-cols-2">
-                    <Field label="Amount Received">
-                      <MoneyInput
-                        value={tuitionPaymentDraft.amount}
-                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, amount: event.target.value }))}
+                    <Field label="Payment From / Household">
+                      <Input
+                        value={tuitionPaymentDraft.payerName}
+                        onChange={(event) => setTuitionPaymentDraft((current) => ({ ...current, payerName: event.target.value }))}
+                        placeholder="Optional: Parent name, household, or payer"
                       />
                     </Field>
                     <Field label="Date Received">
@@ -3162,6 +3314,66 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         placeholder={tuitionPaymentDraft.method === "check" ? "Required for check" : "Optional"}
                       />
                     </Field>
+                    <div className="sm:col-span-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-white">Payment Allocation</div>
+                          <div className="text-xs text-slate-500">Split one check into queryable categories.</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Total Received</div>
+                          <div className="text-sm font-black text-emerald-200">{formatCurrency(tuitionPaymentLinesTotal(tuitionPaymentDraft.lines || []))}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(tuitionPaymentDraft.lines || [createTuitionPaymentLine()]).map((line) => {
+                          const normalizedLine = normalizeTuitionPaymentLine(line);
+                          return (
+                            <div key={normalizedLine.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:grid-cols-[145px_1fr_110px_auto]">
+                              <select
+                                value={normalizedLine.category}
+                                onChange={(event) => updateTuitionPaymentLine(normalizedLine.id, {
+                                  category: event.target.value,
+                                  description: event.target.value === "Other" ? "" : event.target.value,
+                                })}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-white outline-none focus:border-sky-400"
+                              >
+                                {INCIDENTAL_CHARGE_CATEGORIES.map((category) => (
+                                  <option key={category} value={category}>{category}</option>
+                                ))}
+                              </select>
+                              <Input
+                                value={normalizedLine.description}
+                                onChange={(event) => updateTuitionPaymentLine(normalizedLine.id, { description: event.target.value })}
+                                placeholder={normalizedLine.category === "Other" ? "Description required" : "Optional note"}
+                                className="text-xs"
+                              />
+                              <MoneyInput
+                                value={normalizedLine.amount}
+                                onChange={(event) => updateTuitionPaymentLine(normalizedLine.id, { amount: event.target.value })}
+                                className="text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeTuitionPaymentLine(normalizedLine.id)}
+                                className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                                aria-label="Remove payment allocation"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addTuitionPaymentLine()}
+                        className="mt-3 inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+                      >
+                        <Plus size={14} />
+                        Add Category
+                      </button>
+                    </div>
                     <label className="grid gap-1 text-sm font-medium text-slate-200 sm:col-span-2">
                       Office Note
                       <textarea
@@ -3185,9 +3397,36 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                 {getPaymentHistory(invoice).length > 0 && (
                   <div className="mt-3 space-y-2">
                     {getPaymentHistory(invoice).slice().reverse().map((payment) => (
-                      <div key={payment.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
-                        <span>{formatShortDate(payment.date || payment.recordedAt)} · {String(payment.method || "office").replace("_", " ")}</span>
-                        <span className="font-bold text-white">{formatCurrency(payment.amount)}</span>
+                      <div key={payment.id} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-bold text-white">{formatShortDate(payment.date || payment.recordedAt)} · {String(payment.method || "office").replace("_", " ")}</div>
+                            {payment.payerName && <div className="mt-0.5 text-slate-500">Paid by {payment.payerName}</div>}
+                            {Array.isArray(payment.items) && payment.items.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {payment.items.map((item) => (
+                                  <span key={item.id || `${item.category}-${item.amount}`} className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-300">
+                                    {paymentLineLabel(item)} {formatCurrency(item.amount)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-right">
+                              <div className="font-bold text-white">{formatCurrency(paymentTotalAmount(payment))}</div>
+                              {paymentTuitionAmount(payment) !== paymentTotalAmount(payment) && <div className="text-[10px] text-sky-300">Tuition {formatCurrency(paymentTuitionAmount(payment))}</div>}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeTuitionPayment(payment.id)}
+                              className={actionButtonClass(`removeTuitionPayment-${payment.id}`, "rounded-md border border-slate-700 p-1.5 text-slate-400 hover:border-rose-400 hover:text-rose-300")}
+                              aria-label="Remove tuition payment"
+                            >
+                              {actionIcon(`removeTuitionPayment-${payment.id}`, <Trash2 size={13} />)}
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -4353,7 +4592,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             onClick={() => {
                               if (record.receivableType === "tuition") {
                                 setActiveView("tuition");
-                                loadInvoiceRecord(record);
+                                loadInvoiceRecord(record.sourceTuitionRecord || record);
                               } else {
                                 loadIncidentalRecord(record);
                               }
@@ -4384,11 +4623,13 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const tuitionInvoice = { ...defaultInvoice, ...(record.invoice || {}) };
+                                  const sourceRecord = record.sourceTuitionRecord || record;
+                                  const tuitionInvoice = { ...defaultInvoice, ...(sourceRecord.invoice || {}) };
                                   setActiveView("tuition");
-                                  loadInvoiceRecord(record);
+                                  loadInvoiceRecord(sourceRecord);
                                   setTuitionPaymentDraft({
-                                    amount: tuitionBalance(tuitionInvoice) > 0 ? tuitionBalance(tuitionInvoice).toFixed(2) : "",
+                                    payerName: "",
+                                    lines: [createTuitionPaymentLine("Tuition", tuitionBalance(tuitionInvoice) > 0 ? tuitionBalance(tuitionInvoice).toFixed(2) : "")],
                                     paymentDate: today,
                                     method: "check",
                                     checkNumber: "",
