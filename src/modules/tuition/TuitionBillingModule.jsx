@@ -4309,11 +4309,11 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     </div>
                     <button
                       type="button"
-                      onClick={() => setOfficePaymentOpen((open) => !open)}
+                      onClick={() => setOfficePaymentOpen(true)}
                       className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
                     >
                       <CheckCircle2 size={16} />
-                      {officePaymentOpen ? "Hide Payment Form" : "Paid in Office"}
+                      Record Office Payment
                     </button>
                   </div>
                   {getPaymentHistory(incidentalInvoice).length > 0 && (
@@ -4328,79 +4328,6 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                           </div>
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {officePaymentOpen && (
-                    <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-                      <div className="grid gap-3 md:grid-cols-[minmax(120px,0.8fr)_minmax(145px,0.9fr)_minmax(220px,1.3fr)]">
-                        <Field label="Amount">
-                          <MoneyInput
-                            value={incidentalInvoice.paymentAmount || ""}
-                            onChange={(event) => updateIncidentalInvoice({ paymentAmount: event.target.value })}
-                            placeholder={incidentalBalance(incidentalInvoice).toFixed(2)}
-                          />
-                        </Field>
-                        <Field label="Date Paid">
-                          <Input
-                            type="date"
-                            value={incidentalInvoice.paidAt ? String(incidentalInvoice.paidAt).slice(0, 10) : currentLocalDate()}
-                            onChange={(event) =>
-                              updateIncidentalInvoice({
-                                paidAt: event.target.value ? new Date(`${event.target.value}T12:00:00`).toISOString() : "",
-                              })
-                            }
-                          />
-                        </Field>
-                        <Field label="Method" className="md:col-start-1">
-                          <select
-                            value={incidentalInvoice.paymentMethod || ""}
-                            onChange={(event) =>
-                              updateIncidentalInvoice({
-                                paymentMethod: event.target.value,
-                                checkNumber: event.target.value === "check" ? incidentalInvoice.checkNumber : "",
-                              })
-                            }
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                          >
-                            <option value="">Select method</option>
-                            <option value="cash">Cash</option>
-                            <option value="card">Card</option>
-                            <option value="check">Check</option>
-                          </select>
-                        </Field>
-                        <Field label="Check Number" className="md:col-span-2">
-                          <Input
-                            value={incidentalInvoice.checkNumber || ""}
-                            onChange={(event) => updateIncidentalInvoice({ checkNumber: event.target.value })}
-                            placeholder="Required for check"
-                            disabled={incidentalInvoice.paymentMethod !== "check"}
-                            className={incidentalInvoice.paymentMethod !== "check" ? "opacity-50" : ""}
-                          />
-                        </Field>
-                        <Field label="Processing Fee">
-                          <MoneyInput
-                            value={incidentalInvoice.processingFee || ""}
-                            onChange={(event) => updateIncidentalInvoice({ processingFee: event.target.value })}
-                            placeholder="Optional"
-                          />
-                        </Field>
-                        <Field label="Payment Note" className="md:col-span-2">
-                          <Input
-                            value={incidentalInvoice.paymentNote || ""}
-                            onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
-                            placeholder="Optional memo for this payment"
-                          />
-                        </Field>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => markIncidentalPaidInOffice()}
-                        aria-busy={actionFeedback.recordPayment?.state === "working"}
-                        className={actionButtonClass("recordPayment", "mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20")}
-                      >
-                        {actionIcon("recordPayment", <CheckCircle2 size={16} />)}
-                        {actionLabel("recordPayment", "Record Payment")}
-                      </button>
                     </div>
                   )}
                   {getIncidentalPaymentStatus(incidentalInvoice) === "Paid" && (
@@ -5104,6 +5031,126 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
             </div>
           )}
           </>
+        )}
+        {officePaymentOpen && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 px-4 py-6 backdrop-blur-sm">
+            <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-800 bg-slate-900 px-4 py-3">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-300">Office Payment</div>
+                  <h2 className="mt-1 text-lg font-bold text-white">Record Payment Received</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {incidentalInvoice.familyName || "Selected invoice"} · Balance {formatCurrency(incidentalBalance(incidentalInvoice))}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOfficePaymentOpen(false)}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                  aria-label="Close office payment"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-4">
+                <div className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm sm:grid-cols-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Total</div>
+                    <div className="mt-1 text-lg font-black text-white">{formatCurrency(incidentalTotal(incidentalInvoice))}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Paid</div>
+                    <div className="mt-1 text-lg font-black text-emerald-200">{formatCurrency(incidentalPaidTotal(incidentalInvoice))}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Remaining</div>
+                    <div className="mt-1 text-lg font-black text-amber-200">{formatCurrency(incidentalBalance(incidentalInvoice))}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Field label="Amount">
+                    <MoneyInput
+                      value={incidentalInvoice.paymentAmount || ""}
+                      onChange={(event) => updateIncidentalInvoice({ paymentAmount: event.target.value })}
+                      placeholder={incidentalBalance(incidentalInvoice).toFixed(2)}
+                    />
+                  </Field>
+                  <Field label="Date Paid">
+                    <Input
+                      type="date"
+                      value={incidentalInvoice.paidAt ? String(incidentalInvoice.paidAt).slice(0, 10) : currentLocalDate()}
+                      onChange={(event) =>
+                        updateIncidentalInvoice({
+                          paidAt: event.target.value ? new Date(`${event.target.value}T12:00:00`).toISOString() : "",
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Method">
+                    <select
+                      value={incidentalInvoice.paymentMethod || ""}
+                      onChange={(event) =>
+                        updateIncidentalInvoice({
+                          paymentMethod: event.target.value,
+                          checkNumber: event.target.value === "check" ? incidentalInvoice.checkNumber : "",
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                    >
+                      <option value="">Select method</option>
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="check">Check</option>
+                    </select>
+                  </Field>
+                  <Field label="Processing Fee">
+                    <MoneyInput
+                      value={incidentalInvoice.processingFee || ""}
+                      onChange={(event) => updateIncidentalInvoice({ processingFee: event.target.value })}
+                      placeholder="Optional"
+                    />
+                  </Field>
+                  <Field label="Check Number" className="sm:col-span-2">
+                    <Input
+                      value={incidentalInvoice.checkNumber || ""}
+                      onChange={(event) => updateIncidentalInvoice({ checkNumber: event.target.value })}
+                      placeholder="Required for check"
+                      disabled={incidentalInvoice.paymentMethod !== "check"}
+                      className={incidentalInvoice.paymentMethod !== "check" ? "opacity-50" : ""}
+                    />
+                  </Field>
+                  <Field label="Payment Note" className="sm:col-span-2">
+                    <Input
+                      value={incidentalInvoice.paymentNote || ""}
+                      onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
+                      placeholder="Optional memo for this payment"
+                    />
+                  </Field>
+                </div>
+
+                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setOfficePaymentOpen(false)}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markIncidentalPaidInOffice()}
+                    aria-busy={actionFeedback.recordPayment?.state === "working"}
+                    className={actionButtonClass("recordPayment", "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400")}
+                  >
+                    {actionIcon("recordPayment", <CheckCircle2 size={16} />)}
+                    {actionLabel("recordPayment", "Record Payment")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
         {receivableModalRecord && (() => {
           const modalRecord = receivableModalRecord;
