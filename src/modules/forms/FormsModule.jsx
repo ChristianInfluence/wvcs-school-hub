@@ -3025,7 +3025,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
       }
 
       const sentPatch = {
-        status: approved ? "Sent" : submissionToSend.status,
+        status: approved ? "Approved" : submissionToSend.status,
         emailStatus: approved ? "Completed PDF emailed" : "Status email sent",
         emailedAt: new Date().toISOString(),
       };
