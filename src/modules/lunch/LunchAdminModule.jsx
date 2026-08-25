@@ -19,9 +19,9 @@ const OFFICE_QUICK_LUNCH_ITEMS = [
   { id: "office-corndog-leftovers", name: "Corndog/Leftovers", price: 1.5, description: "Office quick-add lunch item" },
 ];
 
-function Field({ label, children }) {
+function Field({ label, children, className = "" }) {
   return (
-    <label className="grid gap-1 text-sm font-semibold text-slate-700">
+    <label className={`grid gap-1 text-sm font-semibold text-slate-700 ${className}`}>
       {label}
       {children}
     </label>
@@ -595,12 +595,12 @@ export default function LunchAdminModule({ currentUserEmail = "", dailyOnly = fa
           <div className="grid self-start gap-3">
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="text-sm font-bold text-slate-950">Record Lunch Payment</div>
-              <div className="mt-4 grid gap-3">
-                <Field label="Family"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{familyOptionLabel(family, duplicateFamilyNames)}</option>)}</Select></Field>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Field label="Family" className="sm:col-span-2"><Select value={deposit.familyKey} onChange={(event) => setDeposit({ ...deposit, familyKey: event.target.value })}><option value="">Select family</option>{data.families.map((family) => <option key={family.familyKey} value={family.familyKey}>{familyOptionLabel(family, duplicateFamilyNames)}</option>)}</Select></Field>
                 <Field label="Amount"><Input inputMode="decimal" value={deposit.amount} onChange={(event) => setDeposit({ ...deposit, amount: event.target.value })} placeholder="25.00" /></Field>
                 <Field label="Method"><Select value={deposit.method} onChange={(event) => setDeposit({ ...deposit, method: event.target.value })}><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option><option value="adjustment">Adjustment</option></Select></Field>
-                {deposit.method === "check" && <Field label="Check number"><Input value={deposit.checkNumber} onChange={(event) => setDeposit({ ...deposit, checkNumber: event.target.value })} /></Field>}
-                <Field label="Note"><Input value={deposit.note} onChange={(event) => setDeposit({ ...deposit, note: event.target.value })} placeholder="Optional" /></Field>
+                {deposit.method === "check" && <Field label="Check number" className="sm:col-span-2"><Input value={deposit.checkNumber} onChange={(event) => setDeposit({ ...deposit, checkNumber: event.target.value })} placeholder="Required for check" /></Field>}
+                <Field label="Note" className="sm:col-span-2"><Input value={deposit.note} onChange={(event) => setDeposit({ ...deposit, note: event.target.value })} placeholder="Optional" /></Field>
                 <button type="button" onClick={saveDeposit} className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700">Record Payment</button>
               </div>
             </div>

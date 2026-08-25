@@ -895,9 +895,9 @@ function formatShortDate(value) {
   });
 }
 
-function Field({ label, children }) {
+function Field({ label, children, className = "" }) {
   return (
-    <label className="grid gap-1 text-sm font-medium text-slate-200">
+    <label className={`grid gap-1 text-sm font-medium text-slate-200 ${className}`}>
       {label}
       {children}
     </label>
@@ -3615,31 +3615,40 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         {(tuitionPaymentDraft.tenders || [createPaymentTender("check")]).map((tender) => {
                           const normalizedTender = normalizePaymentTender(tender);
                           return (
-                            <div key={normalizedTender.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:grid-cols-[145px_1fr_110px_auto]">
-                              <select
-                                value={normalizedTender.method}
-                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { method: event.target.value })}
-                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-white outline-none focus:border-sky-400"
-                              >
-                                {PAYMENT_METHOD_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                              <Input
-                                value={normalizedTender.method === "check" ? normalizedTender.checkNumber : normalizedTender.reference}
-                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, normalizedTender.method === "check" ? { checkNumber: event.target.value } : { reference: event.target.value })}
-                                placeholder={normalizedTender.method === "check" ? "Check number required" : "Optional reference"}
-                                className="text-xs"
-                              />
-                              <MoneyInput
-                                value={normalizedTender.amount}
-                                onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { amount: event.target.value })}
-                                className="text-xs"
-                              />
+                            <div key={normalizedTender.id} className="grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:grid-cols-[145px_minmax(190px,1fr)_120px_auto]">
+                              <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                                Method
+                                <select
+                                  value={normalizedTender.method}
+                                  onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { method: event.target.value })}
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs font-semibold normal-case tracking-normal text-white outline-none focus:border-sky-400"
+                                >
+                                  {PAYMENT_METHOD_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                                {normalizedTender.method === "check" ? "Check Number" : "Reference"}
+                                <Input
+                                  value={normalizedTender.method === "check" ? normalizedTender.checkNumber : normalizedTender.reference}
+                                  onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, normalizedTender.method === "check" ? { checkNumber: event.target.value } : { reference: event.target.value })}
+                                  placeholder={normalizedTender.method === "check" ? "Required for check" : "Optional reference"}
+                                  className="text-xs normal-case tracking-normal"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                                Amount
+                                <MoneyInput
+                                  value={normalizedTender.amount}
+                                  onChange={(event) => updateTuitionPaymentTender(normalizedTender.id, { amount: event.target.value })}
+                                  className="text-xs normal-case tracking-normal"
+                                />
+                              </label>
                               <button
                                 type="button"
                                 onClick={() => removeTuitionPaymentTender(normalizedTender.id)}
-                                className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
+                                className="self-end rounded-lg border border-slate-700 p-2 text-slate-400 hover:border-rose-400 hover:text-rose-300"
                                 aria-label="Remove payment method"
                               >
                                 <Trash2 size={14} />
@@ -4323,7 +4332,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                   )}
                   {officePaymentOpen && (
                     <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-[minmax(120px,0.8fr)_minmax(145px,0.9fr)_minmax(220px,1.3fr)]">
                         <Field label="Amount">
                           <MoneyInput
                             value={incidentalInvoice.paymentAmount || ""}
@@ -4342,7 +4351,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             }
                           />
                         </Field>
-                        <Field label="Method">
+                        <Field label="Method" className="md:col-start-1">
                           <select
                             value={incidentalInvoice.paymentMethod || ""}
                             onChange={(event) =>
@@ -4359,7 +4368,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             <option value="check">Check</option>
                           </select>
                         </Field>
-                        <Field label="Check Number">
+                        <Field label="Check Number" className="md:col-span-2">
                           <Input
                             value={incidentalInvoice.checkNumber || ""}
                             onChange={(event) => updateIncidentalInvoice({ checkNumber: event.target.value })}
@@ -4375,7 +4384,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                             placeholder="Optional"
                           />
                         </Field>
-                        <Field label="Payment Note">
+                        <Field label="Payment Note" className="md:col-span-2">
                           <Input
                             value={incidentalInvoice.paymentNote || ""}
                             onChange={(event) => updateIncidentalInvoice({ paymentNote: event.target.value })}
@@ -4773,7 +4782,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                     </div>
                   )}
                   {manualReceivableDraft.markPaid && (
-                    <div className="mt-3 grid gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 md:grid-cols-4">
+                    <div className="mt-3 grid gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 md:grid-cols-[135px_145px_minmax(180px,1fr)_135px]">
                       <label className="grid gap-1 text-xs font-semibold text-emerald-100">
                         Paid Date
                         <Input
@@ -4801,6 +4810,7 @@ export default function TuitionBillingModule({ currentUserEmail = "", officeFina
                         <Input
                           value={manualReceivableDraft.checkNumber}
                           onChange={(event) => setManualReceivableDraft((current) => ({ ...current, checkNumber: event.target.value }))}
+                          placeholder="Required for check"
                           disabled={manualReceivableDraft.paymentMethod !== "check"}
                           className="py-1.5 text-xs disabled:opacity-50"
                         />
