@@ -3,6 +3,11 @@ import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 const FORM_UPLOADS_BUCKET = "form-uploads";
 const FORM_PDFS_BUCKET = "form-pdfs";
 
+function isMissingFormCalendarEventsTable(error) {
+  const message = String(error?.message || "");
+  return message.includes("form_calendar_events") || message.includes("schema cache");
+}
+
 function sanitizePathPart(value) {
   return String(value || "file")
     .replace(/[^a-z0-9._-]+/gi, "-")
@@ -170,6 +175,87 @@ export async function saveFormSubmission(submission) {
 
   if (error) throw error;
   return { saved: true };
+}
+
+function mapCalendarEventFromDatabase(row) {
+  return {
+    ...(row.event || {}),
+    id: row.id,
+    submissionId: row.submission_id,
+    templateId: row.template_id || row.event?.templateId || "",
+    templateTitle: row.template_title || row.event?.templateTitle || "",
+    submitterName: row.submitter_name || row.event?.submitterName || "",
+    submitterEmail: row.submitter_email || row.event?.submitterEmail || "",
+    title: row.title || row.event?.title || "",
+    startAt: row.start_at || row.event?.startAt || "",
+    endAt: row.end_at || row.event?.endAt || "",
+    allDay: Boolean(row.all_day ?? row.event?.allDay),
+    location: row.location || row.event?.location || "",
+    description: row.description || row.event?.description || "",
+    status: row.status || row.event?.status || "Active",
+    createdByEmail: row.created_by_email || row.event?.createdByEmail || "",
+    createdAt: row.created_at || row.event?.createdAt || "",
+    updatedAt: row.updated_at || row.event?.updatedAt || "",
+  };
+}
+
+function mapCalendarEventToDatabase(event, createdByEmail = "") {
+  const id = event.id || crypto.randomUUID();
+  return {
+    id,
+    submission_id: event.submissionId,
+    template_id: event.templateId || null,
+    template_title: event.templateTitle || "",
+    submitter_name: event.submitterName || "",
+    submitter_email: event.submitterEmail || "",
+    title: event.title || "WVCS Facilities Use",
+    start_at: event.startAt,
+    end_at: event.endAt,
+    all_day: Boolean(event.allDay),
+    location: event.location || null,
+    description: event.description || null,
+    status: event.status || "Active",
+    event: { ...event, id },
+    created_by_email: createdByEmail || event.createdByEmail || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function fetchFormCalendarEvents() {
+  if (!isSupabaseConfigured) {
+    return { loaded: false, reason: "Supabase is not configured.", events: [] };
+  }
+
+  const { data, error } = await supabase
+    .from("form_calendar_events")
+    .select("*")
+    .order("start_at", { ascending: true });
+
+  if (error) {
+    if (isMissingFormCalendarEventsTable(error)) {
+      return { loaded: false, reason: "Form calendar events table is not ready yet.", events: [] };
+    }
+    throw error;
+  }
+  return { loaded: true, events: (data || []).map(mapCalendarEventFromDatabase) };
+}
+
+export async function saveFormCalendarEvents(events = [], createdByEmail = "") {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured.", events: [] };
+  if (!events.length) return { saved: true, events: [] };
+
+  const { data, error } = await supabase
+    .from("form_calendar_events")
+    .upsert(events.map((event) => mapCalendarEventToDatabase(event, createdByEmail)), { onConflict: "id" })
+    .select("*");
+
+  if (error) {
+    if (isMissingFormCalendarEventsTable(error)) {
+      return { saved: false, reason: "Form calendar events table is not ready yet.", events };
+    }
+    throw error;
+  }
+  return { saved: true, events: (data || []).map(mapCalendarEventFromDatabase) };
 }
 
 export async function uploadFormAnswerFile({ submissionId, fieldId, file }) {

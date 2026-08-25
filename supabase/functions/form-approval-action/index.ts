@@ -29,6 +29,118 @@ function summarizeAnswers(submission: Record<string, any>, template: Record<stri
   }));
 }
 
+function isFacilitiesUsageTemplate(template: Record<string, any> | null | undefined) {
+  const title = String(template?.title || "").toLowerCase();
+  return (title.includes("facility") || title.includes("facilities")) && title.includes("usage");
+}
+
+function normalizeRepeatableDateAnswer(value: any) {
+  if (value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.entries)) {
+    return value.entries.map((entry: any) => ({
+      date: entry?.date || "",
+      startTime: entry?.startTime || "",
+      endTime: entry?.endTime || "",
+    }));
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => typeof item === "object" ? item : { date: item || "", startTime: "", endTime: "" });
+  }
+  return [{ date: value || "", startTime: "", endTime: "" }];
+}
+
+function renderAnswerValue(value: any) {
+  if (value && typeof value === "object" && "name" in value) return value.name || "";
+  if (value && typeof value === "object" && Array.isArray(value.entries)) {
+    return normalizeRepeatableDateAnswer(value)
+      .filter((entry) => entry.date || entry.startTime || entry.endTime)
+      .map((entry) => [entry.date, [entry.startTime, entry.endTime].filter(Boolean).join(" - ")].filter(Boolean).join(" "))
+      .join(", ");
+  }
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value || "");
+}
+
+function parsePacificDateTime(dateValue: string, timeValue = "") {
+  const dateText = String(dateValue || "").trim();
+  const dateMatch = dateText.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dateMatch) return null;
+  const timeMatch = String(timeValue || "").match(/(\d{1,2}):(\d{2})/);
+  const month = Number(dateMatch[2]);
+  const offset = month >= 3 && month <= 10 ? "-07:00" : "-08:00";
+  const time = `${String(timeMatch ? Number(timeMatch[1]) : 9).padStart(2, "0")}:${String(timeMatch ? Number(timeMatch[2]) : 0).padStart(2, "0")}:00`;
+  const parsed = new Date(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T${time}${offset}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function buildFacilitiesCalendarEvents({
+  submission,
+  template,
+  reviewedAt,
+  createdByEmail,
+}: {
+  submission: Record<string, any>;
+  template: Record<string, any> | null | undefined;
+  reviewedAt: string;
+  createdByEmail: string;
+}) {
+  if (!isFacilitiesUsageTemplate(template)) return [];
+  const answers = submission?.answers || {};
+  const fields = Array.isArray(template?.fields) ? template.fields : [];
+  const answerList = fields.map((field) => ({
+    label: field.label || field.pdfFieldName || field.id || "Field",
+    value: answers[field.id],
+    type: field.type || "text",
+  }));
+  const dateAnswer = answerList.find((answer) => {
+    const label = String(answer.label || "").toLowerCase();
+    return answer.type === "date" || answer.type === "dateTime" || label.includes("date") || label.includes("day");
+  });
+  if (!dateAnswer) return [];
+  const timeAnswer = answerList.find((answer) => {
+    const label = String(answer.label || "").toLowerCase();
+    return answer.type === "time" || label.includes("time") || label.includes("start");
+  });
+  const locationAnswer = answerList.find((answer) => {
+    const label = String(answer.label || "").toLowerCase();
+    return ["facility", "location", "room", "space", "area"].some((term) => label.includes(term));
+  });
+  const answerLines = answerList.map((answer) => `${answer.label}: ${renderAnswerValue(answer.value)}`).join("\n");
+  return normalizeRepeatableDateAnswer(dateAnswer.value)
+    .filter((entry) => entry.date)
+    .map((entry, index) => {
+      const start = parsePacificDateTime(entry.date, entry.startTime || timeAnswer?.value);
+      if (!start) return null;
+      const hasTime = Boolean(entry.startTime || timeAnswer?.value);
+      const explicitEnd = entry.endTime ? parsePacificDateTime(entry.date, entry.endTime) : null;
+      const end = explicitEnd || new Date(start.getTime() + (hasTime ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+      return {
+        id: `${submission.id}-calendar-${index + 1}`,
+        submission_id: submission.id,
+        template_id: submission.templateId || null,
+        template_title: submission.templateTitle || template?.title || "Facilities Use Request",
+        submitter_name: submission.submitterName || "",
+        submitter_email: submission.submitterEmail || "",
+        title: `${submission.templateTitle || template?.title || "Facilities Use"} - ${submission.submitterName || "WVCS"}`,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        all_day: !hasTime,
+        location: renderAnswerValue(locationAnswer?.value) || null,
+        description: [
+          `Approved WVCS facilities request: ${submission.templateTitle || template?.title || "Facilities Use"}`,
+          `Submitted by: ${submission.submitterName || ""} <${submission.submitterEmail || ""}>`,
+          `Approved at: ${new Date(reviewedAt).toLocaleString()}`,
+          "",
+          answerLines,
+        ].join("\n"),
+        status: "Active",
+        created_by_email: createdByEmail || null,
+        updated_at: reviewedAt,
+      };
+    })
+    .filter(Boolean);
+}
+
 function formatActionStatus(action: Record<string, any>, submission: Record<string, any>) {
   const now = Date.now();
   if (action.used_at) return { valid: false, reason: "This approval link has already been used." };
@@ -172,6 +284,11 @@ Deno.serve(async (request) => {
           submittedAt: loaded.submission.submittedAt,
           status: loaded.submission.status,
         },
+        template: {
+          id: loaded.template?.id || loaded.submission.templateId,
+          title: loaded.template?.title || loaded.submission.templateTitle,
+          fields: loaded.template?.fields || [],
+        },
         answers: summarizeAnswers(loaded.submission, loaded.template),
       });
     }
@@ -225,7 +342,7 @@ Deno.serve(async (request) => {
       approvalSignature,
     };
 
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from("form_submissions")
       .update({
         status: loaded.action.action,
@@ -238,9 +355,36 @@ Deno.serve(async (request) => {
         updated_at: reviewedAt,
       })
       .eq("id", loaded.action.submission_id)
-      .eq("status", "Submitted");
+      .eq("status", "Submitted")
+      .select("id,status");
 
     if (updateError) throw updateError;
+    if (!updatedRows?.length) {
+      throw new Error("The approval was not saved because the submission was no longer pending. Refresh the Forms Admin queue and try again.");
+    }
+
+    const calendarRows = loaded.action.action === "Approved"
+      ? buildFacilitiesCalendarEvents({
+          submission: nextSubmission,
+          template: loaded.template,
+          reviewedAt,
+          createdByEmail: approverEmail,
+        })
+      : [];
+    let calendarEvents: Record<string, any>[] = [];
+    let calendarWarning = "";
+    if (calendarRows.length) {
+      try {
+        const { data: savedCalendarRows, error: calendarError } = await supabase
+          .from("form_calendar_events")
+          .upsert(calendarRows, { onConflict: "id" })
+          .select("*");
+        if (calendarError) throw calendarError;
+        calendarEvents = savedCalendarRows || [];
+      } catch (error) {
+        calendarWarning = error.message || "Calendar records could not be created.";
+      }
+    }
 
     const { error: tokenError } = await supabase
       .from("form_approval_actions")
@@ -266,8 +410,20 @@ Deno.serve(async (request) => {
       ok: true,
       status: loaded.action.action,
       reviewedAt,
+      calendarEvents: calendarEvents.map((event) => ({
+        id: event.id,
+        submissionId: event.submission_id,
+        title: event.title,
+        startAt: event.start_at,
+        endAt: event.end_at,
+        allDay: event.all_day,
+        location: event.location,
+        description: event.description,
+        status: event.status,
+      })),
       statusEmail,
       emailWarning,
+      calendarWarning,
       message:
         loaded.action.action === "Approved"
           ? "The form was approved. The completed PDF can be generated from the Forms Admin queue."

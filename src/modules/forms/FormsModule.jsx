@@ -30,8 +30,10 @@ import { queueDriveBackupJob } from "../../lib/driveBackupData.js";
 import {
   deleteFormTemplate,
   createStoredFileUrl,
+  fetchFormCalendarEvents,
   fetchFormSubmissions,
   fetchFormTemplates,
+  saveFormCalendarEvents,
   saveFormSubmission,
   saveFormTemplate,
   storedFileToAttachment,
@@ -115,6 +117,7 @@ const defaultSettings = {
 const defaultState = {
   templates: defaultTemplates,
   submissions: defaultSubmissions,
+  calendarEvents: [],
   settings: defaultSettings,
 };
 
@@ -130,6 +133,7 @@ function loadFormsState() {
     return {
       templates: parsed.templates?.length ? parsed.templates : defaultTemplates,
       submissions: parsed.submissions || [],
+      calendarEvents: parsed.calendarEvents || [],
       settings,
     };
   } catch {
@@ -155,12 +159,13 @@ function useFormsStore() {
 
   async function loadSharedFormsData() {
     try {
-      const [templatesResult, submissionsResult] = await Promise.all([
+      const [templatesResult, submissionsResult, calendarEventsResult] = await Promise.all([
         fetchFormTemplates(),
         fetchFormSubmissions(),
+        fetchFormCalendarEvents(),
       ]);
 
-      if (!templatesResult.loaded && !submissionsResult.loaded) {
+      if (!templatesResult.loaded && !submissionsResult.loaded && !calendarEventsResult.loaded) {
         setSyncStatus("Using local forms until Supabase is configured.");
         return;
       }
@@ -168,8 +173,10 @@ function useFormsStore() {
       setState((current) => {
         const localTemplates = current.templates?.length ? current.templates : defaultTemplates;
         const localSubmissions = current.submissions || [];
+        const localCalendarEvents = current.calendarEvents || [];
         const nextTemplates = templatesResult.templates?.length ? templatesResult.templates : localTemplates;
         const nextSubmissions = submissionsResult.submissions?.length ? submissionsResult.submissions : localSubmissions;
+        const nextCalendarEvents = calendarEventsResult.events?.length ? calendarEventsResult.events : localCalendarEvents;
 
         if (templatesResult.loaded && !templatesResult.templates.length && localTemplates.length) {
           Promise.all(localTemplates.map((template) => saveFormTemplate(template)))
@@ -184,12 +191,13 @@ function useFormsStore() {
 
         if (
           (!templatesResult.loaded || templatesResult.templates.length || !localTemplates.length) &&
-          (!submissionsResult.loaded || submissionsResult.submissions.length || !localSubmissions.length)
+          (!submissionsResult.loaded || submissionsResult.submissions.length || !localSubmissions.length) &&
+          (!calendarEventsResult.loaded || calendarEventsResult.events.length || !localCalendarEvents.length)
         ) {
           setSyncStatus("Shared forms connected.");
         }
 
-        const next = { ...current, templates: nextTemplates, submissions: nextSubmissions };
+        const next = { ...current, templates: nextTemplates, submissions: nextSubmissions, calendarEvents: nextCalendarEvents };
         saveFormsState(next);
         return next;
       });
@@ -405,41 +413,118 @@ function parseLocalDateTime(dateValue, timeValue = "") {
   );
 }
 
-function getApprovalCalendarEvent(data) {
-  const answers = data?.answers || [];
-  const submission = data?.submission;
+function answerListFromSubmission(submission, template) {
+  const fields = Array.isArray(template?.fields) ? template.fields : [];
+  const answers = submission?.answers || {};
+  return fields.map((field) => ({
+    label: field.label || field.pdfFieldName || field.id || "Field",
+    value: answers[field.id],
+    type: field.type || "text",
+  }));
+}
+
+function answerTextByTerms(answers = [], terms = []) {
+  const answer = answers.find((item) => {
+    const label = String(item.label || "").toLowerCase();
+    return terms.some((term) => label.includes(term));
+  });
+  const value = renderAnswerValue(answer?.value);
+  return value === "-" ? "" : value;
+}
+
+function calendarDateEntriesFromAnswers(answers = []) {
   const dateAnswer = answers.find((answer) => {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "date" || answer.type === "dateTime" || label.includes("date") || label.includes("day");
   });
-  const repeatableDate = dateAnswer?.value && typeof dateAnswer.value === "object"
-    ? normalizeRepeatableDateAnswer(dateAnswer.value).entries.find((entry) => entry.date)
-    : null;
-  const dateValue = repeatableDate?.date || (Array.isArray(dateAnswer?.value) ? dateAnswer.value.find(Boolean) : dateAnswer?.value);
-  if (!dateValue) return null;
-
+  if (!dateAnswer) return [];
   const timeAnswer = answers.find((answer) => {
     const label = String(answer.label || "").toLowerCase();
     return answer.type === "time" || label.includes("time") || label.includes("start");
   });
-  const start = parseLocalDateTime(dateValue, repeatableDate?.startTime || timeAnswer?.value);
-  if (!start) return null;
-  const hasTime = Boolean(repeatableDate?.startTime || timeAnswer?.value);
-  const explicitEnd = repeatableDate?.endTime ? parseLocalDateTime(dateValue, repeatableDate.endTime) : null;
-  const end = explicitEnd || (hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000));
+
+  const normalizedEntries = dateAnswer.value && typeof dateAnswer.value === "object"
+    ? normalizeRepeatableDateAnswer(dateAnswer.value).entries
+    : Array.isArray(dateAnswer.value)
+      ? dateAnswer.value.map((date) => ({ date, startTime: "", endTime: "" }))
+      : [{ date: dateAnswer.value || "", startTime: "", endTime: "" }];
+
+  return normalizedEntries
+    .filter((entry) => entry.date)
+    .map((entry) => {
+      const start = parseLocalDateTime(entry.date, entry.startTime || timeAnswer?.value);
+      if (!start) return null;
+      const hasTime = Boolean(entry.startTime || timeAnswer?.value);
+      const explicitEnd = entry.endTime ? parseLocalDateTime(entry.date, entry.endTime) : null;
+      const end = explicitEnd || (hasTime ? new Date(start.getTime() + 60 * 60 * 1000) : new Date(start.getTime() + 24 * 60 * 60 * 1000));
+      return { start, end, allDay: !hasTime };
+    })
+    .filter(Boolean);
+}
+
+function buildFormCalendarEvents({ submission, template, reviewedAt = "", createdByEmail = "" }) {
+  if (!submission || !template || !isFacilitiesUsageTemplate(template)) return [];
+  const answers = answerListFromSubmission(submission, template);
+  const dateEntries = calendarDateEntriesFromAnswers(answers);
+  if (!dateEntries.length) return [];
+  const location = answerTextByTerms(answers, ["facility", "location", "room", "space", "area"]);
   const answerLines = answers.map((answer) => `${answer.label}: ${renderAnswerValue(answer.value)}`).join("\n");
-  return {
-    title: submission?.templateTitle || "WVCS Approved Form",
-    start,
-    end,
-    allDay: !hasTime,
+  return dateEntries.map((entry, index) => ({
+    id: `${submission.id}-calendar-${index + 1}`,
+    submissionId: submission.id,
+    templateId: submission.templateId,
+    templateTitle: submission.templateTitle || template.title || "Facilities Use Request",
+    submitterName: submission.submitterName || "",
+    submitterEmail: submission.submitterEmail || "",
+    title: `${submission.templateTitle || template.title || "Facilities Use"} - ${submission.submitterName || "WVCS"}`,
+    startAt: entry.start.toISOString(),
+    endAt: entry.end.toISOString(),
+    allDay: entry.allDay,
+    location,
     description: [
-      `Approved WVCS form: ${submission?.templateTitle || "Form"}`,
-      `Submitted by: ${submission?.submitterName || ""} <${submission?.submitterEmail || ""}>`,
+      `Approved WVCS facilities request: ${submission.templateTitle || template.title || "Facilities Use"}`,
+      `Submitted by: ${submission.submitterName || ""} <${submission.submitterEmail || ""}>`,
+      reviewedAt ? `Approved at: ${formatDate(reviewedAt)}` : "",
       "",
       answerLines,
-    ].join("\n"),
+    ].filter((line) => line !== "").join("\n"),
+    status: "Active",
+    createdByEmail,
+  }));
+}
+
+function calendarEventForDownload(event) {
+  if (!event?.startAt) return null;
+  const start = new Date(event.startAt);
+  const end = event.endAt ? new Date(event.endAt) : new Date(start.getTime() + 60 * 60 * 1000);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return {
+    title: event.title || "WVCS Approved Form",
+    start,
+    end,
+    allDay: Boolean(event.allDay),
+    location: event.location || "",
+    description: event.description || "",
   };
+}
+
+function getApprovalCalendarEvents(data) {
+  const submission = data?.submission;
+  const template = data?.template || {
+    title: submission?.templateTitle || "",
+    fields: (data?.answers || []).map((answer, index) => ({
+      id: `answer-${index}`,
+      label: answer.label,
+      type: answer.type,
+    })),
+  };
+  const answers = Object.fromEntries((data?.answers || []).map((answer, index) => [`answer-${index}`, answer.value]));
+  return buildFormCalendarEvents({
+    submission: { ...submission, answers },
+    template,
+    reviewedAt: data?.reviewedAt || "",
+    createdByEmail: data?.recipientEmail || "",
+  });
 }
 
 function downloadCalendarEvent(event) {
@@ -464,10 +549,11 @@ function downloadCalendarEvent(event) {
     startLine,
     endLine,
     `SUMMARY:${sanitizeCalendarText(event.title)}`,
+    event.location ? `LOCATION:${sanitizeCalendarText(event.location)}` : "",
     `DESCRIPTION:${sanitizeCalendarText(event.description)}`,
     "END:VEVENT",
     "END:VCALENDAR",
-  ].join("\r\n");
+  ].filter(Boolean).join("\r\n");
   const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
   const href = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1008,7 +1094,9 @@ export function FormApprovalActionPage({ token }) {
   const action = data?.action || "";
   const approving = action === "Approved";
   const valid = Boolean(data?.valid) && !result.data;
-  const calendarEvent = result.data?.status === "Approved" ? getApprovalCalendarEvent(data) : null;
+  const calendarEvents = result.data?.status === "Approved"
+    ? (result.data.calendarEvents?.length ? result.data.calendarEvents : getApprovalCalendarEvents(data))
+    : [];
 
   return (
     <section className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100">
@@ -1166,15 +1254,29 @@ export function FormApprovalActionPage({ token }) {
                   </div>
                   {result.data.status === "Approved" && (
                     <div className="mt-4">
-                      {calendarEvent ? (
-                        <button
-                          type="button"
-                          onClick={() => downloadCalendarEvent(calendarEvent)}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-400 sm:w-auto"
-                        >
-                          <CalendarClock size={17} />
-                          Add to Calendar
-                        </button>
+                      {calendarEvents.length ? (
+                        <div className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-3">
+                          <div className="text-sm font-bold text-white">
+                            {calendarEvents.length} Hub calendar event{calendarEvents.length === 1 ? "" : "s"} prepared.
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {calendarEvents.map((event, index) => {
+                              const downloadEvent = calendarEventForDownload(event);
+                              return (
+                                <button
+                                  key={event.id || index}
+                                  type="button"
+                                  onClick={() => downloadCalendarEvent(downloadEvent)}
+                                  disabled={!downloadEvent}
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400 bg-sky-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-400 disabled:opacity-50"
+                                >
+                                  <CalendarClock size={15} />
+                                  Add {calendarEvents.length > 1 ? `Date ${index + 1}` : "to Calendar"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       ) : (
                         <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100">
                           Add to Calendar is available when the approved form includes a date field.
@@ -1184,6 +1286,9 @@ export function FormApprovalActionPage({ token }) {
                   )}
                   {result.data.emailWarning && (
                     <div className="mt-2 text-amber-100">Status email warning: {result.data.emailWarning}</div>
+                  )}
+                  {result.data.calendarWarning && (
+                    <div className="mt-2 text-amber-100">Calendar warning: {result.data.calendarWarning}</div>
                   )}
                 </div>
               )}
@@ -2851,6 +2956,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
     visibleSubmissions[0] ||
     state.submissions[0];
   const template = state.templates.find((item) => item.id === selected?.templateId);
+  const selectedCalendarEvents = (state.calendarEvents || []).filter((event) => event.submissionId === selected?.id);
 
   function selectTemplateGroup(templateId) {
     setSelectedTemplateFilter(templateId);
@@ -2967,6 +3073,7 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
     if (trimmedSignature) {
       localStorage.setItem(SIGNATURE_KEY, trimmedSignature);
     }
+    setReviewFeedback(status === "Approved" ? "Saving approval..." : "Saving rejection...");
     const reviewPatch = {
       status,
       reviewer: formatApproverIdentity(trimmedSignature, currentUserEmail),
@@ -3028,6 +3135,31 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
 
     const nextPatch = { ...reviewPatch, ...storedPdfPatch };
     const reviewedSubmission = { ...selected, ...nextPatch };
+    let savedCalendarEvents = [];
+    try {
+      const saveResult = await saveFormSubmission(reviewedSubmission);
+      if (!saveResult.saved) {
+        throw new Error(saveResult.reason || "The approval could not be saved to shared forms.");
+      }
+      if (status === "Approved") {
+        const calendarEvents = buildFormCalendarEvents({
+          submission: reviewedSubmission,
+          template,
+          reviewedAt: signedAt,
+          createdByEmail: currentUserEmail,
+        });
+        const calendarResult = await saveFormCalendarEvents(calendarEvents, currentUserEmail);
+        if (calendarResult.saved) {
+          savedCalendarEvents = calendarResult.events || calendarEvents;
+        } else if (calendarEvents.length) {
+          setSyncStatus(`Approval saved. Calendar record not saved: ${calendarResult.reason}`);
+        }
+      }
+    } catch (error) {
+      setReviewFeedback(`Unable to save ${status.toLowerCase()}: ${error.message}`);
+      window.setTimeout(() => setReviewFeedback(""), 5200);
+      return;
+    }
     updateState((current) => ({
       ...current,
       submissions: current.submissions.map((submission) =>
@@ -3038,12 +3170,14 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
             }
           : submission
       ),
+      calendarEvents: savedCalendarEvents.length
+        ? [
+            ...savedCalendarEvents,
+            ...(current.calendarEvents || []).filter((event) => event.submissionId !== selected.id),
+          ]
+        : current.calendarEvents || [],
     }));
-    saveFormSubmission(reviewedSubmission)
-      .then((result) => {
-        if (result.saved) setSyncStatus("Shared forms connected.");
-      })
-      .catch((error) => setSyncStatus(`Review saved locally. Shared sync failed: ${error.message}`));
+    setSyncStatus(savedCalendarEvents.length ? `Shared forms connected. ${savedCalendarEvents.length} facilities calendar event${savedCalendarEvents.length === 1 ? "" : "s"} created.` : "Shared forms connected.");
     setNotes("");
     await sendSubmissionEmail(reviewedSubmission, { auto: true });
   }
@@ -3205,6 +3339,44 @@ function ApprovalQueue({ state, updateState, setSyncStatus, currentUserEmail = "
                   ))}
                 </div>
               </div>
+
+              {selected.status !== "Submitted" && (selectedCalendarEvents.length > 0 || isFacilitiesUsageTemplate(template)) && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                    <CalendarClock size={16} className="text-sky-300" />
+                    Facilities Calendar
+                  </div>
+                  {selectedCalendarEvents.length ? (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {selectedCalendarEvents.map((event, index) => {
+                        const downloadEvent = calendarEventForDownload(event);
+                        return (
+                          <div key={event.id || index} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                            <div className="text-sm font-bold text-white">{event.title || "Facilities Use"}</div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              {formatDate(event.startAt)}{event.endAt ? ` - ${formatDate(event.endAt)}` : ""}
+                            </div>
+                            {event.location && <div className="mt-1 text-xs text-slate-500">{event.location}</div>}
+                            <button
+                              type="button"
+                              onClick={() => downloadCalendarEvent(downloadEvent)}
+                              disabled={!downloadEvent}
+                              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
+                            >
+                              <Download size={14} />
+                              Download Calendar File
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                      No calendar records have been created for this facilities request yet.
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="overflow-hidden rounded-lg border border-slate-800">
                 {(template?.fields || []).map((field) => (
