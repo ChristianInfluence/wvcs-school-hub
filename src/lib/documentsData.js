@@ -20,18 +20,25 @@ async function getSignedDocumentUrl(storagePath) {
 }
 
 async function mapDocumentFromDatabase(row) {
+  const documentType = row.document_type || (row.content_html ? "editable" : "file");
   return {
     id: row.id,
     title: row.title,
     category: row.category || "General",
     description: row.description || "",
-    fileName: row.file_name,
+    documentType,
+    fileName: row.file_name || "",
     fileType: row.file_type || "application/octet-stream",
     fileSize: row.file_size || 0,
-    dataUrl: await getSignedDocumentUrl(row.storage_path),
-    storagePath: row.storage_path,
+    dataUrl: documentType === "file" ? await getSignedDocumentUrl(row.storage_path) : "",
+    storagePath: row.storage_path || "",
+    contentHtml: row.content_html || "",
+    contentText: row.content_text || "",
+    versionHistory: row.version_history || [],
     displayOrder: row.display_order ?? 0,
     uploadedAt: row.uploaded_at || row.created_at,
+    publishedAt: row.published_at || "",
+    publishedByEmail: row.published_by_email || "",
   };
 }
 
@@ -72,10 +79,14 @@ export async function uploadImportantDocument({ title, category, description, fi
     title,
     category,
     description,
+    document_type: "file",
     file_name: file.name,
     file_type: file.type || "application/octet-stream",
     file_size: file.size,
     storage_path: storagePath,
+    content_html: "",
+    content_text: "",
+    version_history: [],
     display_order: displayOrder,
     uploaded_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -91,8 +102,57 @@ export async function uploadImportantDocument({ title, category, description, fi
   return { saved: true, document: await mapDocumentFromDatabase(data) };
 }
 
-export async function updateImportantDocument(document) {
+export async function createEditableImportantDocument({ title, category, description, contentHtml, contentText, displayOrder = 0, currentUserEmail = "" }) {
   if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    title,
+    category: category || "General",
+    description: description || "",
+    document_type: "editable",
+    file_name: "",
+    file_type: "text/html",
+    file_size: new Blob([contentHtml || ""]).size,
+    storage_path: "",
+    content_html: contentHtml || "",
+    content_text: contentText || "",
+    version_history: [],
+    display_order: displayOrder,
+    uploaded_at: now,
+    published_at: now,
+    published_by_email: currentUserEmail || null,
+    updated_at: now,
+  };
+
+  const { data, error } = await supabase
+    .from("important_documents")
+    .insert(row)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return { saved: true, document: await mapDocumentFromDatabase(data) };
+}
+
+export async function updateImportantDocument(document, options = {}) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+
+  const isEditable = document.documentType === "editable";
+  const previousVersion = options.previousDocument && isEditable
+    ? {
+        savedAt: new Date().toISOString(),
+        title: options.previousDocument.title || "",
+        category: options.previousDocument.category || "General",
+        description: options.previousDocument.description || "",
+        contentHtml: options.previousDocument.contentHtml || "",
+        contentText: options.previousDocument.contentText || "",
+      }
+    : null;
+  const versionHistory = previousVersion
+    ? [previousVersion, ...(document.versionHistory || [])].slice(0, 12)
+    : document.versionHistory || [];
 
   const { data, error } = await supabase
     .from("important_documents")
@@ -100,7 +160,76 @@ export async function updateImportantDocument(document) {
       title: document.title,
       category: document.category || "General",
       description: document.description || "",
+      ...(isEditable
+        ? {
+            document_type: "editable",
+            file_type: "text/html",
+            file_size: new Blob([document.contentHtml || ""]).size,
+            content_html: document.contentHtml || "",
+            content_text: document.contentText || "",
+            version_history: versionHistory,
+            published_at: new Date().toISOString(),
+            published_by_email: options.currentUserEmail || document.publishedByEmail || null,
+          }
+        : {}),
       display_order: document.displayOrder ?? 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", document.id)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return { saved: true, document: await mapDocumentFromDatabase(data) };
+}
+
+export async function replaceImportantDocumentFile(document, file) {
+  if (!isSupabaseConfigured) return { saved: false, reason: "Supabase is not configured." };
+  if (!file) throw new Error("Choose a replacement file.");
+
+  const storagePath = `${document.id}/${sanitizePathPart(file.name || "document.bin")}`;
+  const storageRemovals = document.storagePath && document.storagePath !== storagePath ? [document.storagePath] : [];
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMPORTANT_DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: true,
+    });
+
+  if (uploadError) throw uploadError;
+
+  if (storageRemovals.length) {
+    const { error: removeError } = await supabase.storage
+      .from(IMPORTANT_DOCUMENTS_BUCKET)
+      .remove(storageRemovals);
+
+    if (removeError) console.warn("Old document file cleanup failed:", removeError.message);
+  }
+
+  const previousVersion = {
+    savedAt: new Date().toISOString(),
+    title: document.title || "",
+    category: document.category || "General",
+    description: document.description || "",
+    fileName: document.fileName || "",
+    fileType: document.fileType || "",
+    fileSize: document.fileSize || 0,
+    storagePath: document.storagePath || "",
+  };
+
+  const { data, error } = await supabase
+    .from("important_documents")
+    .update({
+      document_type: "file",
+      file_name: file.name,
+      file_type: file.type || "application/octet-stream",
+      file_size: file.size,
+      storage_path: storagePath,
+      content_html: "",
+      content_text: "",
+      version_history: [previousVersion, ...(document.versionHistory || [])].slice(0, 12),
+      uploaded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", document.id)

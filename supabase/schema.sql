@@ -421,14 +421,22 @@ create table if not exists public.important_documents (
   title text not null,
   category text not null default 'General',
   description text,
-  file_name text not null,
+  document_type text not null default 'file',
+  file_name text,
   file_type text not null default 'application/octet-stream',
   file_size bigint not null default 0,
-  storage_path text not null,
+  storage_path text,
+  content_html text not null default '',
+  content_text text not null default '',
+  version_history jsonb not null default '[]'::jsonb,
+  published_at timestamptz,
+  published_by_email text,
   display_order integer not null default 0,
   uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint important_documents_document_type_check
+    check (document_type in ('file', 'editable'))
 );
 
 create index if not exists important_documents_display_order_idx
