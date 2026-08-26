@@ -54,6 +54,34 @@ function validateApplication(application: Record<string, any>) {
   if (!application.truthAcknowledged) throw new Error("Please certify that the information submitted is accurate.");
 }
 
+function uniqueEmails(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => String(value || "").split(/[,\s;]+/))
+        .map((value) => normalizeEmail(value))
+        .filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)),
+    ),
+  );
+}
+
+async function getOfficeNotificationEmails(supabase: any) {
+  const { data, error } = await supabase
+    .from("office_finance_settings")
+    .select("settings")
+    .eq("id", "email_settings")
+    .maybeSingle();
+
+  if (error) console.warn("Unable to load office email settings:", error.message);
+  const settings = data?.settings || {};
+  return uniqueEmails([
+    settings.driverApplicationNotificationEmails,
+    settings.financeReplyToEmail,
+    settings.defaultReplyToEmail,
+    "office@wvcs.org",
+  ]);
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -170,18 +198,39 @@ Deno.serve(async (request) => {
       if (error) console.warn("Drive backup queue failed:", error.message);
     });
 
-    await sendEmail(
-      buildFosMessage({
-        recipientEmail: requesterEmail,
-        subject: `WVCS Volunteer Driver Application Received`,
-        title: "Volunteer Driver Application Received",
-        body: [
-          `Hello ${row.parent_name || "WVCS Family"},`,
-          "We received your volunteer driver application and documents.",
-          "Your application is pending office verification. You will receive an update after it has been reviewed.",
-        ],
-      }),
-    );
+    const emailResults = await Promise.allSettled([
+      sendEmail(
+        buildFosMessage({
+          recipientEmail: requesterEmail,
+          subject: `WVCS Volunteer Driver Application Received`,
+          title: "Volunteer Driver Application Received",
+          body: [
+            `Hello ${row.parent_name || "WVCS Family"},`,
+            "We received your volunteer driver application and documents.",
+            "Your application is pending office verification. You will receive an update after it has been reviewed.",
+          ],
+        }),
+      ),
+      ...((await getOfficeNotificationEmails(supabase)).map((officeEmail) =>
+        sendEmail(
+          buildFosMessage({
+            recipientEmail: officeEmail,
+            subject: `Volunteer Driver Application Needs Review: ${row.parent_name || row.family_name || "WVCS Family"}`,
+            title: "Volunteer Driver Application Needs Review",
+            body: [
+              `${row.parent_name || "A parent/guardian"} submitted a volunteer driver application through the WVCS Family Portal.`,
+              `Family: ${row.family_name || "Not listed"}`,
+              `Parent email: ${row.parent_email}`,
+              `Submitted: ${new Date(submittedAt).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })}`,
+              "Review this application in Office & Finance > Family Records > Volunteer Drivers.",
+            ],
+          }),
+        )
+      )),
+    ]);
+    emailResults.forEach((result, index) => {
+      if (result.status === "rejected") console.warn(`Volunteer driver notification ${index + 1} failed:`, result.reason?.message || result.reason);
+    });
 
     return new Response(JSON.stringify({ submitted: true, application: inserted }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
