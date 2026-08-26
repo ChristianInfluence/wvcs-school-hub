@@ -120,9 +120,66 @@ function plainTextFromHtml(html) {
 
 function sanitizeEditableHtml(html) {
   if (!html) return "";
-  const allowedTags = new Set(["DIV", "P", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "H2", "H3", "H4", "BLOCKQUOTE", "A"]);
+  const allowedTags = new Set([
+    "DIV", "P", "BR", "STRONG", "B", "EM", "I", "U", "S", "SPAN",
+    "UL", "OL", "LI", "H1", "H2", "H3", "H4", "BLOCKQUOTE", "A", "HR",
+    "TABLE", "THEAD", "TBODY", "TFOOT", "TR", "TH", "TD", "CAPTION", "COLGROUP", "COL",
+  ]);
   const template = document.createElement("template");
   template.innerHTML = html;
+  const allowedStyles = new Set([
+    "background",
+    "background-color",
+    "border",
+    "border-bottom",
+    "border-color",
+    "border-left",
+    "border-right",
+    "border-top",
+    "border-width",
+    "color",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "height",
+    "line-height",
+    "margin",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+    "padding",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+    "text-align",
+    "text-decoration",
+    "text-decoration-line",
+    "vertical-align",
+    "white-space",
+    "width",
+  ]);
+  const tableTags = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "TH", "TD", "CAPTION", "COLGROUP", "COL"]);
+  const safeStyleValue = (value) => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return "";
+    if (/url\s*\(|expression\s*\(|javascript:|data:|@import|behavior\s*:/i.test(trimmed)) return "";
+    return trimmed.replace(/[{}<>]/g, "");
+  };
+  const sanitizeStyle = (styleText) =>
+    String(styleText || "")
+      .split(";")
+      .map((rule) => {
+        const separatorIndex = rule.indexOf(":");
+        if (separatorIndex < 0) return "";
+        const property = rule.slice(0, separatorIndex).trim().toLowerCase();
+        const value = safeStyleValue(rule.slice(separatorIndex + 1));
+        if (!allowedStyles.has(property) || !value) return "";
+        return `${property}: ${value}`;
+      })
+      .filter(Boolean)
+      .join("; ");
   const walk = (node) => {
     [...node.childNodes].forEach((child) => {
       if (child.nodeType === Node.ELEMENT_NODE) {
@@ -132,11 +189,24 @@ function sanitizeEditableHtml(html) {
         }
         [...child.attributes].forEach((attribute) => {
           const name = attribute.name.toLowerCase();
-          if (name.startsWith("on") || name === "style" || name === "class") child.removeAttribute(attribute.name);
+          if (name.startsWith("on") || name === "class") child.removeAttribute(attribute.name);
+          if (name === "style") {
+            const sanitizedStyle = sanitizeStyle(attribute.value);
+            if (sanitizedStyle) child.setAttribute("style", sanitizedStyle);
+            else child.removeAttribute(attribute.name);
+          }
+          if (["colspan", "rowspan"].includes(name) && !/^\d{1,2}$/.test(attribute.value)) child.removeAttribute(attribute.name);
+          if (name === "width" && !/^[\d.%]+$/.test(attribute.value)) child.removeAttribute(attribute.name);
+          if (name === "height" && !/^[\d.%]+$/.test(attribute.value)) child.removeAttribute(attribute.name);
+          if (name === "href" && child.tagName !== "A") child.removeAttribute(attribute.name);
+          if (!["href", "style", "colspan", "rowspan", "width", "height"].includes(name)) child.removeAttribute(attribute.name);
           if (child.tagName === "A" && name === "href" && !/^https?:\/\//i.test(attribute.value)) {
             child.removeAttribute(attribute.name);
           }
         });
+        if (tableTags.has(child.tagName)) {
+          child.removeAttribute("class");
+        }
       }
       walk(child);
     });
@@ -172,6 +242,11 @@ function editableDocumentHtml(document) {
       .content h3 { font-size: 16px; margin: 18px 0 7px; }
       .content p { margin: 0 0 11px; }
       .content ul, .content ol { margin-top: 6px; padding-left: 24px; }
+      .content table { border-collapse: collapse; width: 100%; margin: 16px 0; table-layout: auto; }
+      .content th, .content td { border: 1px solid #cbd5e1; padding: 7px 9px; vertical-align: top; }
+      .content th { background: #f1f5f9; font-weight: 700; }
+      .content tr:nth-child(even) td { background-color: rgba(248,250,252,.7); }
+      .content caption { margin-bottom: 8px; color: #475569; font-size: 12px; font-weight: 700; text-align: left; }
       .footer { border-top: 1px solid #cbd5e1; margin-top: 28px; padding-top: 10px; color: #64748b; font-size: 11px; }
     </style>
   </head>
@@ -213,6 +288,28 @@ function RichTextEditor({ value, onChange, minHeight = "min-h-56" }) {
     onChange(sanitizeEditableHtml(editorRef.current?.innerHTML || ""));
   }
 
+  function insertTable() {
+    runCommand(
+      "insertHTML",
+      `<table><tbody>${Array.from({ length: 3 }, () => `<tr>${Array.from({ length: 3 }, () => "<td><br></td>").join("")}</tr>`).join("")}</tbody></table><p><br></p>`,
+    );
+  }
+
+  function handlePaste(event) {
+    const html = event.clipboardData?.getData("text/html");
+    const text = event.clipboardData?.getData("text/plain");
+    if (!html && !text) return;
+    event.preventDefault();
+    const content = html
+      ? sanitizeEditableHtml(html)
+      : String(text || "")
+          .split(/\n{2,}/)
+          .map((paragraph) => `<p>${escapeHtml(paragraph).replaceAll("\n", "<br>")}</p>`)
+          .join("");
+    document.execCommand("insertHTML", false, content || "<p></p>");
+    onChange(sanitizeEditableHtml(editorRef.current?.innerHTML || ""));
+  }
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-700 bg-slate-950">
       <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 p-2">
@@ -234,14 +331,16 @@ function RichTextEditor({ value, onChange, minHeight = "min-h-56" }) {
         <button type="button" onClick={() => runCommand("formatBlock", "h3")} className="inline-flex h-8 items-center justify-center rounded-md border border-slate-700 px-2 text-xs font-bold text-slate-200 hover:bg-slate-800">H3</button>
         <button type="button" onClick={() => runCommand("insertUnorderedList")} className="inline-flex h-8 items-center justify-center rounded-md border border-slate-700 px-2 text-xs font-bold text-slate-200 hover:bg-slate-800">List</button>
         <button type="button" onClick={() => runCommand("insertOrderedList")} className="inline-flex h-8 items-center justify-center rounded-md border border-slate-700 px-2 text-xs font-bold text-slate-200 hover:bg-slate-800">1. List</button>
+        <button type="button" onClick={insertTable} className="inline-flex h-8 items-center justify-center rounded-md border border-slate-700 px-2 text-xs font-bold text-slate-200 hover:bg-slate-800">Table</button>
       </div>
       <div
         ref={editorRef}
         contentEditable
         suppressContentEditableWarning
+        onPaste={handlePaste}
         onInput={(event) => onChange(sanitizeEditableHtml(event.currentTarget.innerHTML))}
         onBlur={(event) => onChange(sanitizeEditableHtml(event.currentTarget.innerHTML))}
-        className={`${minHeight} w-full overflow-auto bg-white px-4 py-3 text-sm leading-7 text-slate-950 outline-none`}
+        className={`${minHeight} w-full overflow-auto bg-white px-4 py-3 text-sm leading-7 text-slate-950 outline-none [&_caption]:mb-2 [&_caption]:text-left [&_caption]:text-xs [&_caption]:font-bold [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:p-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-2`}
       />
     </div>
   );
@@ -259,6 +358,13 @@ function DocumentPreview({ document }) {
   if (document.documentType === "editable") {
     return (
       <article className="min-h-[680px] rounded-lg border border-slate-800 bg-white p-6 text-slate-950 shadow-inner sm:p-8">
+        <style>{`
+          .editable-document-preview table { border-collapse: collapse; width: 100%; margin: 16px 0; table-layout: auto; }
+          .editable-document-preview th, .editable-document-preview td { border: 1px solid #cbd5e1; padding: 7px 9px; vertical-align: top; }
+          .editable-document-preview th { background: #f1f5f9; font-weight: 700; }
+          .editable-document-preview tr:nth-child(even) td { background-color: rgba(248,250,252,.7); }
+          .editable-document-preview caption { margin-bottom: 8px; color: #475569; font-size: 12px; font-weight: 700; text-align: left; }
+        `}</style>
         <div className="border-b border-slate-200 pb-4">
           <div className="text-xs font-black uppercase tracking-[0.16em] text-sky-700">Willamette Valley Christian School</div>
           <h2 className="mt-2 text-2xl font-black text-slate-950">{document.title}</h2>
@@ -267,7 +373,7 @@ function DocumentPreview({ document }) {
           </div>
         </div>
         <div
-          className="prose prose-slate mt-5 max-w-none text-sm leading-7"
+          className="editable-document-preview prose prose-slate mt-5 max-w-none overflow-x-auto text-sm leading-7"
           dangerouslySetInnerHTML={{ __html: document.contentHtml || "<p>No document content yet.</p>" }}
         />
       </article>
