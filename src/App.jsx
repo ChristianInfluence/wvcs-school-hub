@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
+  BookOpen,
   BriefcaseBusiness,
   Calculator,
   CalendarClock,
   CalendarDays,
   ClipboardCheck,
+  ExternalLink,
   Files,
   FileText,
   FileSignature,
@@ -15,12 +17,14 @@ import {
   Lock,
   LogOut,
   MessageSquareText,
+  PlayCircle,
   ReceiptText,
   Search,
   ShieldAlert,
   ShieldCheck,
   Settings,
   Sparkles,
+  Smartphone,
   Utensils,
   X,
   Users,
@@ -1279,8 +1283,164 @@ function getRoleLabels(access) {
   return roles.length ? roles : ["No active role"];
 }
 
+const timekeepingLinks = [
+  {
+    label: "Punching in and out",
+    href: "https://learning.myisolved.com/library/quick-help-videos/punching-in-or-out-aee",
+  },
+  {
+    label: "Submitting a missing punch",
+    href: "https://learning.myisolved.com/library/quick-help-videos/submitting-a-missing-punch-aee",
+  },
+  {
+    label: "Submitting a time off request",
+    href: "https://learning.myisolved.com/library/quick-help-videos/submitting-a-time-off-request-aee",
+  },
+  {
+    label: "Viewing time off balances",
+    href: "https://learning.myisolved.com/library/quick-help-videos/viewing-time-off-balances-aee",
+  },
+];
+
+const isolvedResources = {
+  loginPdf: "/resources/isolved/ess-login-instructions.pdf",
+  mobilePdf: "/resources/isolved/ess-mobile-app-instructions.pdf",
+  punchVideo: "/resources/isolved/employee-punch-method-time-training.mp4",
+  manual: "https://learning.myisolved.com/library/articles/5255",
+};
+
+function TimekeepingResourcesModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-slate-950/80 px-4 py-5 backdrop-blur-sm sm:py-8">
+      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-800 bg-white text-slate-950 shadow-2xl shadow-black/40">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">Staff Resources</div>
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">iSolved Timekeeping</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              Use these resources for punching in and out, missing punches, time off requests, mobile setup, and time off balances.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100"
+            aria-label="Close iSolved resources"
+            title="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.14em] text-slate-500">
+                <BookOpen size={16} />
+                First Steps
+              </div>
+              <ol className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
+                <li>
+                  <span className="font-bold text-slate-950">1. Login to iSolved.</span> After receiving the welcome email, follow the ESS Login Instructions.
+                </li>
+                <li>
+                  <span className="font-bold text-slate-950">2. Create your iSolved University account.</span> Go to Talent Management, then Learn & Grow, and use the icon to create an account.
+                </li>
+                <li>
+                  <span className="font-bold text-slate-950">3. Watch the quick-help videos.</span> These cover punches, missing time, time off requests, and time off balances.
+                </li>
+                <li>
+                  <span className="font-bold text-slate-950">4. Set up the mobile app.</span> Use the mobile app instructions if you will punch or review time from your phone.
+                </li>
+              </ol>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.14em] text-slate-500">
+                <PlayCircle size={16} />
+                Training Video
+              </div>
+              <video className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-950" controls preload="metadata">
+                <source src={isolvedResources.punchVideo} type="video/mp4" />
+                Your browser does not support this training video.
+              </video>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">Open Resources</div>
+              <div className="mt-3 grid gap-2">
+                <a
+                  href={isolvedResources.loginPdf}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-800 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <FileText size={16} />
+                    ESS Login Instructions
+                  </span>
+                  <ExternalLink size={15} />
+                </a>
+                <a
+                  href={isolvedResources.mobilePdf}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-800 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Smartphone size={16} />
+                    Mobile App Instructions
+                  </span>
+                  <ExternalLink size={15} />
+                </a>
+                <a
+                  href={isolvedResources.manual}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-800 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <BookOpen size={16} />
+                    Employee Training Manual
+                  </span>
+                  <ExternalLink size={15} />
+                </a>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">Quick-Help Videos</div>
+              <div className="mt-3 grid gap-2">
+                {timekeepingLinks.map((link) => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                  >
+                    <span>{link.label}</span>
+                    <ExternalLink size={15} />
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-sky-100 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
+              If you have trouble signing in, start with the welcome email from iSolved and then contact the office for help with account access.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UserProfileMenu({ user, access, signOut }) {
   const [open, setOpen] = useState(false);
+  const [showTimekeepingResources, setShowTimekeepingResources] = useState(false);
   const [contracts, setContracts] = useState([]);
   const [contractStatus, setContractStatus] = useState("");
   const displayName = user.user_metadata?.full_name || user.email;
@@ -1356,6 +1516,19 @@ function UserProfileMenu({ user, access, signOut }) {
             </div>
           </div>
           <div className="border-t border-slate-800 p-4">
+            <button
+              type="button"
+              onClick={() => setShowTimekeepingResources(true)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-3 text-left transition hover:border-sky-400 hover:bg-sky-500/20"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-sky-100">iSolved Timekeeping Resources</span>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-400">Punches, missing time, time off, balances, and mobile setup</span>
+              </span>
+              <ExternalLink size={16} className="shrink-0 text-sky-300" />
+            </button>
+          </div>
+          <div className="border-t border-slate-800 p-4">
             <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Completed Contracts</div>
             <div className="mt-2 space-y-2">
               {contracts.map((contract) => (
@@ -1399,6 +1572,7 @@ function UserProfileMenu({ user, access, signOut }) {
           </div>
         </div>
       )}
+      {showTimekeepingResources && <TimekeepingResourcesModal onClose={() => setShowTimekeepingResources(false)} />}
     </div>
   );
 }
