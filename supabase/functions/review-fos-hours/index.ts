@@ -39,8 +39,9 @@ Deno.serve(async (request) => {
       .from("fos_hour_entries")
       .select("*")
       .eq("id", entryId)
-      .single();
+      .maybeSingle();
     if (existingError) throw existingError;
+    if (!existing) throw new Error("FOS hour entry was not found or you do not have permission to review it.");
 
     const status = reviewStatus(review.action);
     const approvedHours = status === "Denied" ? 0 : Number(review.approvedHours ?? existing.submitted_hours ?? 0);
@@ -56,8 +57,9 @@ Deno.serve(async (request) => {
       })
       .eq("id", entryId)
       .select("*")
-      .single();
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updated) throw new Error("FOS hour entry was not found or could not be updated.");
 
     const { data: entries, error: entriesError } = await supabase
       .from("fos_hour_entries")

@@ -1,5 +1,6 @@
 import { fetchOfficeFamilyDirectory, mergeDirectoryFamilies } from "./tuitionBillingData.js";
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const LUNCH_ORDER_STATUSES = ["Anticipated", "Served", "Absent", "Cancelled"];
 
@@ -193,10 +194,9 @@ export async function saveLunchMenu(menu, currentUserEmail = "") {
   const { data, error } = await supabase
     .from("lunch_menus")
     .upsert({ ...row, created_by_email: currentUserEmail || null }, { onConflict: "id" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapMenu(data);
+  return mapMenu(firstReturnedRow(data, "Lunch menu could not be saved."));
 }
 
 async function upsertAccountBalance({ familyKey, familyName, delta, currentUserEmail }) {
@@ -216,10 +216,9 @@ async function upsertAccountBalance({ familyKey, familyName, delta, currentUserE
       updated_by_email: currentUserEmail || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "family_key" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapAccount(data);
+  return mapAccount(firstReturnedRow(data, "Lunch account balance could not be saved."));
 }
 
 export async function createLunchOrder({ family, student, item, menuId = "", source = "Office" }, currentUserEmail = "") {
@@ -247,10 +246,9 @@ export async function createLunchOrder({ family, student, item, menuId = "", sou
       created_by_email: currentUserEmail || null,
       updated_by_email: currentUserEmail || null,
     })
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapOrder(data);
+  return mapOrder(firstReturnedRow(data, "Lunch order could not be created."));
 }
 
 export async function updateLunchOrderStatus(order, status, currentUserEmail = "") {
@@ -291,10 +289,9 @@ export async function updateLunchOrderStatus(order, status, currentUserEmail = "
     .from("lunch_orders")
     .update(updates)
     .eq("id", order.id)
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapOrder(data);
+  return mapOrder(firstReturnedRow(data, "Lunch order was not found or you do not have permission to update it."));
 }
 
 export async function deleteLunchOrder(order, currentUserEmail = "") {

@@ -230,8 +230,9 @@ async function sendContractForSignature({
     .update({ status: nextStatus, updated_by_email: actorEmail, updated_at: new Date().toISOString() })
     .eq("id", row.id)
     .select("*")
-    .single();
+    .maybeSingle();
   if (updateError) throw updateError;
+  if (!updated) throw new Error("Staff contract was not found or could not be updated after sending.");
   await recordEmailAudit({
     module: "Staff Contracts",
     subject: signer === "board" ? `WVCS Board Signature Needed: ${row.staff_name}` : "WVCS Staff Contract Ready for Signature",
@@ -341,8 +342,9 @@ Deno.serve(async (request) => {
         .update({ ...patch, updated_at: now })
         .eq("id", data.id)
         .select("*")
-        .single();
+        .maybeSingle();
       if (updateError) throw updateError;
+      if (!updated) throw new Error("Staff contract was not found or could not be updated after signing.");
       if (signer === "board") await queueFinalBackup(supabase, updated);
       return new Response(JSON.stringify({ ok: true, signer, contract: mapRow(updated) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

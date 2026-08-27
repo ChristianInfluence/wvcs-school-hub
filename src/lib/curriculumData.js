@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 import { normalizeIsbn } from "./isbnUtils.js";
 import { STAFF_CONTRACT_ADMIN_EMAIL } from "./staffContractsData.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const RESOURCES_STORE_KEY = "wvcs-curriculum-resources-v1";
 const ASSIGNMENTS_STORE_KEY = "wvcs-curriculum-assignments-v1";
@@ -250,7 +251,7 @@ export async function saveCurriculumResource(resource, currentUserEmail = "") {
     writeLocal(RESOURCES_STORE_KEY, [saved, ...records.filter((item) => item.id !== id)].sort((a, b) => a.title.localeCompare(b.title)));
     return saved;
   }
-  const { data, error } = await supabase.from("curriculum_resources").upsert(row, { onConflict: "id" }).select("*").single();
+  const { data, error } = await supabase.from("curriculum_resources").upsert(row, { onConflict: "id" }).select("*");
   if (error) {
     if (isMissingCurriculumTable(error)) {
       const records = readLocal(RESOURCES_STORE_KEY);
@@ -262,7 +263,7 @@ export async function saveCurriculumResource(resource, currentUserEmail = "") {
     if (String(error.message || "").toLowerCase().includes("duplicate")) throw new Error("That ISBN already exists in the curriculum catalog.");
     throw error;
   }
-  return mapResource(data);
+  return mapResource(firstReturnedRow(data, "Curriculum resource could not be saved."));
 }
 
 export async function saveCurriculumAssignment(assignment, currentUserEmail = "") {
@@ -275,7 +276,7 @@ export async function saveCurriculumAssignment(assignment, currentUserEmail = ""
     writeLocal(ASSIGNMENTS_STORE_KEY, [saved, ...records.filter((item) => item.id !== id)]);
     return saved;
   }
-  const { data, error } = await supabase.from("curriculum_assignments").upsert(row, { onConflict: "id" }).select("*").single();
+  const { data, error } = await supabase.from("curriculum_assignments").upsert(row, { onConflict: "id" }).select("*");
   if (isMissingCurriculumTable(error)) {
     const records = readLocal(ASSIGNMENTS_STORE_KEY);
     const id = assignment.id || crypto.randomUUID();
@@ -284,7 +285,7 @@ export async function saveCurriculumAssignment(assignment, currentUserEmail = ""
     return saved;
   }
   if (error) throw error;
-  return mapAssignment(data);
+  return mapAssignment(firstReturnedRow(data, "Curriculum assignment could not be saved."));
 }
 
 export async function archiveCurriculumResource(resourceId, currentUserEmail = "") {
@@ -298,15 +299,14 @@ export async function archiveCurriculumResource(resourceId, currentUserEmail = "
     .from("curriculum_resources")
     .update({ active: false, updated_by_email: currentUserEmail || null, updated_at: new Date().toISOString() })
     .eq("id", resourceId)
-    .select("*")
-    .single();
+    .select("*");
   if (isMissingCurriculumTable(error)) {
     const records = readLocal(RESOURCES_STORE_KEY).map((resource) => (resource.id === resourceId ? { ...resource, active: false, updatedByEmail: currentUserEmail, updatedAt: new Date().toISOString() } : resource));
     writeLocal(RESOURCES_STORE_KEY, records);
     return records.find((resource) => resource.id === resourceId) || null;
   }
   if (error) throw error;
-  return mapResource(data);
+  return mapResource(firstReturnedRow(data, "Curriculum resource was not found or you do not have permission to archive it."));
 }
 
 export async function archiveCurriculumAssignment(assignmentId, currentUserEmail = "") {
@@ -324,8 +324,7 @@ export async function archiveCurriculumAssignment(assignmentId, currentUserEmail
     .from("curriculum_assignments")
     .update({ active: false, updated_by_email: currentUserEmail || null, updated_at: new Date().toISOString() })
     .eq("id", assignmentId)
-    .select("*")
-    .single();
+    .select("*");
   if (isMissingCurriculumTable(error)) {
     const records = readLocal(ASSIGNMENTS_STORE_KEY).map((assignment) => (
       assignment.id === assignmentId
@@ -336,7 +335,7 @@ export async function archiveCurriculumAssignment(assignmentId, currentUserEmail
     return records.find((assignment) => assignment.id === assignmentId) || null;
   }
   if (error) throw error;
-  return mapAssignment(data);
+  return mapAssignment(firstReturnedRow(data, "Curriculum assignment was not found or you do not have permission to archive it."));
 }
 
 export async function submitCurriculumInventory({ resourceId, assignmentId = "", submittedCount, schoolYear = "2026-2027", note = "", submittedByName = "", submittedByEmail = "" }) {

@@ -74,8 +74,9 @@ Deno.serve(async (request) => {
         { onConflict: "family_key" },
       )
       .select("family_key,family_name,contact_emails")
-      .single();
+      .maybeSingle();
     if (upsertError) throw upsertError;
+    if (!access) throw new Error("Family portal invite access record could not be prepared.");
 
     const loginUrl = `${request.headers.get("origin") || "https://wvcshub.org"}/#/family-login`;
 

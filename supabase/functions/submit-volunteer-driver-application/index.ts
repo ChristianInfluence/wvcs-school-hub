@@ -169,8 +169,9 @@ Deno.serve(async (request) => {
       .from("volunteer_driver_applications")
       .insert(row)
       .select("*")
-      .single();
+      .maybeSingle();
     if (insertError) throw insertError;
+    if (!inserted) throw new Error("Volunteer driver application could not be submitted.");
 
     await supabase.from("drive_backup_jobs").upsert(
       {

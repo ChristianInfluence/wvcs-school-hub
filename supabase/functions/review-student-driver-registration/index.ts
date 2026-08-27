@@ -55,8 +55,9 @@ Deno.serve(async (request) => {
       })
       .eq("id", registrationId)
       .select("*")
-      .single();
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updated) throw new Error("Student driver registration was not found or could not be updated.");
 
     const recipient = normalizeEmail(updated.parent_email);
     if (recipient) {

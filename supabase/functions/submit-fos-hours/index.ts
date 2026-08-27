@@ -51,9 +51,10 @@ Deno.serve(async (request) => {
       .from("fos_hour_entries")
       .insert(row)
       .select("*")
-      .single();
+      .maybeSingle();
 
     if (insertError) throw insertError;
+    if (!inserted) throw new Error("FOS hours could not be submitted.");
 
     let emailWarning = "";
     if (parentEmail) {

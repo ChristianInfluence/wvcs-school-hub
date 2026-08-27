@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const STAFF_CONTRACT_ADMIN_EMAIL = "mconniry@wvcs.org";
 
@@ -240,10 +241,9 @@ export async function saveStaffContract(contract, currentUserEmail = "") {
   const { data, error } = await supabase
     .from("staff_contracts")
     .upsert(toRow(contract, currentUserEmail), { onConflict: "id" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapRow(data);
+  return mapRow(firstReturnedRow(data, "Staff contract could not be saved."));
 }
 
 export async function deleteStaffContract(contractId, currentUserEmail = "") {

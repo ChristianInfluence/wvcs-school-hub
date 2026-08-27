@@ -54,8 +54,9 @@ Deno.serve(async (request) => {
       .from("family_portal_access")
       .upsert(nextRecord, { onConflict: "family_key" })
       .select("family_key, family_name, contact_emails, public_token, fos_liability_amount, fos_hour_value, last_parent_login_at, last_parent_login_email, last_fos_reminder_sent_at, last_fos_reminder_sent_by_email")
-      .single();
+      .maybeSingle();
     if (upsertError) throw upsertError;
+    if (!access) throw new Error("Family portal access record could not be prepared.");
 
     return new Response(JSON.stringify({ ready: true, access }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

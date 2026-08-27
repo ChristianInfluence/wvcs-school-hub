@@ -244,9 +244,10 @@ Deno.serve(async (request) => {
       .update(patch)
       .eq("id", invoice.id)
       .select("*")
-      .single();
+      .maybeSingle();
 
     if (updateError) throw updateError;
+    if (!updatedInvoice) throw new Error("Incidental invoice was not found or could not be reconciled.");
     await recordIncidentalLunchDeposit({ supabase, invoice, invoiceJson: patch.invoice_json, session, feeData });
 
     return new Response(JSON.stringify({

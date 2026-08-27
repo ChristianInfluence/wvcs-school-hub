@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const IMPORTANT_DOCUMENTS_BUCKET = "important-documents";
 
@@ -95,11 +96,10 @@ export async function uploadImportantDocument({ title, category, description, fi
   const { data, error } = await supabase
     .from("important_documents")
     .insert(row)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, document: await mapDocumentFromDatabase(data) };
+  return { saved: true, document: await mapDocumentFromDatabase(firstReturnedRow(data, "Document could not be uploaded.")) };
 }
 
 export async function createEditableImportantDocument({ title, category, description, contentHtml, contentText, displayOrder = 0, currentUserEmail = "" }) {
@@ -129,11 +129,10 @@ export async function createEditableImportantDocument({ title, category, descrip
   const { data, error } = await supabase
     .from("important_documents")
     .insert(row)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, document: await mapDocumentFromDatabase(data) };
+  return { saved: true, document: await mapDocumentFromDatabase(firstReturnedRow(data, "Editable document could not be created.")) };
 }
 
 export async function updateImportantDocument(document, options = {}) {
@@ -176,11 +175,10 @@ export async function updateImportantDocument(document, options = {}) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", document.id)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, document: await mapDocumentFromDatabase(data) };
+  return { saved: true, document: await mapDocumentFromDatabase(firstReturnedRow(data, "Document was not found or you do not have permission to update it.")) };
 }
 
 export async function replaceImportantDocumentFile(document, file) {
@@ -233,11 +231,10 @@ export async function replaceImportantDocumentFile(document, file) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", document.id)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, document: await mapDocumentFromDatabase(data) };
+  return { saved: true, document: await mapDocumentFromDatabase(firstReturnedRow(data, "Document was not found or you do not have permission to replace it.")) };
 }
 
 export async function reorderImportantDocuments(documents) {

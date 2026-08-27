@@ -39,8 +39,9 @@ Deno.serve(async (request) => {
       .from("volunteer_driver_applications")
       .select("*")
       .eq("id", applicationId)
-      .single();
+      .maybeSingle();
     if (existingError) throw existingError;
+    if (!existing) throw new Error("Volunteer driver application was not found or you do not have permission to review it.");
 
     const status = reviewStatus(review.action);
     const reviewedAt = new Date();
@@ -60,8 +61,9 @@ Deno.serve(async (request) => {
       })
       .eq("id", applicationId)
       .select("*")
-      .single();
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updated) throw new Error("Volunteer driver application was not found or could not be updated.");
 
     const recipient = normalizeEmail(updated.parent_email);
     if (recipient) {

@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const DEFAULT_FAMILY_PORTAL_SETTINGS = {
   announcement: {
@@ -193,15 +194,15 @@ export async function saveFosAdjustmentSettings(settings, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("settings,updated_by_email,updated_at")
-    .single();
+    .select("settings,updated_by_email,updated_at");
 
   if (error) throw error;
+  const row = firstReturnedRow(data, "FOS adjustment settings could not be saved.");
   return {
     saved: true,
-    settings: normalizeFosAdjustments(data?.settings || normalized),
-    updatedByEmail: data?.updated_by_email || "",
-    updatedAt: data?.updated_at || "",
+    settings: normalizeFosAdjustments(row?.settings || normalized),
+    updatedByEmail: row?.updated_by_email || "",
+    updatedAt: row?.updated_at || "",
   };
 }
 
@@ -219,15 +220,15 @@ export async function saveFamilyPortalSettings(settings, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("settings,updated_by_email,updated_at")
-    .single();
+    .select("settings,updated_by_email,updated_at");
 
   if (error) throw error;
+  const row = firstReturnedRow(data, "Family portal settings could not be saved.");
   return {
     saved: true,
-    settings: normalizeFamilyPortalSettings(data?.settings || normalized),
-    updatedByEmail: data?.updated_by_email || "",
-    updatedAt: data?.updated_at || "",
+    settings: normalizeFamilyPortalSettings(row?.settings || normalized),
+    updatedByEmail: row?.updated_by_email || "",
+    updatedAt: row?.updated_at || "",
   };
 }
 
@@ -245,15 +246,15 @@ export async function saveOfficeEmailSettings(settings, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("settings,updated_by_email,updated_at")
-    .single();
+    .select("settings,updated_by_email,updated_at");
 
   if (error) throw error;
+  const row = firstReturnedRow(data, "Office email settings could not be saved.");
   return {
     saved: true,
-    settings: normalizeOfficeEmailSettings(data?.settings || normalized),
-    updatedByEmail: data?.updated_by_email || "",
-    updatedAt: data?.updated_at || "",
+    settings: normalizeOfficeEmailSettings(row?.settings || normalized),
+    updatedByEmail: row?.updated_by_email || "",
+    updatedAt: row?.updated_at || "",
   };
 }
 
@@ -271,14 +272,14 @@ export async function saveTuitionRateSettings(settings, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("settings,updated_by_email,updated_at")
-    .single();
+    .select("settings,updated_by_email,updated_at");
 
   if (error) throw error;
+  const row = firstReturnedRow(data, "Tuition rate settings could not be saved.");
   return {
     saved: true,
-    settings: normalizeTuitionRateSettings(data?.settings || normalized),
-    updatedByEmail: data?.updated_by_email || "",
-    updatedAt: data?.updated_at || "",
+    settings: normalizeTuitionRateSettings(row?.settings || normalized),
+    updatedByEmail: row?.updated_by_email || "",
+    updatedAt: row?.updated_at || "",
   };
 }

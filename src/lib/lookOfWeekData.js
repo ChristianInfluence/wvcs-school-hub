@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const LOOK_OF_WEEK_BUCKET = "look-of-the-week";
 
@@ -81,11 +82,10 @@ export async function uploadLookOfWeekIssue({ title, weekOf, notes, file }) {
   const { data, error } = await supabase
     .from("look_of_week_issues")
     .insert(row)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, issue: await mapIssueFromDatabase(data) };
+  return { saved: true, issue: await mapIssueFromDatabase(firstReturnedRow(data, "Look of the Week issue could not be saved.")) };
 }
 
 export async function deleteLookOfWeekIssue(issue) {

@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const DEFAULT_SUPPORT_REQUEST_SETTINGS = {
   itRecipients: [],
@@ -109,15 +110,15 @@ export async function saveSupportRequestSettings(settings, updatedByEmail = "") 
       },
       { onConflict: "id" }
     )
-    .select("settings,updated_by_email,updated_at")
-    .single();
+    .select("settings,updated_by_email,updated_at");
 
   if (error) throw error;
+  const row = firstReturnedRow(data, "Support request settings could not be saved.");
   return {
     saved: true,
-    settings: normalizeSupportRequestSettings(data?.settings || normalized),
-    updatedByEmail: data?.updated_by_email || "",
-    updatedAt: data?.updated_at || "",
+    settings: normalizeSupportRequestSettings(row?.settings || normalized),
+    updatedByEmail: row?.updated_by_email || "",
+    updatedAt: row?.updated_at || "",
   };
 }
 
@@ -127,11 +128,10 @@ export async function saveSuggestion(suggestion) {
   const { data, error } = await supabase
     .from("staff_suggestions")
     .upsert(mapSuggestionToDatabase(suggestion), { onConflict: "id" })
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, suggestion: mapSuggestionFromDatabase(data) };
+  return { saved: true, suggestion: mapSuggestionFromDatabase(firstReturnedRow(data, "Suggestion could not be saved.")) };
 }
 
 export async function submitSupportRequest(suggestion) {
@@ -162,9 +162,7 @@ export async function updateSuggestionStatus(suggestionId, patch) {
     .select("*");
 
   if (error) throw error;
-  const savedRow = Array.isArray(data) ? data[0] : data;
-  if (!savedRow) throw new Error("Support request was not found or you do not have permission to update it.");
-  return { saved: true, suggestion: mapSuggestionFromDatabase(savedRow) };
+  return { saved: true, suggestion: mapSuggestionFromDatabase(firstReturnedRow(data, "Support request was not found or you do not have permission to update it.")) };
 }
 
 export async function deleteSuggestion(suggestionId) {

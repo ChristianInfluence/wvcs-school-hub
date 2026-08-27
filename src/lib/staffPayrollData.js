@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
 import { DEFAULT_WORK_DAY_BREAKDOWN, STAFF_CONTRACT_ADMIN_EMAIL, currency, money } from "./staffContractsData.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const DEFAULT_PAYROLL_CATEGORIES = ["Admin", "Teacher", "Teacher's Aide", "Facilities", "Preschool", "Classified", "Childcare", "Other"];
 
@@ -192,8 +193,7 @@ export async function saveStaffPayrollWorksheet(worksheet, currentUserEmail = ""
   const { data, error } = await supabase
     .from("staff_payroll_worksheets")
     .upsert(toWorksheetRow(worksheet, currentUserEmail), { onConflict: "id" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return mapWorksheet(data);
+  return mapWorksheet(firstReturnedRow(data, "Staff payroll worksheet could not be saved."));
 }

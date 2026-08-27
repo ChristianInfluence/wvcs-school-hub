@@ -183,8 +183,9 @@ Deno.serve(async (request) => {
       .from("off_campus_lunch_permissions")
       .insert(row)
       .select("*")
-      .single();
+      .maybeSingle();
     if (insertError) throw insertError;
+    if (!inserted) throw new Error("Off-campus lunch permission could not be submitted.");
 
     await supabase.from("drive_backup_jobs").upsert(
       {

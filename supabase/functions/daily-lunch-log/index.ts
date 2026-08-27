@@ -147,8 +147,9 @@ async function createOrder(supabase: ReturnType<typeof createClient>, body: Reco
       updated_by_email: actorEmail,
     })
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Lunch order could not be created.");
   return { created: true, order: data };
 }
 
@@ -206,8 +207,9 @@ async function updateStatus(supabase: ReturnType<typeof createClient>, body: Rec
     })
     .eq("id", order.id)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Lunch order was not found or could not be updated.");
   return { updated: true, order: data };
 }
 

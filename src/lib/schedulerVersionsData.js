@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const LOCAL_STORE_KEY = "wvcs-master-scheduler-versions";
 
@@ -93,8 +94,7 @@ export async function saveSchedulerVersion(version, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) {
     const existing = loadLocalVersions();
@@ -110,7 +110,7 @@ export async function saveSchedulerVersion(version, updatedByEmail = "") {
     return { saved: true, version: localVersion, local: true, reason: error.message };
   }
 
-  return { saved: true, version: mapVersionFromDatabase(data) };
+  return { saved: true, version: mapVersionFromDatabase(firstReturnedRow(data, "Scheduler version could not be saved.")) };
 }
 
 export async function deleteSchedulerVersion(versionId) {

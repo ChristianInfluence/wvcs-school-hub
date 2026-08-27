@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const gradeSort = {
   PS: 0,
@@ -156,17 +157,15 @@ export async function createStudent(student) {
   let result = await supabase
     .from("student_directory")
     .insert(studentToRow(student))
-    .select("*")
-    .single();
+    .select("*");
   if (result.error && isMissingExtraContactColumnError(result.error)) {
     result = await supabase
       .from("student_directory")
       .insert(studentToLegacyRow(student))
-      .select("*")
-      .single();
+      .select("*");
   }
   if (result.error) throw result.error;
-  return normalizeStudent(result.data);
+  return normalizeStudent(firstReturnedRow(result.data, "Student could not be created."));
 }
 
 export async function updateStudent(studentId, student) {
@@ -175,18 +174,16 @@ export async function updateStudent(studentId, student) {
     .from("student_directory")
     .update(studentToRow(student))
     .eq("student_id", studentId)
-    .select("*")
-    .single();
+    .select("*");
   if (result.error && isMissingExtraContactColumnError(result.error)) {
     result = await supabase
       .from("student_directory")
       .update(studentToLegacyRow(student))
       .eq("student_id", studentId)
-      .select("*")
-      .single();
+      .select("*");
   }
   if (result.error) throw result.error;
-  return normalizeStudent(result.data);
+  return normalizeStudent(firstReturnedRow(result.data, "Student was not found or you do not have permission to update it."));
 }
 
 export async function removeStudent(studentId, reason = "") {

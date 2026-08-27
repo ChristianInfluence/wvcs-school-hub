@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 const TUITION_INVOICES_STORE_KEY = "wvcs-tuition-invoices-v1";
 const INCIDENTAL_INVOICES_STORE_KEY = "wvcs-incidental-invoices-v1";
@@ -379,11 +380,10 @@ export async function saveTuitionInvoice(record, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, invoice: mapInvoiceFromDatabase(data) };
+  return { saved: true, invoice: mapInvoiceFromDatabase(firstReturnedRow(data, "Tuition invoice could not be saved.")) };
 }
 
 export async function deleteTuitionInvoice(invoiceId) {
@@ -481,8 +481,7 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) {
     const existing = loadLocalRecords(INCIDENTAL_INVOICES_STORE_KEY);
@@ -513,7 +512,7 @@ export async function saveIncidentalInvoice(record, updatedByEmail = "") {
     saveLocalRecords(INCIDENTAL_INVOICES_STORE_KEY, next);
     return { saved: true, invoice: invoiceRecord, local: true, reason: error.message };
   }
-  return { saved: true, invoice: mapIncidentalInvoiceFromDatabase(data) };
+  return { saved: true, invoice: mapIncidentalInvoiceFromDatabase(firstReturnedRow(data, "Incidental invoice could not be saved.")) };
 }
 
 export async function deleteIncidentalInvoice(invoiceId) {

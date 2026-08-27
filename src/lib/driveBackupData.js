@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const DEFAULT_DRIVE_BACKUP_SETTINGS = {
   id: "primary",
@@ -169,13 +170,12 @@ export async function saveDriveBackupSettings(settings, updatedByEmail = "") {
   const { data, error } = await supabase
     .from("drive_backup_settings")
     .upsert(mapSettingsToDatabase(settings, updatedByEmail), { onConflict: "id" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) {
     writeLocalSettings(normalized);
     return { saved: false, reason: "Saved in this browser. Drive backup database tables are not installed yet.", settings: normalized };
   }
-  return { saved: true, settings: mapSettingsFromDatabase(data) };
+  return { saved: true, settings: mapSettingsFromDatabase(firstReturnedRow(data, "Drive backup settings could not be saved.")) };
 }
 
 export async function fetchDriveBackupJobs(limit = 25) {
@@ -213,14 +213,13 @@ export async function queueDriveBackupJob(job) {
   const { data, error } = await supabase
     .from("drive_backup_jobs")
     .upsert(mapJobToDatabase(nextJob), { onConflict: "source_type,source_id,filename" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) {
     const jobs = [nextJob, ...readLocalJobs().filter((item) => item.id !== nextJob.id)];
     writeLocalJobs(jobs);
     return { queued: false, reason: "Saved in this browser. Drive backup database tables are not installed yet.", job: nextJob };
   }
-  return { queued: true, job: mapJobFromDatabase(data) };
+  return { queued: true, job: mapJobFromDatabase(firstReturnedRow(data, "Drive backup job could not be queued.")) };
 }
 
 export async function testDriveBackupConnection(settings) {

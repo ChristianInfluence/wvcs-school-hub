@@ -149,8 +149,9 @@ Deno.serve(async (request) => {
       .from("permission_submissions")
       .upsert(row, { onConflict: "id" })
       .select("*")
-      .single();
+      .maybeSingle();
     if (upsertError) throw upsertError;
+    if (!inserted) throw new Error("Permission slip signature could not be saved.");
 
     await supabase
       .from("permission_recipients")

@@ -150,8 +150,9 @@ Deno.serve(async (request) => {
       .from("student_driver_registrations")
       .insert(row)
       .select("*")
-      .single();
+      .maybeSingle();
     if (insertError) throw insertError;
+    if (!inserted) throw new Error("Student driver registration could not be submitted.");
 
     await supabase.from("drive_backup_jobs").upsert(
       {

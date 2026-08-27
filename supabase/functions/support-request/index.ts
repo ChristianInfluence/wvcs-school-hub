@@ -213,8 +213,9 @@ Deno.serve(async (request) => {
         admin_response: "",
       })
       .select("*")
-      .single();
+      .maybeSingle();
     if (saveError) throw saveError;
+    if (!saved) throw new Error("Support request could not be saved.");
 
     const { data: settingsRow } = await supabase
       .from("office_finance_settings")

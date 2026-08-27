@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -133,11 +134,10 @@ export async function createHubMessageThread({ subject, body, senderEmail, sende
       body: body.trim(),
       source: "hub",
     })
-    .select("*")
-    .single();
+    .select("*");
   if (postError) throw postError;
 
-  return { saved: true, threadId, post: mapPost(post), recipientEmails: uniqueRecipients };
+  return { saved: true, threadId, post: mapPost(firstReturnedRow(post, "Message could not be created.")), recipientEmails: uniqueRecipients };
 }
 
 export async function replyToHubMessageThread({ threadId, body, senderEmail, senderName }) {
@@ -152,12 +152,11 @@ export async function replyToHubMessageThread({ threadId, body, senderEmail, sen
       body: body.trim(),
       source: "hub",
     })
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
   await markHubMessageThreadRead(threadId);
-  return { saved: true, post: mapPost(post) };
+  return { saved: true, post: mapPost(firstReturnedRow(post, "Message reply could not be saved.")) };
 }
 
 export async function markHubMessageThreadRead(threadId) {

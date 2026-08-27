@@ -55,8 +55,9 @@ Deno.serve(async (request) => {
       })
       .eq("id", permissionId)
       .select("*")
-      .single();
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updated) throw new Error("Off-campus lunch permission was not found or could not be updated.");
 
     const recipient = normalizeEmail(updated.parent_email);
     if (recipient) {

@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase, supabaseAnonKey, supabaseUrl } from "./supabaseClient.js";
+import { firstReturnedRow } from "./supabaseResponse.js";
 
 export const FOS_SCHOOL_YEAR = "2026-2027";
 export const FOS_REQUIRED_HOURS = 50;
@@ -264,11 +265,10 @@ export async function updateFamilyFosSettings(familyKey, settings) {
       fos_hour_value: Number(settings.hourValue || FOS_HOUR_VALUE),
     })
     .eq("family_key", familyKey)
-    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email,last_fos_reminder_sent_at,last_fos_reminder_sent_by_email")
-    .single();
+    .select("family_key,family_name,contact_emails,public_token,fos_liability_amount,fos_hour_value,last_parent_login_at,last_parent_login_email,last_fos_reminder_sent_at,last_fos_reminder_sent_by_email");
 
   if (error) throw error;
-  return { saved: true, access: mapFamilyAccess(data) };
+  return { saved: true, access: mapFamilyAccess(firstReturnedRow(data, "Family portal access record was not found or you do not have permission to update it.")) };
 }
 
 export async function fetchFosAuditEvents(limit = 80) {
@@ -350,8 +350,7 @@ export async function saveParentBackgroundCheck(record, currentUserEmail = "") {
   const { data, error } = await supabase
     .from("parent_background_checks")
     .upsert(row, { onConflict: "family_key,person_key" })
-    .select("*")
-    .single();
+    .select("*");
   if (error) {
     const message = String(error.message || "");
     if (!message.includes("person_key") && !message.includes("parent_background_checks_family_person_uidx")) throw error;
@@ -359,12 +358,11 @@ export async function saveParentBackgroundCheck(record, currentUserEmail = "") {
     const legacyResult = await supabase
       .from("parent_background_checks")
       .upsert(legacyRow, { onConflict: "family_key,parent_email" })
-      .select("*")
-      .single();
+      .select("*");
     if (legacyResult.error) throw legacyResult.error;
-    return { saved: true, backgroundCheck: mapBackgroundCheck(legacyResult.data), needsPersonKeyMigration: true };
+    return { saved: true, backgroundCheck: mapBackgroundCheck(firstReturnedRow(legacyResult.data, "Background check record could not be saved.")), needsPersonKeyMigration: true };
   }
-  return { saved: true, backgroundCheck: mapBackgroundCheck(data) };
+  return { saved: true, backgroundCheck: mapBackgroundCheck(firstReturnedRow(data, "Background check record could not be saved.")) };
 }
 
 export async function createDriverAttachmentUrl(attachment) {
@@ -418,10 +416,9 @@ export async function saveFosReminderTemplate(template, updatedByEmail = "") {
       },
       { onConflict: "id" }
     )
-    .select("*")
-    .single();
+    .select("*");
   if (error) throw error;
-  return { saved: true, template: mapFosReminderTemplate(data) };
+  return { saved: true, template: mapFosReminderTemplate(firstReturnedRow(data, "FOS reminder template could not be saved.")) };
 }
 
 export async function reviewFosEntry(entryId, review) {
