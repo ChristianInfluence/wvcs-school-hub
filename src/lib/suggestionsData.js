@@ -159,11 +159,12 @@ export async function updateSuggestionStatus(suggestionId, patch) {
     .from("staff_suggestions")
     .update(update)
     .eq("id", suggestionId)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) throw error;
-  return { saved: true, suggestion: mapSuggestionFromDatabase(data) };
+  const savedRow = Array.isArray(data) ? data[0] : data;
+  if (!savedRow) throw new Error("Support request was not found or you do not have permission to update it.");
+  return { saved: true, suggestion: mapSuggestionFromDatabase(savedRow) };
 }
 
 export async function deleteSuggestion(suggestionId) {
