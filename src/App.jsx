@@ -1748,13 +1748,13 @@ function AuthGate({ children }) {
       }
 
       if (user && domain !== WVCS_DOMAIN) {
-        await supabase.auth.signOut();
+        window.location.replace("/family-login");
         if (active) {
           setAuthState({
-            loading: false,
-            user: null,
+            loading: true,
+            user,
             access: defaultAccess,
-            error: "Please sign in with your WVCS Google account.",
+            error: "",
           });
         }
         return;
@@ -1789,6 +1789,18 @@ function AuthGate({ children }) {
       };
 
       if (!access.canUseHub) {
+        if (user.user_metadata?.role === "family_portal") {
+          window.location.replace("/family-login");
+          if (active) {
+            setAuthState({
+              loading: true,
+              user,
+              access: defaultAccess,
+              error: "",
+            });
+          }
+          return;
+        }
         await supabase.auth.signOut();
         if (active) {
           setAuthState({

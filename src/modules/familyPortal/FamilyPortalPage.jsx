@@ -155,6 +155,46 @@ function signatureRecordHtml(signature, fallbackName = "", fallbackEmail = "") {
   `;
 }
 
+function cleanFamilyLoginUrl() {
+  if (window.location.pathname === "/family-login") {
+    window.history.replaceState({}, document.title, "/family-login");
+  }
+}
+
+async function completeFamilyPortalAuthRedirect() {
+  if (!isSupabaseConfigured) return null;
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const authError = hashParams.get("error_description") || hashParams.get("error");
+
+  if (authError) {
+    cleanFamilyLoginUrl();
+    throw new Error(authError);
+  }
+
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    cleanFamilyLoginUrl();
+    if (error) throw error;
+    return data.session?.user || null;
+  }
+
+  const accessToken = hashParams.get("access_token");
+  const refreshToken = hashParams.get("refresh_token");
+  if (accessToken && refreshToken) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    cleanFamilyLoginUrl();
+    if (error) throw error;
+    return data.session?.user || null;
+  }
+
+  return null;
+}
+
 function offCampusPermissionRecordHtml(permission) {
   const record = permission?.permission || {};
   const signatures = record.signatures || {};
@@ -422,8 +462,20 @@ export default function FamilyPortalPage({ token = "", secureLogin = false, prev
         setFamilySession({ loading: false, user: null });
         return;
       }
-      const { data } = await supabase.auth.getSession();
-      if (active) setFamilySession({ loading: false, user: data.session?.user || null });
+      try {
+        const redirectedUser = await completeFamilyPortalAuthRedirect();
+        if (redirectedUser) {
+          if (active) setFamilySession({ loading: false, user: redirectedUser });
+          return;
+        }
+        const { data } = await supabase.auth.getSession();
+        if (active) setFamilySession({ loading: false, user: data.session?.user || null });
+      } catch (error) {
+        if (active) {
+          setLoginStatus(`Unable to complete secure sign-in: ${error.message}`);
+          setFamilySession({ loading: false, user: null });
+        }
+      }
     }
     loadSession();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
