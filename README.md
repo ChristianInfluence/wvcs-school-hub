@@ -11,6 +11,7 @@ WVCS School Hub is a modular school operations app. The first complete module is
 - Structured Recess
 - Important Documents
 - Admin
+- Budget & Cash Forecast (inside Office & Finance; restricted to Matt and hmiller@wvcs.org)
 
 The meeting, forms, and admin areas are scaffolded as placeholders so they can be built out without crowding the scheduler code.
 
@@ -58,6 +59,8 @@ vendor/
 ```
 
 Future modules should live under `src/modules/`.
+
+See [Budget & Cash Forecast](docs/budget-forecast.md) for shared storage, account restrictions, deployment order, and QuickBooks configuration. Its Supabase migration and Edge Function must be deployed before releasing the frontend integration.
 
 ## Supabase and Email Infrastructure
 
