@@ -1,0 +1,7 @@
+"use client";
+import {useEffect,useRef,useId,isValidElement,cloneElement,type ReactNode,type ReactElement} from "react";
+import {FolderOpen,X} from "lucide-react";
+export function Field({label,help,children}:{label:string;help?:string;children:ReactNode}){const id=useId();const control=isValidElement(children)?cloneElement(children as ReactElement<any>,{id,"aria-describedby":help?`${id}-help`:undefined}):children;return <div className="field"><label htmlFor={id}>{label}</label>{control}{help&&<small id={`${id}-help`}>{help}</small>}</div>;}
+export function Badge({children,tone="neutral"}:{children:ReactNode;tone?:string}){return <span className={`badge ${tone}`}>{children}</span>;}
+export function Empty({title,children,action}:{title:string;children:ReactNode;action?:ReactNode}){return <div className="empty"><FolderOpen size={28}/><h3>{title}</h3><p>{children}</p>{action}</div>;}
+export function Modal({title,children,onClose,wide=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean}){const ref=useRef<HTMLDialogElement>(null);useEffect(()=>{ref.current?.showModal();},[]);return <dialog className={`modal ${wide?"wide":""}`} ref={ref} onCancel={onClose} onClick={e=>{if(e.target===ref.current)onClose();}}><div className="modal-head"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={20}/></button></div>{children}</dialog>;}

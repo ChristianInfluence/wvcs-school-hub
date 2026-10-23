@@ -1,0 +1,6 @@
+project_id = "wvcs-school-hub"
+
+[functions.budget-forecast]
+# Intuit's callback has no JWT. All other operations verify the Supabase user
+# explicitly and require one of the two finance accounts inside the handler.
+verify_jwt = false

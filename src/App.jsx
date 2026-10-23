@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Bell,
   BookOpen,
@@ -19,6 +19,7 @@ import {
   MessageSquareText,
   PlayCircle,
   ReceiptText,
+  TrendingUp,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -58,6 +59,9 @@ import { isSupabaseConfigured, supabase } from "./lib/supabaseClient.js";
 import { fetchIncidentalInvoices } from "./lib/tuitionBillingData.js";
 import { fetchCompletedStaffContractsForEmail } from "./lib/staffContractsData.js";
 import warriorHeadNew from "./assets/warrior-head-new.png";
+
+import { canUseForecast } from "../supabase/functions/_shared/financeForecast/access.js";
+const ForecastModule = lazy(() => import("./modules/financeForecast/ForecastModule.tsx"));
 
 const WVCS_DOMAIN = "wvcs.org";
 const defaultAccess = {
@@ -372,7 +376,7 @@ function getRouteFromHash(hash = window.location.hash) {
   }
 
   const moduleMatch = hash.match(/^#\/([^/?#]+)$/);
-  const moduleId = moduleMatch?.[1];
+  const moduleId = /^#\/office-finance\/forecast(?:[?]|$)/.test(hash) ? "office-finance" : moduleMatch?.[1];
   return {
     incidentalPaymentToken: "",
     parentSigningToken: "",
@@ -745,7 +749,7 @@ function DashboardModule({ access, currentUserEmail = "", onSelectModule, onOpen
     if (module.id === "admin") return !access.canUseAdmin;
     if (module.id === "scheduler") return !access.canUseScheduler;
     if (module.id === "permission-slips") return !access.canUseAdmin && !access.canUseDigitalSlips;
-    if (module.id === "office-finance") return !access.canUseOfficePayroll;
+    if (module.id === "office-finance") return !access.canUseOfficePayroll && !canUseForecast(currentUserEmail);
     return false;
   }
 
@@ -1061,7 +1065,7 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
         if (module.id === "admin" && !access.canUseAdmin) return false;
         if (module.id === "scheduler" && !access.canUseScheduler) return false;
         if (module.id === "permission-slips" && !access.canUseAdmin && !access.canUseDigitalSlips) return false;
-        if (module.id === "office-finance" && !access.canUseOfficePayroll) return false;
+        if (module.id === "office-finance" && !access.canUseOfficePayroll && !canUseForecast(currentUserEmail)) return false;
         return `${module.label} ${module.description} ${module.callout || ""}`.toLowerCase().includes(needle);
       })
       .map((module) => ({
@@ -1072,8 +1076,22 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
         action: () => onSelectModule(module.id),
       }));
 
-    const officeFinanceResults = access.canUseOfficePayroll
+    const officeFinanceResults = access.canUseOfficePayroll || canUseForecast(currentUserEmail)
       ? [
+          ...(canUseForecast(currentUserEmail) ? [
+            {
+              id: "office-finance-forecast", type: "Office & Finance", title: "Budget & Cash Forecast",
+              detail: "Monthly plans, actuals, summer cash, and printable board reports.",
+              terms: "budget forecast finance cash summer july income expenses board report planned actual variance",
+              target: { officeView: "forecast" },
+            },
+            {
+              id: "office-finance-board-report", type: "Office & Finance", title: "Monthly board report",
+              detail: "Planned versus actual income and expenses, plus the July cash outlook.",
+              terms: "print monthly board report budget actual variance cash july",
+              target: { officeView: "forecast", forecastView: "board" },
+            },
+          ] : []),
           {
             id: "office-finance-billing",
             type: "Office & Finance",
@@ -1171,7 +1189,7 @@ function GlobalSearch({ access, currentUserEmail = "", onSelectModule, onOpenOff
             target: { officeView: "office-settings" },
           },
         ]
-          .filter((item) => `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
+          .filter((item) => (access.canUseOfficePayroll || item.target.officeView === "forecast") && `${item.title} ${item.detail} ${item.terms}`.toLowerCase().includes(needle))
           .map((item) => ({
             ...item,
             action: () => onOpenOfficeFinance(item.target),
@@ -1577,17 +1595,27 @@ function UserProfileMenu({ user, access, signOut }) {
   );
 }
 
-function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null, canManageUsers = false }) {
-  const [officeView, setOfficeView] = useState("incidentals");
+function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = null, canManageUsers = false, canUseOffice = true }) {
+  const [selectedOfficeView, setOfficeView] = useState(() => window.location.hash.startsWith("#/office-finance/forecast") ? "forecast" : "incidentals");
+  const officeView = canUseOffice ? selectedOfficeView : "forecast";
+  const canForecast = canUseForecast(currentUserEmail);
+  useEffect(() => {
+    function syncForecastRoute() {
+      if (window.location.hash.startsWith("#/office-finance/forecast")) setOfficeView("forecast");
+      else setOfficeView(current => current === "forecast" ? "incidentals" : current);
+    }
+    window.addEventListener("hashchange", syncForecastRoute);
+    return () => window.removeEventListener("hashchange", syncForecastRoute);
+  }, []);
 
   useEffect(() => {
     if (officeFinanceTarget?.officeView) setOfficeView(officeFinanceTarget.officeView);
-    else setOfficeView("incidentals");
+    else setOfficeView(window.location.hash.startsWith("#/office-finance/forecast") ? "forecast" : "incidentals");
   }, [officeFinanceTarget]);
 
   return (
     <section>
-      <div className="mx-auto max-w-[1500px] px-5 pt-4">
+      <div className="office-finance-navigation mx-auto max-w-[1500px] px-5 pt-4">
         <div className="flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
           {[
             ["incidentals", "Incidentals", Calculator],
@@ -1598,12 +1626,17 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
             ["fos", "FOS", Users],
             ["substitutes", "Substitutes", CalendarDays],
             ["tuition", "Tuition Breakdowns", ReceiptText],
+            ...(canForecast ? [["forecast", "Budget & Cash Forecast", TrendingUp]] : []),
             ["office-settings", "Settings", Settings],
-          ].map(([id, label, Icon]) => (
+          ].filter(([id]) => canUseOffice || id === "forecast").map(([id, label, Icon]) => (
             <button
               key={id}
               type="button"
-              onClick={() => setOfficeView(id)}
+              onClick={() => {
+                setOfficeView(id);
+                if (id === "forecast") window.location.hash = "#/office-finance/forecast";
+                else if (window.location.hash.startsWith("#/office-finance/forecast")) window.location.hash = "#/office-finance";
+              }}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
                 officeView === id
                   ? "border-sky-400 bg-sky-500 text-white"
@@ -1616,7 +1649,7 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           ))}
         </div>
       </div>
-      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && officeView !== "families" && officeView !== "office-settings" && (
+      {officeView !== "substitutes" && officeView !== "fos" && officeView !== "lunch" && officeView !== "families" && officeView !== "office-settings" && officeView !== "forecast" && (
         <TuitionBillingModule
           currentUserEmail={currentUserEmail}
           officeFinanceTarget={{
@@ -1632,6 +1665,8 @@ function OfficePayrollWorkspace({ currentUserEmail = "", officeFinanceTarget = n
           hideOfficeFinanceNavigation
         />
       )}
+      {officeView === "forecast" && canForecast && <Suspense fallback={<div className="p-8 text-center text-slate-400">Opening budget forecast…</div>}><ForecastModule currentUserEmail={currentUserEmail} initialForecastView={officeFinanceTarget?.forecastView} /></Suspense>}
+      {officeView === "forecast" && !canForecast && <div className="p-8 text-center text-slate-400" role="alert">You do not have access to the budget forecast.</div>}
       {officeView === "families" && <FamilyRecordsModule initialSavedView={officeFinanceTarget?.savedView || "all"} currentUserEmail={currentUserEmail} />}
       {officeView === "office-settings" && <OfficeFinanceSettingsModule currentUserEmail={currentUserEmail} canManageUsers={canManageUsers} />}
       {officeView === "lunch" && <LunchAdminModule currentUserEmail={currentUserEmail} />}
@@ -2095,7 +2130,7 @@ export default function App() {
                 module.id === "dashboard" ||
                 (module.id === "scheduler" && access.canUseScheduler) ||
                 (module.id === "permission-slips" && (access.canUseAdmin || access.canUseDigitalSlips)) ||
-                (module.id === "office-finance" && access.canUseOfficePayroll) ||
+                (module.id === "office-finance" && (access.canUseOfficePayroll || canUseForecast(user.email))) ||
                 (module.id === "staff-contracts" && user.email?.toLowerCase() === "mconniry@wvcs.org") ||
                 (module.id === "admin" && access.canUseAdmin)
               )
@@ -2185,8 +2220,8 @@ export default function App() {
         <SupportRequestsModule currentUserEmail={user.email} />
       )}
 
-      {activeModule === "office-finance" && access.canUseOfficePayroll && (
-        <OfficePayrollWorkspace currentUserEmail={user.email} officeFinanceTarget={officeFinanceTarget} canManageUsers={access.canManageUsers} />
+      {activeModule === "office-finance" && (access.canUseOfficePayroll || canUseForecast(user.email)) && (
+        <OfficePayrollWorkspace currentUserEmail={user.email} officeFinanceTarget={officeFinanceTarget} canManageUsers={access.canManageUsers} canUseOffice={access.canUseOfficePayroll} />
       )}
 
       {activeModule === "staff-contracts" && user.email?.toLowerCase() === "mconniry@wvcs.org" && (
